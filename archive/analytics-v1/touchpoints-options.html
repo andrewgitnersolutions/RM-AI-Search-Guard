@@ -1,0 +1,17 @@
+<!-- ARCHIVE — reference only. -->
+<!-- Analytics status bar, dist/ui/options.html lines 203–217 @ commit 989c95a -->
+          <section id="analytics-status-bar" class="analytics-status-bar" aria-labelledby="analytics-sync-heading"> <!-- Optional Google Sheets telemetry sync status bar -->
+            <div> <!-- Sync status text column -->
+              <h2 id="analytics-sync-heading" class="rm-section-title">District Google Sheets Analytics Sync</h2> <!-- Section heading -->
+              <div class="analytics-status-details"> <!-- Inline status metadata -->
+                <span id="analytics-config-badge" class="rm-pill rm-pill-slate">Disabled (Local-Only)</span> <!-- Enabled vs disabled status pill -->
+                <span>Last attempt: <strong id="analytics-last-attempt">Never</strong></span> <!-- Timestamp of last sync attempt -->
+                <span>Last success: <strong id="analytics-last-success">Never</strong></span> <!-- Timestamp of last successful sync -->
+                <span>Pending batches: <strong id="analytics-pending-count">0</strong></span> <!-- Count of queued aggregate batches -->
+                <span id="analytics-last-message"></span> <!-- Last sync status or error detail -->
+              </div> <!-- End status details -->
+            </div> <!-- End sync status column -->
+            <div class="btn-row"> <!-- Action button container -->
+              <button type="button" id="btn-test-flush" class="rm-btn rm-btn-primary" hidden>Test Flush Now</button> <!-- Manual telemetry flush trigger (visible only when analytics is configured) -->
+            </div> <!-- End button row -->
+          </section> <!-- End analytics status bar -->

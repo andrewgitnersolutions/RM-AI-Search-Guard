@@ -35,14 +35,14 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 
 | ID | Decision | Options | Default if no answer |
 |---|---|---|---|
-| D1 | How to edit code with no `src/` | (a) Edit `dist/` directly and keep the 4 shared copies in sync with a check script. (b) Rebuild a `src/` + esbuild pipeline per the spec so shared code exists once. | **(a)** for this pass: smallest change, nothing new to install. Revisit (b) before Phase 2 automation. |
-| D2 | Comment standard for the re-comment | (a) Keep per-line comments. (b) File header + doc block per function + inline "why" comments only; delete `// End …` closers. | **(b)**. See §4. |
+| D1 | How to edit code with no `src/` | (a) Edit `dist/` directly and keep the 4 shared copies in sync with a check script. (b) Rebuild a `src/` + esbuild pipeline per the spec so shared code exists once. | **Resolved 2026-11-20: (b) rebuild `src/` first.** See Phase 0 in §5. |
+| D2 | Comment standard for the re-comment | (a) Keep per-line comments. (b) File header + doc block per function + inline "why" comments only; delete `// End …` closers. | **Resolved 2026-11-20: (b).** Comments live in `src/`; esbuild output in `dist/` is unminified but uncommented. Standard is kept in `AGENTS.md` and §4. |
 | D3 | Give the project its own git repo | `git init` in this folder (separate from the home-directory repo) vs. leave as is | **Resolved: yes (done 2026-11-20).** |
-| D4 | Minimum Chrome version | Set `minimum_chrome_version` (blocks install on older devices) vs. leave unset and degrade gracefully | **Leave unset, degrade gracefully** (BP-10). Older Chromebooks then get partial protection instead of none. |
-| D5 | Languages to support in text matching | English only / English + Spanish / English + top district languages | **English + Spanish now**, with a diagnostic for any other UI language (BP-03). |
-| D6 | Analytics payload change | Keep schema v1 / move to v2 (one POST per device per flush) | **v2.** Nothing is deployed yet (store status "Draft"), so there are no districts to break. |
-| D7 | Product name | Manifest/README/popup/options say "RaiseMark AI Search Guard"; `docs/01–04`, `local-cws/06`, store screenshots and the stale zip say "RaiseMark Search Guard for K-12". (License part: **resolved, standard MIT**.) | **Owner resolves.** Agent leaves names alone until decided. |
-| D8 | Test harness | (a) Zero-dependency: Node's built-in `node:test` for logic, plus manual browser checks. (b) Add Playwright as a dev dependency to automate the browser checks against mock Google pages, like the original canary. | **(a) now**; adopt (b) if D1 becomes "rebuild `src/`" (npm is in play then anyway). |
+| D4 | Minimum Chrome version | Set `minimum_chrome_version` (blocks install on older devices) vs. leave unset and degrade gracefully | **Resolved 2026-11-20: minimum `"134"`** (set in `dist/manifest.json`). Basis (Google docs): older Chrome can't install; existing installs below the minimum silently stop updating (none exist yet: store status is Draft); ephemeral-mode users count as new installs. Every ChromeOS LTS since Oct 2025 (138, 144) is above 134. The code needs at most ~105. Native `AIModeSettings` needs 138, so 134–137 devices rely on the extension's redirect for the address-bar button. |
+| D5 | Languages to support in text matching | English only / English + Spanish / English + top district languages | **Resolved 2026-11-20: English + Spanish**, plus `WARN_UNSUPPORTED_UI_LANGUAGE` for any other UI language (BP-03). Spanish strings must be collected from live Google (`hl=es`), not translated. |
+| D6 | Analytics payload change | Keep schema v1 / move to v2 (one POST per device per flush) | **Resolved 2026-11-20: drop district analytics for now.** Reason: the extension can't hold a secret, so the endpoint can't tell real reports from fakes, and the only real fix (district-sign-in-restricted script) would attach student identity to every report. Remove during the Phase 0 rebuild: analytics code, `alarms` + `script.google.com` / `script.googleusercontent.com` permissions, the 4 analytics policy fields, the generator's analytics section, the Code.gs template. Local counters, IT Diagnostics and CSV export stay. Archived 2026-11-20 for a future rebuild: tracked folder `archive/analytics-v1/` (extracted code + rebuild guide `README.md`) and local git tag `analytics-v1-archive` → `989c95a`. |
+| D7 | Product name | Manifest/README/popup/options say "RaiseMark AI Search Guard"; `docs/01–04`, `local-cws/06`, store screenshots and the stale zip say "RaiseMark Search Guard for K-12". (License part: **resolved, standard MIT**.) | **Resolved 2026-11-20: "RaiseMark: AI Search Controls for K-12"** (manifest `name`, 38 chars); `short_name` **"RaiseMark"**. Drops "Search Guard" (avoids the unrelated Elasticsearch product of that name) and keeps "AI" out of the brand position so it doesn't read as AI-powered. "Google" stays out of the title per Chrome Web Store branding rules; the description may say "for Google Search™" with an attribution line. Apply to extension strings during the rebuild and to README, PRIVACY, docs and store files during the doc pass. GitHub repo name is the owner's call. |
+| D8 | Test harness | (a) Zero-dependency: Node's built-in `node:test` for logic, plus manual browser checks. (b) Add Playwright as a dev dependency to automate the browser checks against mock Google pages, like the original canary. | **Resolved 2026-11-20: Node's built-in `node --test` for S/U tests + Playwright (dev dependency only) for the B tests**, loading the built extension in Chromium against mock Google pages served via route interception (never real Google). L and M tests stay manual. |
 
 ---
 
@@ -61,9 +61,9 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 | BP-07 | Medium | Options | Students on managed devices can reset counters (wipes pending analytics) and spam "Test Flush Now" |
 | BP-08 | Medium | Content | Overly broad hiding can remove real results or links |
 | BP-09 | Medium | Content | A full-page sweep on every DOM mutation frame, plus a storage write per sweep; slow on low-end Chromebooks |
-| BP-10 | Medium | CSS | One `:has()` selector invalidates the whole AI Mode CSS block on older Chrome |
-| BP-11 | Medium | Analytics | Apps Script sink won't scale to a district (full-sheet scan under a global lock per POST) |
-| BP-12 | Medium | Analytics | Flush alarm chain dies permanently if a flush throws or the worker is killed mid-flush |
+| BP-10 | Low (was Medium) | CSS | One `:has()` selector shares a rule with other AI Mode selectors. Moot for support now that the minimum is 134 (`:has()` is supported); keep the split as hygiene |
+| BP-11 | Medium | Analytics | Removed by D6 (analytics dropped 2026-11-20); kept for reference if analytics returns |
+| BP-12 | Medium | Analytics | Removed by D6 (analytics dropped 2026-11-20); kept for reference if analytics returns |
 | BP-13 | Low | Messaging | Messages aren't shape- or sender-checked; malformed input produces misleading errors; secrets sent to content scripts |
 | BP-14 | Low | Metrics | AI Mode / Aux counters inflate on every Google re-render |
 | BP-15 | Low | Maintainability | Four copies of shared logic, no tests, stale release zip, no project repo |
@@ -145,7 +145,7 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 | C. Lean harder on language-neutral signals (attributes, `udm=50` hrefs, structure). | No translation upkeep. | Those signals are exactly what drifts (BP-04). |
 | D. Detect a non-supported UI language and log a warning. | Makes the gap visible to IT. | Doesn't fix hiding by itself. |
 
-**Recommendation:** **A (English + Spanish, per D5) + D.** Keep C as Tier 1 as today.
+**Recommendation:** **A (English + Spanish; D5 resolved 2026-11-20) + D.** Keep C as Tier 1 as today.
 
 **To-do:**
 - [ ] Restructure `SELECTORS.tier1.*` text lists into `{ en: [...], es: [...] }` maps. Resolve the active set from `document.documentElement.lang` (prefix match, e.g. `es-419` → `es`), always also including `en`.
@@ -332,7 +332,7 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 | A. Move the `:has()` selector into its own rule block; leave the manifest without a minimum version (D4). | Older devices keep 5 of 6 AI Mode CSS selectors plus all JS hiding and DNR. | Nothing significant. |
 | B. Set `minimum_chrome_version` to the newest feature used. | Clear support contract. | Older Chromebooks (past their update cutoff) can't install the extension at all and end up with **zero** protection. |
 
-**Recommendation:** **A** (per D4). Document the minimum *fully supported* version in `docs/04` instead.
+**Update 2026-11-20:** D4 resolved to a minimum of Chrome 134, which supports `:has()`, so the failure scenario no longer applies to any device that can install the extension. Still do option A's split (cheap insurance against future selector mistakes). `docs/04` now states the 134 requirement and that full two-layer protection needs 138.
 
 **To-do:**
 - [ ] Split line 24 into a separate rule with the same declarations.
@@ -449,9 +449,9 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 | A. Keep `dist/` as the source (D1a) and add `scripts/check-shared-sync.mjs` (Node built-ins only). It extracts marked shared regions (`// <shared:policy>` … `// </shared:policy>`) from all bundles and fails if they differ. | No dependencies; catches drift. | Still four places to edit; the check just enforces it. |
 | B. Rebuild `src/` + esbuild (D1b). | One copy; matches the docs. | Bigger change than this pass needs. |
 
-**Recommendation:** **A** for this pass.
+**Recommendation:** ~~A~~ **B, per owner decision D1 (2026-11-20).** The A to-dos below are superseded by the Phase 0 rebuild in §5. Keep only the syntax check, the version bump and the "no store upload" rule.
 
-**To-do:**
+**To-do (superseded by D1 = B except where noted):**
 - [ ] Wrap every duplicated block (constants, `parsePolicy`, storage readers, error catalog, Code.gs allowlists) in `<shared:NAME>` markers in each file.
 - [ ] Add `scripts/check-shared-sync.mjs` and a short `scripts/README.md` on how to run it.
 - [ ] Add `scripts/syntax-check.mjs` that runs each `dist` JS file through Node's syntax check (copy ES-module files to `.mjs` in a temp dir first; `service-worker.js`, `popup.js` and `options.js` are modules, `content.js` is a classic script).
@@ -476,9 +476,9 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 
 ---
 
-## 4. Re-commenting standard (D2 default)
+## 4. Re-commenting standard (D2 = lean, resolved 2026-11-20)
 
-Apply after the fixes, file by file. **Comments only; behavior must not change in this step.** Diff each file and confirm only comment/whitespace changes.
+`AGENTS.md` at the repo root is the living copy of this standard; if the two disagree, `AGENTS.md` wins. With D1 = B, comments are written in `src/` as each module is rebuilt (Phase 0) and kept current with every later change. R-01 then compares `src/` before and after any comment-only pass. **Comments only; behavior must not change in this step.** Diff each file and confirm only comment/whitespace changes.
 
 1. **File header** (top of every JS/CSS file): what the file is, where it runs (service worker / content script on google.com / extension page), what it must never do (e.g. "never transmits page content"), and which other files share code with it (`<shared:…>` regions).
 2. **Function doc block** above every function: one-sentence purpose, params, return value, failure behavior (fail-closed or fail-open, and why). Keep it short.
@@ -493,7 +493,7 @@ Apply after the fixes, file by file. **Comments only; behavior must not change i
 
 | Phase | Break points | Why this order |
 |---|---|---|
-| 0. Setup | BP-15 (shared markers + check scripts); baseline commit of the untouched tree (owner OK needed) | Every later fix touches duplicated code; the sync check keeps the four copies honest. |
+| 0. Setup | Baseline commit of the untouched tree (owner OK needed). **Rebuild `src/` (D1 = B):** split `dist/` bundles back into the modules named in `docs/03` §1 (`shared/defaults, errors, policy, selectors, storage`; `background/service-worker, dnr-rules, analytics`; `content/dom-engine, content`; `ui/popup, options, policy-generator-core`), add `package.json` + `scripts/build.mjs` (esbuild), `templates/apps-script/Code.gs`. **Workflow (owner direction 2026-11-20):** edit `src/` → `npm run build` writes to a gitignored staging folder `build/` → run S-, U- and B-tests against `build/` (load it unpacked) → only when they pass, `npm run promote` copies `build/` into `dist/`. `dist/` changes only through promote, so the committed `dist/` is always a tested build. **Equivalence gate:** the new build's output must behave identically to the current `dist/`. Compare with comments and whitespace stripped, and run every U-test against both old and new output before any BP fix. Keep a copy of the original `dist/` as `baseline-dist/` (gitignored) until this passes. | Every later fix touches duplicated code; the sync check keeps the four copies honest. |
 | 1. Make protection hold | BP-01, BP-02, BP-06, BP-10 | Highest risk to students; small, contained changes. |
 | 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13 | Depends on BP-01's "is locked" decision. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 | Touch the same sweep/metrics paths, so do them together. |
@@ -508,7 +508,7 @@ Apply after the fixes, file by file. **Comments only; behavior must not change i
 
 ## 6. Test plan
 
-Each test has an ID, what it proves, which break point it covers, and how it runs. **Auto** = scripted and runnable with `node` alone (D8a). **Browser** = the unpacked extension in desktop Chrome against local mock pages or live Google. **Managed** = needs a real managed Chrome profile or Chromebook in a test OU. A test the agent can't run is reported as **NOT RUN**, never as passed.
+Each test has an ID, what it proves, which break point it covers, and how it runs. **Auto** = scripted: S/U tests with `node --test`, B tests with Playwright (D8, resolved 2026-11-20). **Browser** = the unpacked extension in desktop Chrome against local mock pages or live Google. **Managed** = needs a real managed Chrome profile or Chromebook in a test OU. A test the agent can't run is reported as **NOT RUN**, never as passed.
 
 **Feasibility note (verified 2026-11-20):** `dist/background/service-worker.js` has no `import`/`export`, so it loads in Node's `vm` with a stub `chrome` object, which exposes `parsePolicy`, `buildDynamicRules`, `buildSanitizedPayload`, `assertNoPiiPayload`, `flushAnalyticsIfDue` (takes an injected `fetchImpl`) and `handleRuntimeMessage`. A probe returned `source: "defaults", isManaged: false` for empty policy (the BP-01 baseline) and rule IDs `101,102,110,111,120,130`. `content.js` is one closed-off function wrapper and needs a DOM, so its tests are Browser tests.
 
@@ -517,8 +517,8 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | ID | Test | Covers |
 |---|---|---|
 | S-01 | Every `dist` JS file passes Node's syntax check (module files checked as `.mjs` copies) | All |
-| S-02 | `check-shared-sync`: every `<shared:…>` region is identical across bundles; the embedded Code.gs matches `templates/apps-script/Code.gs` | BP-15, BP-11 |
-| S-03 | Manifest guard: `permissions` is exactly `storage, declarativeNetRequestWithHostAccess, alarms`; `host_permissions` unchanged; no `minimum_chrome_version` (per D4) | All, BP-10 |
+| S-02 | Build reproducibility (D1 = B): `npm run build` from a clean checkout produces the committed `dist/` exactly; the Code.gs embedded in `options.js` is generated from `templates/apps-script/Code.gs` | BP-15, BP-11 |
+| S-03 | Manifest guard: `permissions` is exactly `storage, declarativeNetRequestWithHostAccess, alarms`; `host_permissions` unchanged; `minimum_chrome_version` is `"134"` (per D4) | All |
 | S-04 | Schema ↔ code: every `schema.json` property is handled in `parsePolicy`, and vice versa | BP-04 |
 | S-05 | CSS guard: `shared.css` has the global `[hidden]:not([hidden="until-found"])` rule; `static-guard.css` has no selector list mixing `:has(` with other selectors | BP-06, BP-10 |
 | S-06 | Error-code allowlists match everywhere: `ALL_ERROR_CODES` (all bundles), `ERROR_CATALOG`, the payload validator, and Code.gs `ALLOWED_ERROR_CODES` | BP-03, BP-04, BP-13 |
@@ -534,19 +534,19 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-05 | DNR rules for all 4 combinations of `blockAiModeNavigation` × `forceWebOnlySearch`, plus `masterEnabled:false` → `[]` | Regression |
 | U-06 | Redirect simulation, with each rule's pattern run as a JS RegExp and its transform applied, until no rule matches. `?q=x&udm=50` → `udm=14` or no `udm`; `sourceid=chrome` + `udm=50` → `#rm_sg_omnibox`; `/ai` and `/aimode` → `/`; `?q=x` → `udm=14`; `udm=2` and `tbm=nws` untouched; **every URL settles within 2 hops (no loops)** | Regression, BP-05 |
 | U-07 | `cleanAiModeUrl()` (BP-05 JS copy) returns the same URL as the U-06 simulation for every test URL | BP-05 |
-| U-08 | Payload v2: allowlisted keys only; `buckets` capped at 14; extra/unknown keys or PII-shaped fields make `assertNoPiiPayload` reject | BP-11 |
-| U-09 | Flush with mock fetch: 3 pending days → exactly 1 POST; on `{status:"ok"}` the sent counts are subtracted, and counts that arrived during the request are kept | BP-11 |
-| U-10 | Flush failure paths (HTTP 500, non-JSON, `{status:"error"}`, timeout) → backoff grows 15m→30m→1h…, capped at 24h; `ERR_ANALYTICS_FLUSH_FAILED` logged | Regression |
-| U-11 | Alarm is created as repeating (`periodInMinutes` set); a thrown flush leaves the alarm in place; changing the interval recreates it, same interval doesn't | BP-12 |
+| U-08 | ~~Payload v2: allowlisted keys only; `buckets` capped at 14; extra/unknown keys or PII-shaped fields make `assertNoPiiPayload` reject~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
+| U-09 | ~~Flush with mock fetch: 3 pending days → exactly 1 POST; on `{status:"ok"}` the sent counts are subtracted, and counts that arrived during the request are kept~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
+| U-10 | ~~Flush failure paths (HTTP 500, non-JSON, `{status:"error"}`, timeout) → backoff grows 15m→30m→1h…, capped at 24h; `ERR_ANALYTICS_FLUSH_FAILED` logged~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | Regression |
+| U-11 | ~~Alarm is created as repeating (`periodInMinutes` set); a thrown flush leaves the alarm in place; changing the interval recreates it, same interval doesn't~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-12 |
 | U-12 | Message gating: privileged types from a google.com tab sender are refused; from an extension-page sender, accepted; unknown `LOG_DIAGNOSTIC` code → `bad_message` with no log entry; missing `deltas` → `bad_message` | BP-13 |
 | U-13 | Content-safe policy sent to content scripts has no `analyticsEndpointUrl` or `analyticsSharedToken` | BP-13 |
 | U-14 | `RESET_LOCAL_METRICS` refused when locked; second `TRIGGER_TEST_FLUSH` within 15 min refused with time remaining | BP-07 |
 | U-15 | Diagnostic log: same code+detail dedupes and counts; 51st distinct entry evicts the oldest | Regression |
-| U-16 | Code.gs in `vm` with mock `SpreadsheetApp`/`LockService`: `doPost` appends one row and never calls `getValues()`; token mismatch → `UNAUTHORIZED`; bad payload rejected; `rollup_()` totals match a fixed sample | BP-11 |
+| U-16 | ~~Code.gs in `vm` with mock `SpreadsheetApp`/`LockService`: `doPost` appends one row and never calls `getValues()`; token mismatch → `UNAUTHORIZED`; bad payload rejected; `rollup_()` totals match a fixed sample~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 
-### 6.3 Browser tests on local mock pages (Browser)
+### 6.3 Browser tests on local mock pages (Auto: Playwright)
 
-Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, the AI Mode nav tab and homepage button, "Dive deeper", Labs, Lens, follow-up, and organic results. Content scripts only run on google.com, so these need either Playwright route interception (D8b) or a manual DevTools Local Overrides setup on `https://www.google.com/search?...`.
+Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, the AI Mode nav tab and homepage button, "Dive deeper", Labs, Lens, follow-up, and organic results. Content scripts only run on google.com, so these run under Playwright (D8): Chromium launched with the built extension from `build/`, and route interception serving the mock pages at `https://www.google.com/...` addresses. No request reaches real Google.
 
 | ID | Test | Covers |
 |---|---|---|
@@ -588,14 +588,15 @@ Never retry through a CAPTCHA or "unusual traffic" page; record the test as **IN
 | M-03 | Valid 6-8 preset → `forceWebOnlySearch` off (no `udm=14` rewrite); everything else on | Regression |
 | M-04 | Change the OU policy (e.g. `masterEnabled:false`) and reload policies → DNR rules removed and open tabs unhidden without restart | Regression |
 | M-05 | As a student: Reset disabled; Test Flush rate-limited; `SET_LOCAL_OVERRIDES` sent from the console refused | BP-01, BP-07 |
-| M-06 | Analytics to a scratch Sheet with the new Code.gs: rows land in `Raw`; hourly trigger rolls up; token mismatch rejected | BP-11 |
-| M-07 | Leave a device asleep past two flush intervals, wake it → flush happens without a browser restart | BP-12 |
+| M-06 | ~~Analytics to a scratch Sheet with the new Code.gs: rows land in `Raw`; hourly trigger rolls up; token mismatch rejected~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
+| M-07 | ~~Leave a device asleep past two flush intervals, wake it → flush happens without a browser restart~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-12 |
 
-### 6.6 Old-browser test (Browser)
+### 6.6 Chrome-version tests (D4 = 134)
 
 | ID | Test | Covers |
 |---|---|---|
-| O-01 | In a Chrome build without `:has()` support (or with it disabled, if that's possible), `button.plR5qb` and `a[href*="udm=50"]` are still hidden by CSS alone. If no such build is available, mark it NOT RUN and rely on S-05. | BP-10 |
+| O-01 | API floor check: every browser API and CSS feature the code uses is available in Chrome 134 (agent checks each against Chrome's docs or MDN compatibility tables; anything newer must be feature-detected or the minimum raised with owner approval) | D4 |
+| O-02 | Install on Chrome 134 (or the oldest available build ≥134): the extension loads with no service worker errors and B-03 passes | D4 |
 
 ### 6.7 Re-comment safety check (Auto)
 

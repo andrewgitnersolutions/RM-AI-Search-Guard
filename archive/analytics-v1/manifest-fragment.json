@@ -1,0 +1,10 @@
+{
+  "_note": "ARCHIVE \u2014 manifest entries that exist only for analytics (dist/manifest.json @ commit 989c95a)",
+  "permissions_only_for_analytics": [
+    "alarms"
+  ],
+  "host_permissions_only_for_analytics": [
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ]
+}

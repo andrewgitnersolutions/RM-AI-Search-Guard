@@ -13,6 +13,8 @@ Because Chrome separates **native browser chrome** (Omnibox address bar & New Ta
 1. **Native Chrome Policy (`AIModeSettings = 1`)** → Removes Chrome's native Omnibox & New Tab Page AI Mode buttons *(Chrome / ChromeOS 138+)*.
 2. **RaiseMark Search Guard Extension + Grade-Band JSON Policy** → Suppresses AI Overviews, hides Google homepage/search AI Mode buttons & tabs, silently redirects `?udm=50` and `google.com/ai` (including Omnibox fallback clicks on older Chromebooks), and optionally enforces classic `udm=14` Web-only search.
 
+> **Browser Requirement:** The extension requires **Chrome / ChromeOS 134 or later** (`minimum_chrome_version: "134"`). On older devices Chrome will not install it at all. Typically these are Chromebooks past their Auto Update Expiration, or devices pinned to an old version with a target-version policy. Those devices get **no** extension protection. Full two-layer protection (Step 1 + Step 2) needs **138 or later**, because the native AI Mode setting only exists from 138.
+
 > **Fail-Safe Notice:** If you force-install RaiseMark Search Guard *before* pasting a Policy JSON—or accidentally paste invalid JSON—the extension automatically enters **Strict Maximum Lockdown** (all 6 protections ON) until valid JSON is saved.
 
 ---
@@ -24,12 +26,16 @@ Repeat for each student Organizational Unit (e.g., `Students > K-2`, `Students >
 1. Open [admin.google.com](https://admin.google.com).
 2. Navigate to **Devices → Chrome → Settings → Users & browsers**.
 3. Select the target grade-band **Organizational Unit (OU)** on the left.
-4. Search for **`AI Mode`** (or **`AIModeSettings`**).
-5. Locate **Settings for Google's AI Mode integrations in the address bar and New Tab page search box**.
-6. Set to **Do not allow users to use AI Mode integrations** (`1`) for grades where Omnibox/NTP AI should be removed (or **Allow** (`0`) for grades where permitted).
+4. Scroll to the **Generative AI** section (or search for **`AI Mode`**).
+5. Open **Google AI Mode integrations** (Chrome policy name `AIModeSettings`).
+6. Choose **Do not allow AI Mode integrations** (`1`) for grades where address-bar / New Tab page AI Mode should be removed, or **Allow AI Mode integrations** (`0`) where permitted.
 7. Click **Save** (or **Override** for child OUs).
 
-*(Optional: For legacy Chromebooks below ChromeOS 138, the native button cannot be hidden by Chrome policy, but Step 2's extension will still silently intercept and redirect any clicks on it to standard Google Search.)*
+*Notes from Google's documentation:*
+- *If you leave this setting unset, it follows the **Generative AI policy defaults** setting in the same section. Set it explicitly so the result doesn't change when you edit the defaults.*
+- *It applies only when Google is the user's default search engine.*
+- *A separate setting, **Google AI Mode content sharing**, controls sharing page and file content with AI Mode from Chrome's side panel. Consider setting it too.*
+- *Chrome / ChromeOS 134–137 devices can run the extension but don't have this setting. On those devices the native button stays visible, but Step 2's extension still silently redirects any click on it to standard Google Search.*
 
 ---
 
