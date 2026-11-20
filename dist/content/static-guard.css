@@ -1,0 +1,63 @@
+/* RaiseMark AI Search Guard — Zero-Flash Static Guard CSS
+ * Every rule is gated by html[data-rmsg-*="1"] attributes applied at document_start.
+ * Removing attributes when masterEnabled=false cleanly restores unmodified Google Search.
+ * Core search landmarks are explicitly excluded via :not(...) as CSS-layer defense-in-depth.
+ */
+
+/* AI Overviews */
+html[data-rmsg-hide-overviews="1"] div#eKIzJc:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide Google's known AI Overview container ID while protecting core search landmarks */
+html[data-rmsg-hide-overviews="1"] div[data-attrid="AIOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide AI Overview blocks identified by data-attrid="AIOverview" */
+html[data-rmsg-hide-overviews="1"] div[data-async-type="aiOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide asynchronously loaded AI Overview containers */
+html[data-rmsg-hide-overviews="1"] div[aria-label="AI Overview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide AI Overview regions identified by their ARIA accessibility label */
+html[data-rmsg-hide-overviews="1"] div.YzCcne[data-mcpr]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide AI Overview wrapper class YzCcne with data-mcpr attribute */
+html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) { /* Hide Google AI Overview module tagged with data-mcp="18" */
+  display: none !important; /* Remove element from layout flow completely */
+  visibility: hidden !important; /* Ensure element and descendants are invisible */
+  height: 0 !important; /* Collapse vertical space to zero */
+  min-height: 0 !important; /* Override any minimum height constraints */
+  overflow: hidden !important; /* Prevent any child content from spilling out */
+  margin: 0 !important; /* Remove outer spacing so no blank gap remains */
+  padding: 0 !important; /* Remove inner spacing so no blank gap remains */
+} /* End AI Overviews hiding rule */
+
+/* AI Mode UI (Homepage triggers, Search nav tabs, Dive deeper prompts) */
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide search navigation tab listitem containing the udm=50 AI Mode link */
+html[data-rmsg-hide-aimode="1"] a[href*="udm=50"], /* Hide any anchor linking directly to Google AI Mode (udm=50) */
+html[data-rmsg-hide-aimode="1"] a[href*="/aimode"], /* Hide any anchor linking to the /aimode path */
+html[data-rmsg-hide-aimode="1"] div.olrp5b:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide AI Mode "Dive deeper" / trigger container class */
+html[data-rmsg-hide-aimode="1"] button.plR5qb, /* Hide Google homepage / search bar AI Mode button class */
+html[data-rmsg-hide-aimode="1"] button[jsname="B6rgad"] { /* Hide AI Mode trigger button identified by Google jsname="B6rgad" */
+  display: none !important; /* Remove AI Mode UI element from layout flow */
+  visibility: hidden !important; /* Ensure AI Mode UI element is invisible */
+  height: 0 !important; /* Collapse vertical height to zero */
+  min-height: 0 !important; /* Override any minimum height rules */
+  overflow: hidden !important; /* Clip any overflow content */
+  margin: 0 !important; /* Remove outer margins */
+  padding: 0 !important; /* Remove inner padding */
+} /* End AI Mode UI hiding rule */
+
+/* Auxiliary AI Features (Search Labs, Google Lens search bar trigger, AI follow-ups) */
+html[data-rmsg-hide-aux="1"] a[href*="labs.google.com"], /* Hide links to Google Search Labs */
+html[data-rmsg-hide-aux="1"] [aria-label*="Search Labs" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide Search Labs buttons/icons by case-insensitive ARIA label */
+html[data-rmsg-hide-aux="1"] [aria-label*="Search by image" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide Google Lens image-search trigger by ARIA label */
+html[data-rmsg-hide-aux="1"] [data-base-lens-url]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform), /* Hide Google Lens trigger identified by data-base-lens-url */
+html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) { /* Hide conversational "Ask a follow up" AI prompt controls */
+  display: none !important; /* Remove auxiliary AI element from layout flow */
+  visibility: hidden !important; /* Ensure auxiliary AI element is invisible */
+  height: 0 !important; /* Collapse vertical height to zero */
+  min-height: 0 !important; /* Override any minimum height rules */
+  overflow: hidden !important; /* Clip any overflow content */
+  margin: 0 !important; /* Remove outer margins */
+  padding: 0 !important; /* Remove inner padding */
+} /* End Auxiliary AI Features hiding rule */
+
+/* Elements explicitly vetted by the Organic Results Safety Guard and hidden by dom-engine.ts */
+[data-rmsg-hidden] { /* Target elements marked for hiding by the runtime DOM engine */
+  display: none !important; /* Remove vetted AI element from layout flow */
+  visibility: hidden !important; /* Ensure vetted element is invisible */
+  height: 0 !important; /* Collapse vertical height to zero */
+  min-height: 0 !important; /* Override any minimum height rules */
+  overflow: hidden !important; /* Clip any overflow content */
+  margin: 0 !important; /* Remove outer margins */
+  padding: 0 !important; /* Remove inner padding */
+} /* End runtime-vetted element hiding rule */

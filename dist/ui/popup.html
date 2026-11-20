@@ -1,0 +1,13 @@
+<!doctype html> <!-- Declare HTML5 document type for standards-compliant rendering -->
+<html lang="en"> <!-- Root HTML element with English language attribute for accessibility -->
+<head> <!-- Document metadata and stylesheet container -->
+  <meta charset="utf-8"> <!-- Use UTF-8 character encoding -->
+  <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- Set responsive viewport scaling for the extension popup -->
+  <title>RaiseMark AI Search Guard</title> <!-- Browser title for the extension popup window -->
+  <link rel="stylesheet" href="./shared.css"> <!-- Load shared extension UI styles (local asset only; no external CDN) -->
+</head> <!-- End document metadata -->
+<body class="popup-body"> <!-- Body styled for the compact toolbar popup dimensions -->
+  <main id="popup-root" class="popup-root"></main> <!-- Mount point populated dynamically by popup.js -->
+  <script type="module" src="./popup.js"></script> <!-- Load popup ES module script (local file enforced by CSP) -->
+</body> <!-- End popup body -->
+</html> <!-- End HTML document -->

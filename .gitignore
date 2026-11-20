@@ -1,0 +1,13 @@
+# Local-only Chrome Web Store submission docs, screenshots, and release zips
+local-cws/
+
+# OS & editor/agent artifacts
+.DS_Store
+.claude/
+
+# Dependencies & logs
+node_modules/
+*.log
+npm-debug.log*
+.env
+.env.*
