@@ -3,6 +3,7 @@
   "name": "RaiseMark AI Search Guard",
   "short_name": "Search Guard",
   "version": "1.0.0",
+  "minimum_chrome_version": "134",
   "description": "Grade-level Google Admin Console controls to hide AI Overviews, remove AI Mode, and protect student search on Google.",
   "icons": {
     "16": "icons/icon-16.png",

@@ -1,0 +1,27 @@
+{
+  "_note": "ARCHIVE \u2014 the 4 analytics properties from dist/schema.json @ commit 989c95a",
+  "properties": {
+    "analyticsEnabled": {
+      "title": "Enable Optional District Google Sheets Analytics",
+      "description": "When true and analyticsEndpointUrl is set, periodically flushes strictly anonymous daily aggregate counts to your district's Google Apps Script Web App. Defaults to false.",
+      "type": "boolean"
+    },
+    "analyticsEndpointUrl": {
+      "title": "District Google Apps Script Web App URL",
+      "description": "Must match https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec owned by your district.",
+      "type": "string"
+    },
+    "analyticsSharedToken": {
+      "title": "Optional Shared Token for Apps Script Endpoint",
+      "description": "Optional non-secret anti-spam token checked by your district's Code.gs webhook.",
+      "type": "string"
+    },
+    "analyticsFlushIntervalMinutes": {
+      "title": "Analytics Flush Interval (Minutes)",
+      "description": "Base interval between anonymous batch flushes (60 to 1440 minutes; plus 0-30 min random jitter). Defaults to 240.",
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 1440
+    }
+  }
+}
