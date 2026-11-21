@@ -61,6 +61,7 @@ Apply to every file you touch, in the same change as the code. Comments live in 
 - Remote: `origin` → `https://github.com/andrewgitnersolutions/RM-AI-Search-Guard.git`, default branch `main` (public).
 - `local-cws/` is gitignored and local-only (Chrome Web Store listing docs, screenshots, release zips). Never force-add or push it.
 - `local-cws/release/*.zip` may be stale; never treat it as the current build.
+- Public contact email for support, bug reports, and contributor access requests is `info@raisemarkai.com` (2026-11-21). Public GitHub issues/comments are restricted to collaborators, and `LICENSE` stays verbatim MIT while `README.md` holds the RaiseMark trademark reservation.
 
 ## Keeping this file useful (ask the owner)
 

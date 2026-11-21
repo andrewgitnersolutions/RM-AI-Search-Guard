@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a Bug, Google DOM Change, or Deployment Question
+    url: mailto:info@raisemarkai.com?subject=RaiseMark%20AI%20Search%20Controls%20-%20Support%20/%20Bug%20Report
+    about: Email info@raisemarkai.com to report an issue or ask a K-12 Google Admin Console deployment question.
+  - name: Request Contributor Access
+    url: mailto:info@raisemarkai.com?subject=RaiseMark%20AI%20Search%20Controls%20-%20Contributor%20Request
+    about: Public issues and comments are restricted to collaborators. Email info@raisemarkai.com with your GitHub username to request contributor access.
