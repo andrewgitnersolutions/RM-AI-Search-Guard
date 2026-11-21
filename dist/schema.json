@@ -9,7 +9,7 @@
     },
     "masterEnabled": {
       "title": "Master Protection Switch",
-      "description": "Enable or disable all Search Guard protections for this OU without uninstalling the extension. Defaults to true.",
+      "description": "Enable or disable all RaiseMark protections for this OU without uninstalling the extension. Defaults to true.",
       "type": "boolean"
     },
     "hideAiOverviews": {

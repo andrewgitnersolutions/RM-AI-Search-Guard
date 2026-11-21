@@ -543,7 +543,7 @@ async function bootOptionsPage() {
     const snapshot = currentSnapshot ?? await fetchDiagnosticSnapshot();
     const csv = buildMetricsCsv(snapshot);
     downloadFile(
-      `raisemark-search-guard-metrics-${snapshot.generatedAtDate}.csv`,
+      `raisemark-ai-search-controls-metrics-${snapshot.generatedAtDate}.csv`,
       csv,
       "text/csv;charset=utf-8"
     );

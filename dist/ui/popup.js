@@ -162,7 +162,7 @@ function renderPopup(root, policy, onOpenOptions) {
   const header = document.createElement("div");
   header.className = "popup-unmanaged-header";
   const title = document.createElement("span");
-  title.textContent = "RaiseMark AI Search Guard";
+  title.textContent = "RaiseMark: AI Search Controls for K-12";
   header.append(createShieldIcon("popup-managed-icon"), title);
   const statusPill = document.createElement("p");
   statusPill.className = "rm-pill rm-pill-amber";

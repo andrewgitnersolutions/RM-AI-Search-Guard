@@ -32,7 +32,7 @@ export const ERROR_CATALOG = {
     code: "ERR_SELECTOR_SYNTAX",
     severity: "error",
     title: "DOM Selector Validation Error",
-    remediationTemplate: "A bundled DOM selector failed browser validation ({detail}). Other detection tiers remain active. Update to the latest RaiseMark AI Search Guard release."
+    remediationTemplate: "A bundled DOM selector failed browser validation ({detail}). Other detection tiers remain active. Update to the latest RaiseMark: AI Search Controls for K-12 release."
   },
   ERR_SAFETY_GUARD_TRIPPED: {
     code: "ERR_SAFETY_GUARD_TRIPPED",

@@ -296,8 +296,8 @@ export function mountPolicyGenerator(container, options) {
     dlBtn.append(document.createTextNode("Download .json"), dlSr);
     dlBtn.addEventListener("click", () => {
       const jsonText = buildBandAdminJsonString(band, bandStates[band]);
-      triggerFileDownload(`raisemark-search-guard-${band}.json`, jsonText);
-      setStatus(`Downloaded raisemark-search-guard-${band}.json.`);
+      triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
+      setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
     });
     actions.append(copyBtn, dlBtn);
     article.append(header, reminder, togglesContainer, pre, actions);
@@ -344,7 +344,7 @@ export function mountPolicyGenerator(container, options) {
   downloadAllBtn.addEventListener("click", () => {
     for (const band of PRIMARY_BANDS) {
       const jsonText = buildBandAdminJsonString(band, bandStates[band]);
-      triggerFileDownload(`raisemark-search-guard-${band}.json`, jsonText);
+      triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
     }
     setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
   });

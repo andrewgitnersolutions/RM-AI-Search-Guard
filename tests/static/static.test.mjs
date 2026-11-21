@@ -151,3 +151,16 @@ for (const [name, dir] of S06B_DIRS) {
     }
   });
 }
+
+// S-07 (added in Phase 0c; not in docs/07): product name per D7 and the Chrome Web Store
+// branding rule (no "Google" or "Chrome" in the title). Old names must not come back.
+for (const [name, dir] of S06B_DIRS) {
+  test(`S-07 product name (${name}/): manifest uses the D7 name; no "Search Guard" strings`, () => {
+    const m = JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8"));
+    assert.equal(m.name, "RaiseMark: AI Search Controls for K-12");
+    assert.equal(m.short_name, "RaiseMark");
+    assert.equal(m.action.default_title, m.name);
+    assert.doesNotMatch(m.name, /google|chrome/i);
+    for (const [file, text] of readTree(dir)) assert.doesNotMatch(text, /search[ -]guard/i, `${name}/${file}`);
+  });
+}
