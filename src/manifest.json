@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "RaiseMark: AI Search Controls for K-12",
   "short_name": "RaiseMark",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minimum_chrome_version": "134",
   "description": "Grade-level Google Admin Console controls to hide AI Overviews, remove AI Mode, and manage AI Search features on Google.",
   "icons": {

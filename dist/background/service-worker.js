@@ -87,7 +87,7 @@ var ERROR_CATALOG = {
     code: "ERR_DNR_SYNC_FAILED",
     severity: "error",
     title: "Dynamic Redirect Rule Sync Failed",
-    remediationTemplate: "Chrome rejected a dynamic redirect rule update ({detail}). Reload the extension or verify Chrome version is 120+. If persistent, copy diagnostics and report to RaiseMark Support."
+    remediationTemplate: "Chrome rejected a dynamic redirect rule update ({detail}). Reload the extension or verify Chrome version is 134+. If persistent, copy diagnostics and report to RaiseMark Support."
   },
   ERR_SELECTOR_SYNTAX: {
     code: "ERR_SELECTOR_SYNTAX",
@@ -840,7 +840,7 @@ function getExtensionVersion() {
   if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
     return chrome.runtime.getManifest().version;
   }
-  return "1.0.0";
+  return "1.0.1";
 }
 function sanitizeLocalOverridesInput(raw) {
   const clean = {};

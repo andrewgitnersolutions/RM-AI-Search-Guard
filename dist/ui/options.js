@@ -966,7 +966,7 @@ async function fetchDiagnosticSnapshot() {
     }
   }
   const parsed = parsePolicy(managedRaw, localRaw);
-  const version = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest().version : "1.0.0";
+  const version = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest().version : "1.0.1";
   return {
     policy: parsed.policy,
     telemetry,

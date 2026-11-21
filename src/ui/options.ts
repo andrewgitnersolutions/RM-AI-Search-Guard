@@ -215,7 +215,7 @@ async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
   // No install type here (only the worker reads it), so with no managed keys this locks: if the
   // worker is unreachable the page shows the locked view, never interactive test mode (BP-01).
   const parsed = parsePolicy(managedRaw, localRaw);
-  const version = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest().version : "1.0.0";
+  const version = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest().version : "1.0.1";
   return {
     policy: parsed.policy,
     telemetry,

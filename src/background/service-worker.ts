@@ -39,13 +39,13 @@ async function resolveInstallType(): Promise<InstallType> {
 
 /**
  * Read the extension version from the manifest.
- * @returns Version string, or "1.0.0" outside Chrome. Never throws.
+ * @returns Version string, or "1.0.1" outside Chrome. Never throws.
  */
 function getExtensionVersion(): string {
   if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
     return chrome.runtime.getManifest().version;
   }
-  return "1.0.0";
+  return "1.0.1";
 }
 
 /**
