@@ -26,8 +26,18 @@ html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#
 
 /* AI Mode UI (Homepage triggers, Search nav tabs, Dive deeper prompts) */
 /* FRAGILE(google-dom, last verified NONE, see test L-07): udm=50 and /aimode hrefs, .olrp5b, .plR5qb, jsname=B6rgad. */
-/* The :has() selector shares this rule list with the others (BP-10); fine on Chrome 134+. */
-html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+/* :has() gets a rule of its own (BP-10): one unsupported selector drops its whole selector list,
+   so it must never share a list with the others. Chrome 134+ supports it; this is insurance. */
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 html[data-rmsg-hide-aimode="1"] a[href*="udm=50"],
 html[data-rmsg-hide-aimode="1"] a[href*="/aimode"],
 html[data-rmsg-hide-aimode="1"] div.olrp5b:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),

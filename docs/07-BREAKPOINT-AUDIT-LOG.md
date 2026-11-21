@@ -366,8 +366,13 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Update 2026-11-20:** D4 resolved to a minimum of Chrome 134, which supports `:has()`, so the failure scenario no longer applies to any device that can install the extension. Still do option A's split (cheap insurance against future selector mistakes). `docs/04` now states the 134 requirement and that full two-layer protection needs 138.
 
 **To-do:**
-- [ ] Split line 24 into a separate rule with the same declarations.
-- [ ] Audit every other selector list for features newer than the baseline (`[attr i]` flag is fine). Note any you find with a comment.
+- [x] Split line 24 into a separate rule with the same declarations.
+- [x] Audit every other selector list for features newer than the baseline (`[attr i]` flag is fine). Note any you find with a comment.
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **What changed:** the `div[role="listitem"]:has(a[href*="udm=50"])` selector has its own rule in `static-guard.css`, with the same declarations and a comment saying why.
+- **Audit:** the newest selector features in `static-guard.css` and `shared.css` are `:has()` (Chrome 105), `:is()` and `:where()` (88) and the `[attr i]` flag (49). All are below the 134 minimum. `shared.css`'s only `:has()` (`.toggle-row:has(.rm-switch:disabled)`) is alone in its rule. Nothing else needed a comment.
+- **Tests:** S-05b passes and was removed from `tests/known-failures.json`. B-03 still passes (the AI Mode tab is hidden).
 - [ ] Add a "Supported Chrome versions" line to `docs/04` (agent must look up which version shipped `:has()` and `hidden="until-found"` rather than guess).
 
 **Done when:** in a browser with `:has()` disabled or unsupported, `button.plR5qb` and `a[href*="udm=50"]` are still hidden by CSS alone.

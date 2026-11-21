@@ -26,11 +26,6 @@
       "phase": 4,
       "message": "AssertionError: Expected values to be strictly equal:\n\n0 !== 1\n"
     },
-    "S-05b": {
-      "bp": "BP-10",
-      "phase": 1,
-      "message": "AssertionError: 1 mixed :has() selector list(s)\n\n1 !== 0\n"
-    },
     "U-04": {
       "bp": "BP-04",
       "phase": 4,
