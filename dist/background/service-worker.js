@@ -134,7 +134,10 @@ function createDiagnosticEntry(code, detail, dateBucket) {
 function isValidGradeBand(value) {
   return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
 }
-function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
+function isUnlockableInstall(installType) {
+  return installType === "normal" || installType === "development";
+}
+function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
   const evaluatedAt = now.toISOString();
   const errors = [];
   const hasManagedKeys = managedRaw !== null && managedRaw !== void 0 && typeof managedRaw === "object" && !Array.isArray(managedRaw) && Object.keys(managedRaw).length > 0;
@@ -144,6 +147,17 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
       detail: "chrome.storage.managed returned no policy keys"
     });
     const toggles2 = { ...STRICT_LOCKDOWN_TOGGLES };
+    if (!isUnlockableInstall(installType)) {
+      const policy3 = {
+        ...toggles2,
+        gradeBand: "Unassigned",
+        source: "admin-no-policy",
+        isManaged: true,
+        invalidFields: [],
+        evaluatedAt
+      };
+      return { policy: policy3, errors };
+    }
     let gradeBand2 = "Unassigned";
     let appliedLocalOverride = false;
     if (localRaw !== null && localRaw !== void 0 && typeof localRaw === "object") {
@@ -314,12 +328,15 @@ async function readLocalOverrides() {
     return { data: null, error: formatErrorMessage(err) };
   }
 }
-async function writeLocalOverrides(overrides) {
-  await enqueueStorageOp(async () => {
+async function mergeLocalOverrides(patch) {
+  return enqueueStorageOp(async () => {
     if (typeof chrome === "undefined" || !chrome.storage?.local) {
       throw new Error("chrome.storage.local is unavailable");
     }
-    await chrome.storage.local.set({ [STORAGE_KEYS.LOCAL_OVERRIDES]: overrides });
+    const existing = await readLocalOverrides();
+    const merged = { ...existing.data ?? {}, ...patch };
+    await chrome.storage.local.set({ [STORAGE_KEYS.LOCAL_OVERRIDES]: merged });
+    return merged;
   });
 }
 async function readTelemetryState() {
@@ -535,6 +552,24 @@ async function syncDynamicRules(policy) {
 }
 
 // src/background/service-worker.ts
+var cachedInstallType = null;
+async function resolveInstallType() {
+  if (cachedInstallType) {
+    return cachedInstallType;
+  }
+  if (typeof chrome === "undefined" || typeof chrome.management?.getSelf !== "function") {
+    return "unknown";
+  }
+  try {
+    const self = await chrome.management.getSelf();
+    if (typeof self?.installType === "string") {
+      cachedInstallType = self.installType;
+      return cachedInstallType;
+    }
+  } catch {
+  }
+  return "unknown";
+}
 function getExtensionVersion() {
   if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
     return chrome.runtime.getManifest().version;
@@ -565,9 +600,10 @@ async function getActiveDynamicRuleCount() {
   }
 }
 async function resolvePolicyFromStorage() {
-  const [managedRes, localRes] = await Promise.all([
+  const [managedRes, localRes, installType] = await Promise.all([
     readManagedPolicyRaw(),
-    readLocalOverrides()
+    readLocalOverrides(),
+    resolveInstallType()
   ]);
   if (managedRes.error) {
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `managed read: ${managedRes.error}`);
@@ -575,9 +611,16 @@ async function resolvePolicyFromStorage() {
   if (localRes.error) {
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `local read: ${localRes.error}`);
   }
-  return parsePolicy(managedRes.data, localRes.data);
+  return { ...parsePolicy(managedRes.data, localRes.data, /* @__PURE__ */ new Date(), installType), installType };
 }
-async function syncRuntimeState(options) {
+var syncChainTail = Promise.resolve();
+function syncRuntimeState(options) {
+  const run = syncChainTail.then(() => syncRuntimeStateNow(options));
+  syncChainTail = run.catch(() => {
+  });
+  return run;
+}
+async function syncRuntimeStateNow(options) {
   const { policy, errors } = await resolvePolicyFromStorage();
   if (options.recordPolicyDiagnostics) {
     for (const err of errors) {
@@ -637,16 +680,11 @@ async function handleRuntimeMessage(message) {
       return snapshot;
     }
     case "SET_LOCAL_OVERRIDES": {
-      const { policy: currentPolicy } = await resolvePolicyFromStorage();
-      if (currentPolicy.isManaged) {
+      const { policy: currentPolicy, installType } = await resolvePolicyFromStorage();
+      if (currentPolicy.isManaged || !isUnlockableInstall(installType)) {
         return currentPolicy;
       }
-      const existingLocalRes = await readLocalOverrides();
-      const merged = {
-        ...existingLocalRes.data ?? {},
-        ...sanitizeLocalOverridesInput(message.toggles)
-      };
-      await writeLocalOverrides(merged);
+      await mergeLocalOverrides(sanitizeLocalOverridesInput(message.toggles));
       const { policy: updatedPolicy } = await syncRuntimeState({
         recordPolicyDiagnostics: false
       });

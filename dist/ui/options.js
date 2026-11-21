@@ -115,7 +115,10 @@ function getTodayDateBucket(now = /* @__PURE__ */ new Date()) {
 function isValidGradeBand(value) {
   return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
 }
-function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
+function isUnlockableInstall(installType) {
+  return installType === "normal" || installType === "development";
+}
+function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
   const evaluatedAt = now.toISOString();
   const errors = [];
   const hasManagedKeys = managedRaw !== null && managedRaw !== void 0 && typeof managedRaw === "object" && !Array.isArray(managedRaw) && Object.keys(managedRaw).length > 0;
@@ -125,6 +128,17 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
       detail: "chrome.storage.managed returned no policy keys"
     });
     const toggles2 = { ...STRICT_LOCKDOWN_TOGGLES };
+    if (!isUnlockableInstall(installType)) {
+      const policy3 = {
+        ...toggles2,
+        gradeBand: "Unassigned",
+        source: "admin-no-policy",
+        isManaged: true,
+        invalidFields: [],
+        evaluatedAt
+      };
+      return { policy: policy3, errors };
+    }
     let gradeBand2 = "Unassigned";
     let appliedLocalOverride = false;
     if (localRaw !== null && localRaw !== void 0 && typeof localRaw === "object") {
@@ -843,7 +857,13 @@ async function bootOptionsPage() {
         "policy-banner-unmanaged"
       );
       policyModeBadge.classList.remove("rm-pill-navy", "rm-pill-red", "rm-pill-amber");
-      if (policy.isManaged && policy.source === "managed-degraded") {
+      if (policy.source === "admin-no-policy") {
+        policyBanner.classList.add("policy-banner-managed");
+        policyTitle.textContent = "Managed by Your School (No Grade-Band Policy Yet)";
+        policyDetail.textContent = "Force-installed by your school, no grade-band policy yet. Maximum protection is active. IT: paste the grade-band JSON from the Admin Policy Generator into Google Admin Console to configure this OU.";
+        policyModeBadge.classList.add("rm-pill-navy");
+        policyModeBadge.textContent = "Locked";
+      } else if (policy.isManaged && policy.source === "managed-degraded") {
         policyBanner.classList.add("policy-banner-degraded");
         policyTitle.textContent = "Managed by Google Admin Console (Degraded — Fail-Closed)";
         policyDetail.textContent = `Invalid managed policy fields (${policy.invalidFields.join(", ")}) fell back to Strict Maximum Lockdown ON. See IT Diagnostics for exact fixes.`;
@@ -913,8 +933,13 @@ async function bootOptionsPage() {
     }
     renderDiagnosticTable(telemetry.diagnosticLog);
   }
+  let snapshotGeneration = 0;
   async function refreshSnapshot() {
+    const generation = ++snapshotGeneration;
     const snapshot = await fetchDiagnosticSnapshot();
+    if (generation !== snapshotGeneration) {
+      return;
+    }
     renderSnapshot(snapshot);
   }
   async function persistLocalOverride(partial) {
