@@ -492,8 +492,15 @@ async function bootOptionsPage() {
     }
     renderDiagnosticTable(telemetry.diagnosticLog);
   }
-  async function refreshSnapshot() {
+  // Newest refresh wins (BP-17): storage events can start refreshes that overlap, and an older
+  // snapshot finishing last would otherwise replace the controls, counters and currentSnapshot.
+  let snapshotGeneration = 0;
+  async function refreshSnapshot(): Promise<void> {
+    const generation = ++snapshotGeneration;
     const snapshot = await fetchDiagnosticSnapshot();
+    if (generation !== snapshotGeneration) {
+      return;
+    }
     renderSnapshot(snapshot);
   }
   async function persistLocalOverride(partial: RawRecord): Promise<void> {

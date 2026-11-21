@@ -532,14 +532,21 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 **Recommendation:** **A.** Use the same sequence check for the content script's bootstrap and storage-change loads, so every policy source follows one rule (this touches BP-02's bootstrap code; do them together).
 
 **To-do:**
-- [ ] Service worker: one serialized `syncRuntimeState` chain (resolve + diagnostics + DNR install), or a generation check that drops a stale install.
-- [ ] Service worker: `SET_LOCAL_OVERRIDES` read + sanitize + merge + write as one queued operation. Keep BP-01's lock check in front of it.
-- [ ] Content script: `policyLoadSeq` used by both bootstrap and `storage.onChanged`; apply only the latest result.
-- [ ] Options: refresh generation in the storage-change path; a lone refresh still renders normally.
+- [x] Service worker: one serialized `syncRuntimeState` chain (resolve + diagnostics + DNR install), or a generation check that drops a stale install.
+- [x] Service worker: `SET_LOCAL_OVERRIDES` read + sanitize + merge + write as one queued operation. Keep BP-01's lock check in front of it.
+- [x] Content script: `policyLoadSeq` used by both bootstrap and `storage.onChanged`; apply only the latest result.
+- [x] Options: refresh generation in the storage-change path; a lone refresh still renders normally.
 
-**Done when:** U-17 (two overlapping syncs with the older one resolving last end with the newer policy's rules installed), U-18 (two concurrent `SET_LOCAL_OVERRIDES` keep both edits) and B-15 (an older disabled load finishing after a newer enabled load leaves the tab protected) pass.
+**Done when:** U-17 (two overlapping syncs with the older one resolving last end with the newer policy's rules installed), U-18 (two concurrent `SET_LOCAL_OVERRIDES` keep both edits), U-20 (an older disabled content-script load finishing after a newer enabled load leaves the tab protected) and B-15 (Options keeps the newer of two overlapping snapshots) pass.
 
-**Proposed phase:** 1, with BP-01/BP-02 (same code paths). The owner can move it.
+**Phase:** 1 (owner decision 2026-11-21).
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **Service worker:** `syncRuntimeState()` runs each whole sync on its own chain, separate from the storage queue so it can't deadlock.
+- **Toggle writes:** `SET_LOCAL_OVERRIDES` goes through a new `mergeLocalOverrides()`, which reads, merges and writes as one queued operation.
+- **Content script:** bootstrap and `storage.onChanged` both use `loadAndApplyPolicy()`, which drops a result once a newer load has started.
+- **Options:** every `refreshSnapshot()` call carries a generation number, and only the latest one renders.
+- **Tests:** U-17, U-18, U-20 (new `tests/helpers/content-harness.mjs`, because a browser test can't control the order the worker's replies arrive in) and B-15 pass. All four fail on the build from before this change, so they test the races themselves.
 
 ---
 
@@ -613,7 +620,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 | Phase | Break points | Why this order |
 |---|---|---|
 | 0. Setup | **Rebuild `src/` (D1 = B) in three separate commits, in this order** (sequencing clarified 2026-11-20 after CodeRabbit review of PR #1):<br>**0a. Behavior-preserving rebuild (analytics and old name still in).** Split the `dist/` bundles into the modules named in `docs/03` §1 (`shared/defaults, errors, policy, selectors, storage`; `background/service-worker, dnr-rules, analytics`; `content/dom-engine, content`; `ui/popup, options, policy-generator-core`). Add `package.json`, `tsconfig.json`, `scripts/build.mjs` (esbuild → gitignored `build/`) and `scripts/promote.mjs` (`build/` → `dist/`). The Apps Script template stays an inline string in the options module exactly as today: **don't create `templates/apps-script/`**, because analytics is removed in 0b. Keep the original `dist/` as gitignored `baseline-dist/`. **Equivalence gate (0a only):** the rebuilt output must behave identically to `baseline-dist/`, analytics included. Compare code with comments and whitespace stripped where bundling allows. Run every U-test and the Playwright B smoke tests against **both** `baseline-dist/` and `build/`: results must be identical, **failures included**. U-tests that describe not-yet-fixed break points are expected to fail on both and don't block promotion; only a *difference* between the two builds blocks it. Then promote and commit.<br>**0b. Remove analytics (D6).** Separate commit. The equivalence gate doesn't apply to these removed behaviors, which are the only allowed differences from 0a: alarm scheduling and flushing; the `TRIGGER_TEST_FLUSH` message; the 4 analytics policy fields and their validation; `ERR_ANALYTICS_ENDPOINT_INVALID` / `ERR_ANALYTICS_FLUSH_FAILED`; pending-bucket and flush-status telemetry fields; the Options analytics status bar and Test Flush button; the generator's analytics section and Copy Code.gs button; the manifest's `alarms` permission and `script.google.com` / `script.googleusercontent.com` hosts. Every other test result must match 0a. S-03 applies from this commit on.<br>**0c. Rename (D7).** Separate commit; extension strings only (manifest `name`/`short_name`/`default_title`, popup, Options, CSS header). Tests must match 0b.<br>**Workflow for every later change:** edit `src/` → `npm run build` writes to `build/` → run S-, U- and B-tests against `build/` (load it unpacked) → `npm run promote` copies `build/` into `dist/` only when the **promotion rule** holds. `dist/` changes only through promote.<br>**Promotion rule (known failures):** at the end of 0a, record every failing test in `tests/known-failures.json` with the break point and phase that will fix it. Before any promotion, (1) every test assigned to the current phase and every test not on the list must pass, and (2) each listed test must fail exactly as recorded (a *changed* failure blocks promotion just like a new one). When a phase fixes a break point, remove its tests from the list in the same commit. The list must be empty after Phase 4. | Every later fix needs one source of truth and a test harness. Proving equivalence before removing anything means any behavior change in 0b/0c is deliberate and visible. |
-| 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (proposed) | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
+| 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (owner decision 2026-11-21) | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
 | 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18 and BP-19 (proposed) | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 | Touch the same sweep/metrics paths, so do them together. |
 | 4. Longevity | BP-03, BP-04, BP-11 | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
@@ -666,6 +673,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-17 | Two overlapping `syncRuntimeState` runs where the older resolves last → the newer policy's DNR rules are installed | BP-17 |
 | U-18 | Two concurrent `SET_LOCAL_OVERRIDES` (different toggles) → both edits stored | BP-17 |
 | U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (only if BP-19 option A is chosen) | BP-19 |
+| U-20 | Content script (vm, controlled message timing): an older disabled policy load finishing after a newer enabled one is dropped; the tab stays protected | BP-17 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
 
@@ -687,7 +695,7 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-12 | Options page (unmanaged): no "Locked" badges; Cancel Reset only after the first Reset click; Test Flush only when analytics is on; Staff card only after "Show Staff OU Preset"; tabs switch; Ctrl+F finds text in hidden tabs | BP-06 |
 | B-13 (B-13b–d in the tests stub the worker's answer for the locked and unreachable cases; B-13d also checks the Options page) | Popup: unmanaged view on unpacked install; managed view when the service worker reports locked; managed view (not unmanaged) when the service worker is unreachable | BP-01 |
 | B-14 | Policy generator: each band's JSON parses, uses `{"key":{"Value":…}}` wrappers, and matches `schema.json` types; `extraHideSelectors` only emitted when filled | Regression, BP-04 |
-| B-15 | Policy loads overlap and the older (disabled) one resolves last → the tab stays protected | BP-17 |
+| B-15 | Options: two overlapping refreshes whose snapshots arrive in reverse order → the newer snapshot stays rendered. (The content-script half moved to U-20, 2026-11-21.) | BP-17 |
 | B-16 | An element with inline `display:none` that is hidden and then unhidden by turning its toggle off stays `display:none`; removing a policy attribute unhides a marked element | BP-18 |
 
 ### 6.4 Live Google tests (Browser, real google.com, manual)

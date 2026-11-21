@@ -314,6 +314,33 @@ equivalent("B-13d", "Options: locked banner and disabled switches when the worke
     return out;
   }), { bp: "BP-01" });
 
+equivalent("B-15", "Options: two overlapping refreshes whose snapshots arrive in reverse order → the newer snapshot stays rendered", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    // Hold every diagnostic snapshot until the test releases it, stamped with a marker count.
+    await page.addInitScript(() => {
+      const real = chrome.runtime.sendMessage.bind(chrome.runtime);
+      window.__snap = [];
+      chrome.runtime.sendMessage = (msg) => msg?.type !== "GET_DIAGNOSTIC_SNAPSHOT"
+        ? real(msg)
+        : new Promise((resolve) => window.__snap.push(async (count) => resolve({ ...(await real(msg)), activeRuleCount: count })));
+    });
+    await page.goto(`chrome-extension://${b.extensionId}/ui/options.html`);
+    await page.waitForFunction(() => window.__snap.length === 1);
+    await page.evaluate(() => window.__snap[0](6));
+    await page.click("#tab-diagnostics");
+    await page.click("#btn-refresh-diag");
+    await page.click("#btn-refresh-diag");
+    await page.waitForFunction(() => window.__snap.length === 3);
+    await page.evaluate(() => window.__snap[2](22));
+    await page.waitForTimeout(150);
+    await page.evaluate(() => window.__snap[1](11));
+    await page.waitForTimeout(150);
+    const pill = await page.evaluate(() => document.getElementById("active-rule-count-pill").textContent);
+    assert.match(pill, /^22 /, "an older snapshot replaced the newer one");
+    return pill;
+  }), { bp: "BP-17" });
+
 equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"Value\":…}} wrappers and matches schema.json types", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();

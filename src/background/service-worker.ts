@@ -10,7 +10,7 @@
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS } from "../shared/defaults";
 import { getTodayDateBucket } from "../shared/errors";
 import { isUnlockableInstall, parsePolicy } from "../shared/policy";
-import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, writeLocalOverrides } from "../shared/storage";
+import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, mergeLocalOverrides } from "../shared/storage";
 import { syncDynamicRules } from "./dnr-rules";
 import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, InstallType, RawRecord } from "../shared/types";
 
@@ -111,11 +111,32 @@ async function resolvePolicyFromStorage() {
 }
 
 /**
- * Bring DNR rules in line with the current policy.
- * @param options - recordPolicyDiagnostics: log policy warnings and errors.
- * @returns { policy, activeRuleCount }. DNR failures are logged as ERR_DNR_SYNC_FAILED, not thrown.
+ * Tail of the chain that runs whole policy syncs one at a time (BP-17). It is separate from the
+ * storage queue on purpose: a sync enqueues storage operations itself, so running it inside
+ * that queue would deadlock.
  */
-async function syncRuntimeState(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
+let syncChainTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Bring DNR rules in line with the current policy. Each call runs after the previous one has
+ * finished resolving *and* installing (BP-17): only serializing the DNR update let an older
+ * sync, still waiting on its diagnostics, install stale rules after a newer policy's rules.
+ * @param options - recordPolicyDiagnostics: log policy warnings and errors.
+ * @returns { policy, activeRuleCount }. DNR failures are logged as ERR_DNR_SYNC_FAILED, not
+ * thrown. A rejection reaches the caller but never blocks later syncs.
+ */
+function syncRuntimeState(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
+  const run = syncChainTail.then(() => syncRuntimeStateNow(options));
+  syncChainTail = run.catch(() => {});
+  return run;
+}
+
+/**
+ * One policy sync: resolve, log diagnostics, install rules. Call only via syncRuntimeState().
+ * @param options - recordPolicyDiagnostics: log policy warnings and errors.
+ * @returns { policy, activeRuleCount }.
+ */
+async function syncRuntimeStateNow(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
   const { policy, errors } = await resolvePolicyFromStorage();
   if (options.recordPolicyDiagnostics) {
     for (const err of errors) {
@@ -189,12 +210,7 @@ async function handleRuntimeMessage(message: RawRecord): Promise<unknown> {
       if (currentPolicy.isManaged || !isUnlockableInstall(installType)) {
         return currentPolicy;
       }
-      const existingLocalRes = await readLocalOverrides();
-      const merged = {
-        ...existingLocalRes.data ?? {},
-        ...sanitizeLocalOverridesInput(message.toggles as RawRecord)
-      };
-      await writeLocalOverrides(merged);
+      await mergeLocalOverrides(sanitizeLocalOverridesInput(message.toggles as RawRecord));
       const { policy: updatedPolicy } = await syncRuntimeState({
         recordPolicyDiagnostics: false
       });

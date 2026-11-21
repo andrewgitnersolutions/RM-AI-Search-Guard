@@ -243,12 +243,33 @@ async function loadEffectivePolicy(): Promise<EffectivePolicy> {
 }
 
 /**
+ * Number of the newest policy load started in this tab (BP-17).
+ */
+let policyLoadSeq = 0;
+
+/**
+ * Load the policy and apply it, unless a newer load started meanwhile. Bootstrap and storage
+ * changes both go through here so every policy source follows the same newest-wins rule.
+ * @returns The applied policy, or null if this result was stale and dropped. Dropping is the
+ * safe choice: an older "disabled" result finishing last would otherwise unhide everything and
+ * disconnect the observers until the next reload (fail-open).
+ */
+async function loadAndApplyPolicy(): Promise<EffectivePolicy | null> {
+  const seq = ++policyLoadSeq;
+  const policy = await loadEffectivePolicy();
+  if (seq !== policyLoadSeq) {
+    return null;
+  }
+  applyEffectivePolicy(policy);
+  return policy;
+}
+
+/**
  * Load the policy, apply it, and sweep at once if the DOM is already parsed.
  */
 async function bootstrapContentGuard() {
-  const policy = await loadEffectivePolicy();
-  applyEffectivePolicy(policy);
-  if (policy.masterEnabled && document.readyState !== "loading") {
+  const policy = await loadAndApplyPolicy();
+  if (policy?.masterEnabled && document.readyState !== "loading") {
     runSweepNow();
   }
 }
@@ -257,8 +278,7 @@ async function bootstrapContentGuard() {
 if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener(async (changes, areaName) => {
     if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
-      const policy = await loadEffectivePolicy();
-      applyEffectivePolicy(policy);
+      await loadAndApplyPolicy();
     }
   });
 }
