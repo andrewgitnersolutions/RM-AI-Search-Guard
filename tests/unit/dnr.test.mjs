@@ -76,6 +76,7 @@ equivalent("U-19", "BP-19: /ai and /aimode with a query keep the search on /sear
     "https://www.google.com/ai": ["https://www.google.com/#rm_sg_aimode", "https://www.google.com/#rm_sg_aimode"],
     "https://www.google.com/aimode?q=": ["https://www.google.com/#rm_sg_aimode", "https://www.google.com/#rm_sg_aimode"],
     "https://www.google.com/aimode?hl=en": ["https://www.google.com/#rm_sg_aimode", "https://www.google.com/#rm_sg_aimode"],
+    "https://www.google.com/aimode?q=&q=fractions": ["https://www.google.com/search?q=&q=fractions&udm=14#rm_sg_aimode", "https://www.google.com/search?q=&q=fractions#rm_sg_aimode"],
   };
   const out = {};
   for (const [label, force, idx] of [["force", true, 0], ["noForce", false, 1]]) {
@@ -97,6 +98,7 @@ const U07_URLS = [
   "https://www.google.com/aimode?q=fractions",
   "https://www.google.com/aimode/session?hl=en&q=photosynthesis",
   "https://www.google.com/aimode?hl=en",
+  "https://www.google.com/aimode?q=&q=fractions",
   "https://www.google.com/search?q=x&udm=50#frag",
   "https://example.com/search?q=x&udm=50",
 ];

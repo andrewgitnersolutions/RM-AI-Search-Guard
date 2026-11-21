@@ -238,6 +238,7 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
   - B-06 (pushState + DOM mutation) and new B-06b (pushState only) each count exactly one redirect.
   - U-07 and U-07b fail on the old `dist/`. U-07 and B-06 were removed from `tests/known-failures.json`.
 - **NOT RUN:** L-06 on live Google.
+- **2026-11-21 (CodeRabbit review of PR #5):** `cleanAiModeUrl()` treats `/ai` or `/aimode` as having a search if *any* `q` value is non-empty, as rule 111's regex does (`?q=&q=fractions` keeps `fractions`). U-07 and U-19 now include that URL.
 
 **Done when:** on a fixture page, `history.pushState({}, "", "/search?q=x&udm=50")` followed by a DOM mutation ends on `udm=14` (or no `udm`) and increments `aiModeRedirects` once.
 
@@ -341,6 +342,11 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 - **CSS gap:** confirmed. The old CSS hid an `AIOverview` container that wrapped an organic result, and B-05b fails on the old `dist/` for exactly that. Each Overview CSS rule now carries `:not(:has(a > h3)):not(:has(h3.LC20lb))`, in one rule per selector, so the JS guard decides and logs `ERR_SAFETY_GUARD_TRIPPED`.
 - **Tests:** B-04, B-05 and new B-05b (wrapped organic result visible with the guard error logged, external `?udm=50` link visible, absolute `https://www.google.com/aimode` link still hidden) pass. B-03 still passes. B-04 and B-05 were removed from `tests/known-failures.json`.
 - **NOT RUN:** L-07 (re-confirming the selectors on live Google).
+
+**2026-11-21, CodeRabbit review of PR #5:**
+- **Re-check on every sweep:** `processCategoryCandidates()` now re-runs the guard on every element its category already hid. A wrapper hidden while empty that later receives an organic result is restored and logged as `ERR_SAFETY_GUARD_TRIPPED` ("Un-hid …"). Test: new B-05c.
+- **Query-only links:** relative links such as `href="?q=x&udm=50"` (which resolve to `/search` on a results page) were added to the AI Mode link list in `selectors.ts` and `static-guard.css`. Test: B-05b.
+- B-05b and B-05c fail on the code before this change.
 
 ---
 

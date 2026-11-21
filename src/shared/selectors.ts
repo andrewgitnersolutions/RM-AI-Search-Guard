@@ -55,6 +55,8 @@ export const SELECTORS = {
       // another site whose URL merely contains "udm=50" or "/aimode" is an organic result.
       // Keep in sync with static-guard.css.
       directSelectors: [
+        // A query-only relative link (href="?q=x&udm=50") resolves to /search on a results page.
+        'a[href^="?"][href*="udm=50"]',
         'a[href^="/search"][href*="udm=50"]',
         'a[href^="https://www.google.com/search"][href*="udm=50"]',
         'a[href^="https://google.com/search"][href*="udm=50"]',

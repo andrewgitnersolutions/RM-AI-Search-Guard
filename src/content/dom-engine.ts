@@ -278,6 +278,22 @@ export function processCategoryCandidates(
   errors: PolicyError[],
   reportedUnsafe: Set<Element>
 ): number {
+  // Re-check what this category already hid: a wrapper hidden while empty can receive an
+  // organic result later, and the guard must still win then (CodeRabbit review of #5). Every
+  // marked element is checked, not just this sweep's candidates, because a container found via
+  // the heading walk may not be found again once results land in it.
+  for (const hidden of doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`)) {
+    if (isUnsafeToHide(hidden, doc, category)) {
+      restoreElementVisibility(hidden);
+      if (!reportedUnsafe.has(hidden)) {
+        reportedUnsafe.add(hidden);
+        errors.push({
+          code: "ERR_SAFETY_GUARD_TRIPPED",
+          detail: `Un-hid ${describeElementSafe(hidden)} (${category}): it now holds protected content`
+        });
+      }
+    }
+  }
   const uniqueCandidates = Array.from(new Set(candidates));
   const safeCandidates: Element[] = [];
   for (const candidate of uniqueCandidates) {

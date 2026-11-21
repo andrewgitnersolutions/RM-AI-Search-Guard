@@ -35,7 +35,7 @@
       return url.href;
     }
     if (/^\/(ai|aimode)(\/|$)/.test(path)) {
-      if ((params.get("q") ?? "") !== "") {
+      if (params.getAll("q").some((q) => q !== "")) {
         url.pathname = "/search";
         applyAiModeQueryTransform(params, policy.forceWebOnlySearch);
         url.hash = "#rm_sg_aimode";
@@ -256,6 +256,8 @@
         // another site whose URL merely contains "udm=50" or "/aimode" is an organic result.
         // Keep in sync with static-guard.css.
         directSelectors: [
+          // A query-only relative link (href="?q=x&udm=50") resolves to /search on a results page.
+          'a[href^="?"][href*="udm=50"]',
           'a[href^="/search"][href*="udm=50"]',
           'a[href^="https://www.google.com/search"][href*="udm=50"]',
           'a[href^="https://google.com/search"][href*="udm=50"]',
@@ -471,6 +473,18 @@
     return Boolean(el.parentElement?.closest("[data-rmsg-hidden]"));
   }
   function processCategoryCandidates(candidates, category, doc, errors, reportedUnsafe) {
+    for (const hidden of doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`)) {
+      if (isUnsafeToHide(hidden, doc, category)) {
+        restoreElementVisibility(hidden);
+        if (!reportedUnsafe.has(hidden)) {
+          reportedUnsafe.add(hidden);
+          errors.push({
+            code: "ERR_SAFETY_GUARD_TRIPPED",
+            detail: `Un-hid ${describeElementSafe(hidden)} (${category}): it now holds protected content`
+          });
+        }
+      }
+    }
     const uniqueCandidates = Array.from(new Set(candidates));
     const safeCandidates = [];
     for (const candidate of uniqueCandidates) {

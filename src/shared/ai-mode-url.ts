@@ -65,7 +65,8 @@ export function cleanAiModeUrl(href: string, policy: Toggles): string | null {
     return url.href;
   }
   if (/^\/(ai|aimode)(\/|$)/.test(path)) {
-    if ((params.get("q") ?? "") !== "") {
+    // Like rule 111's regex, any non-empty q counts, not just the first (?q=&q=fractions).
+    if (params.getAll("q").some((q) => q !== "")) {
       // Rule 111 (BP-19): keep the student's search on /search.
       url.pathname = "/search";
       applyAiModeQueryTransform(params, policy.forceWebOnlySearch);

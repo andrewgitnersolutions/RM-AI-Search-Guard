@@ -76,6 +76,16 @@ html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#
 /* FRAGILE(google-dom, last verified NONE, see test L-07): udm=50, /aimode and /ai hrefs on Google only (BP-08), .olrp5b, .plR5qb, jsname=B6rgad. */
 /* Nav-tab list items holding an AI Mode link. :has() gets rules of its own (BP-10): one
    unsupported selector drops its whole selector list. Chrome 134+ supports it; this is insurance. */
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="?"][href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="/search"][href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
   display: none !important;
   visibility: hidden !important;
@@ -108,6 +118,7 @@ html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="https://google
 
 /* Same Google-only link list as SELECTORS.tier1.aiModeUi.directSelectors: a link to another site
    whose URL merely contains "udm=50" or "/aimode" is an organic result (BP-08). */
+html[data-rmsg-hide-aimode="1"] a[href^="?"][href*="udm=50"],
 html[data-rmsg-hide-aimode="1"] a[href^="/search"][href*="udm=50"],
 html[data-rmsg-hide-aimode="1"] a[href^="https://www.google.com/search"][href*="udm=50"],
 html[data-rmsg-hide-aimode="1"] a[href^="https://google.com/search"][href*="udm=50"],

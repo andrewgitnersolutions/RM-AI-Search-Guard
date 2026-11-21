@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- B-05b fixture (BP-08): an AI Overview container that wraps an organic result must stay
      visible (CSS and JS both defer to the safety guard); a link to another site whose URL
-     contains udm=50 must stay visible; an absolute Google AI Mode link must still be hidden. -->
+     contains udm=50 must stay visible; absolute and query-only relative Google AI Mode links must
+     still be hidden. #ov-late starts empty (hidden) and gets an organic result later (B-05c). -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -18,7 +19,8 @@
       <div class="g" id="r-ext"><a id="ext-udm" href="https://example.com/page?udm=50"><h3 class="LC20lb">External page with udm=50 in its URL</h3></a></div>
       <div class="g" id="r3"><a href="https://example.com/3"><h3 class="LC20lb">Result three</h3></a></div>
     </div>
-    <div id="promo"><a id="abs-aimode" href="https://www.google.com/aimode?q=x">Try AI Mode</a></div>
+    <div id="promo"><a id="abs-aimode" href="https://www.google.com/aimode?q=x">Try AI Mode</a> <a id="rel-q-aimode" href="?q=x&amp;udm=50">Explore</a></div>
+    <div data-attrid="AIOverview" id="ov-late"><p id="ov-late-text">Generated text that is hidden while the wrapper is empty.</p></div>
   </div>
 </body>
 </html>
