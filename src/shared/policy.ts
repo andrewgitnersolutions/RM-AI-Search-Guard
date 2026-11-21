@@ -9,14 +9,20 @@
  */
 
 import { FEATURE_TOGGLE_KEYS, STRICT_LOCKDOWN_TOGGLES, VALID_GRADE_BANDS } from "./defaults";
+import type { EffectivePolicy, GradeBand, PolicyError, RawRecord, Toggles } from "./types";
+
+/** Generator input: a grade band (possibly invalid) plus the six toggles. */
+export interface PolicyDraft extends Partial<Toggles> {
+  gradeBand: unknown;
+}
 
 /**
  * Check that a value is one of VALID_GRADE_BANDS.
  * @param value - Candidate value.
  * @returns true for an allowed band string.
  */
-export function isValidGradeBand(value) {
-  return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
+export function isValidGradeBand(value: unknown): value is GradeBand {
+  return typeof value === "string" && (VALID_GRADE_BANDS as readonly string[]).includes(value);
 }
 
 /**
@@ -29,9 +35,13 @@ export function isValidGradeBand(value) {
  * @returns { policy, errors }. Never throws for bad input: it fails closed and reports
  * ERR_POLICY_INVALID / WARN_NO_MANAGED_POLICY in errors.
  */
-export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
+export function parsePolicy(
+  managedRaw: RawRecord | null | undefined,
+  localRaw: RawRecord | null | undefined,
+  now: Date = /* @__PURE__ */ new Date()
+): { policy: EffectivePolicy; errors: PolicyError[] } {
   const evaluatedAt = now.toISOString();
-  const errors = [];
+  const errors: PolicyError[] = [];
   const hasManagedKeys = managedRaw !== null && managedRaw !== void 0 && typeof managedRaw === "object" && !Array.isArray(managedRaw) && Object.keys(managedRaw).length > 0;
   if (!hasManagedKeys) {
     errors.push({
@@ -39,7 +49,7 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
       detail: "chrome.storage.managed returned no policy keys"
     });
     const toggles = { ...STRICT_LOCKDOWN_TOGGLES };
-    let gradeBand = "Unassigned";
+    let gradeBand: GradeBand = "Unassigned";
     let appliedLocalOverride = false;
     if (localRaw !== null && localRaw !== void 0 && typeof localRaw === "object") {
       for (const key of FEATURE_TOGGLE_KEYS) {
@@ -53,7 +63,7 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
         appliedLocalOverride = true;
       }
     }
-    const policy = {
+    const policy: EffectivePolicy = {
       ...toggles,
       gradeBand,
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
@@ -63,7 +73,7 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
     };
     return { policy, errors };
   }
-  const invalidFields = [];
+  const invalidFields: string[] = [];
   const toggles = { ...STRICT_LOCKDOWN_TOGGLES };
   for (const key of FEATURE_TOGGLE_KEYS) {
     if (key in managedRaw && managedRaw[key] !== void 0) {
@@ -76,7 +86,7 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
       }
     }
   }
-  let gradeBand = "Unassigned";
+  let gradeBand: GradeBand = "Unassigned";
   if ("gradeBand" in managedRaw && managedRaw.gradeBand !== void 0) {
     if (isValidGradeBand(managedRaw.gradeBand)) {
       gradeBand = managedRaw.gradeBand;
@@ -91,7 +101,7 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
       detail: invalidFields.join(", ")
     });
   }
-  const policy = {
+  const policy: EffectivePolicy = {
     ...toggles,
     gradeBand,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
@@ -107,7 +117,7 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
  * @param config - Grade band plus the six feature toggles.
  * @returns Policy object ready to paste into the Admin Console.
  */
-export function formatAdminConsolePolicyJson(config) {
+export function formatAdminConsolePolicyJson(config: PolicyDraft) {
   return {
     gradeBand: { Value: config.gradeBand },
     masterEnabled: { Value: Boolean(config.masterEnabled) },
@@ -124,8 +134,8 @@ export function formatAdminConsolePolicyJson(config) {
  * @param config - Grade band plus the six feature toggles.
  * @returns { valid, errors } with admin-readable messages.
  */
-export function validatePolicyDraft(config) {
-  const errors = [];
+export function validatePolicyDraft(config: PolicyDraft): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
   if (!isValidGradeBand(config.gradeBand)) {
     errors.push(`Invalid grade band "${String(config.gradeBand)}".`);
   }

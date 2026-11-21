@@ -7,7 +7,9 @@
  * and a fixed esbuild version from package-lock.json.
  */
 import { build } from "esbuild";
+import { existsSync, realpathSync } from "node:fs";
 import { cp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,7 +17,58 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(ROOT, "src");
 // `--out <dir>` builds elsewhere (test S-02a builds twice into temp folders and compares).
 const outFlag = process.argv.indexOf("--out");
-const OUT = outFlag > 0 ? path.resolve(process.argv[outFlag + 1]) : path.join(ROOT, "build");
+const outArg = outFlag > 0 ? process.argv[outFlag + 1] : undefined;
+if (outFlag > 0 && !outArg) {
+  console.error("--out needs a folder");
+  process.exit(1);
+}
+const OUT = outArg ? path.resolve(outArg) : path.join(ROOT, "build");
+
+/**
+ * Resolve symlinks in the part of a path that exists, so a symlinked temp folder (macOS
+ * /var -> /private/var) or a link into the repo can't slip past refuseOut().
+ * @param {string} p - Absolute path, which may not exist yet.
+ * @returns {string} Absolute path with its existing prefix resolved.
+ */
+function realish(p) {
+  let head = p;
+  const tail = [];
+  while (!existsSync(head)) {
+    tail.unshift(path.basename(head));
+    const parent = path.dirname(head);
+    if (parent === head) break;
+    head = parent;
+  }
+  return path.join(realpathSync(head), ...tail);
+}
+
+/**
+ * Whether child is parent itself or lies inside it.
+ * @param {string} child - Absolute path.
+ * @param {string} parent - Absolute path.
+ * @returns {boolean}
+ */
+function within(child, parent) {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/**
+ * Refuse any output folder other than the repo's build/ or a folder under the OS temp
+ * directory. main() deletes OUT recursively, so a typo such as `--out .` or `--out src` would
+ * otherwise wipe the working tree, src/ or dist/. Fails closed: anything not allowed is refused.
+ * @param {string} out - Resolved output folder.
+ * @returns {string | null} Why it is refused, or null if it is allowed.
+ */
+function refuseOut(out) {
+  const real = realish(out);
+  const root = realish(ROOT);
+  const tmp = realish(tmpdir());
+  if (within(root, real)) return "it is the repository root or contains it";
+  if (within(real, root)) return real === path.join(root, "build") ? null : "only build/ may be used inside the repository";
+  if (within(real, tmp) && real !== tmp) return null;
+  return "outside the repository only a folder under the OS temp directory may be used";
+}
 
 /** Files copied byte for byte from src/ to build/ (paths relative to src/). */
 const STATIC_FILES = [
@@ -47,10 +100,13 @@ const COMMON = {
 
 /**
  * Bundle every entry point and copy static files into a fresh build/ folder.
- * Fails (non-zero exit) on any esbuild error so a broken build is never promoted.
+ * Fails (non-zero exit) on any esbuild error, or before deleting anything if OUT is refused,
+ * so a broken build is never promoted.
  * @returns {Promise<void>}
  */
 async function main() {
+  const refused = refuseOut(OUT);
+  if (refused) throw new Error(`Refusing to build into ${OUT}: ${refused}.`);
   await rm(OUT, { recursive: true, force: true });
   await mkdir(OUT, { recursive: true });
 

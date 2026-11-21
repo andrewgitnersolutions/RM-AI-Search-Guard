@@ -5,7 +5,8 @@
  * Applies the highest-priority matching rule to a main_frame URL, then re-evaluates the
  * redirected URL, the way Chrome re-runs rules on a redirected request. The fragment is not
  * part of the matched URL. regexFilter strings in this extension use only syntax that RE2
- * and JavaScript RegExp read the same way.
+ * and JavaScript RegExp read the same way. As in Chrome, regexFilter matching is
+ * case-insensitive unless the rule sets condition.isUrlFilterCaseSensitive to true.
  */
 
 /**
@@ -26,6 +27,15 @@ function applyTransform(url, transform) {
 }
 
 /**
+ * Compile a rule's regexFilter with Chrome's case rule: isUrlFilterCaseSensitive defaults to false.
+ * @param {{ regexFilter: string, isUrlFilterCaseSensitive?: boolean }} condition - Rule condition.
+ * @returns {RegExp}
+ */
+export function regexFor(condition) {
+  return new RegExp(condition.regexFilter, condition.isUrlFilterCaseSensitive === true ? "" : "i");
+}
+
+/**
  * Follow redirects for one URL.
  * @param {object[]} rules - Dynamic rules.
  * @param {string} startUrl - Navigation URL.
@@ -39,7 +49,7 @@ export function simulate(rules, startUrl, maxHops = 5) {
     const u = new URL(url);
     const matchUrl = u.href.replace(/#.*$/, "");
     const matching = rules
-      .filter((r) => r.condition.resourceTypes.includes("main_frame") && new RegExp(r.condition.regexFilter).test(matchUrl))
+      .filter((r) => r.condition.resourceTypes.includes("main_frame") && regexFor(r.condition).test(matchUrl))
       .sort((a, b) => b.priority - a.priority || a.id - b.id);
     const rule = matching[0];
     if (!rule) return { url, hops, ruleIds, allowedBy: null };

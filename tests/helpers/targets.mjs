@@ -14,11 +14,13 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 
 /**
  * Resolve RM_TARGETS into target descriptors.
- * @returns {{ name: string, dir: string }[]} Targets; throws if a folder is missing so a
- * typo can't silently shrink the comparison.
+ * @returns {{ name: string, dir: string }[]} Targets; throws if the list is empty or a folder
+ * is missing, so a typo can't silently shrink the comparison.
  */
 export function getTargets() {
-  const names = (process.env.RM_TARGETS || "build").split(",").map((s) => s.trim()).filter(Boolean);
+  const names = (process.env.RM_TARGETS ?? "build").split(",").map((s) => s.trim()).filter(Boolean);
+  // A set-but-empty RM_TARGETS (e.g. " , ") would run every equivalence test with nothing to test.
+  if (names.length === 0) throw new Error("RM_TARGETS names no target folders. Unset it to test build/.");
   return names.map((name) => {
     const dir = path.join(ROOT, name);
     if (!existsSync(path.join(dir, "manifest.json"))) {

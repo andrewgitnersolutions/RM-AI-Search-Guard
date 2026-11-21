@@ -5,10 +5,12 @@
  * Shared with: bundled into all four entry points; esbuild drops what each one doesn't use.
  */
 
+import type { GradeBand, Metrics, TelemetryState, Toggles } from "./types";
+
 /**
  * Strict defaults: every protection on. Used for missing or invalid values (fail closed).
  */
-export const STRICT_LOCKDOWN_TOGGLES = {
+export const STRICT_LOCKDOWN_TOGGLES: Toggles = {
   masterEnabled: true,
   hideAiOverviews: true,
   hideAiModeUi: true,
@@ -24,7 +26,7 @@ export const VALID_GRADE_BANDS = [
   "9-12",
   "Staff",
   "Unassigned"
-];
+] as const;
 
 export const FEATURE_TOGGLE_KEYS = [
   "masterEnabled",
@@ -33,9 +35,16 @@ export const FEATURE_TOGGLE_KEYS = [
   "blockAiModeNavigation",
   "forceWebOnlySearch",
   "hideAuxiliaryAiFeatures"
-];
+] as const;
 
-export const GRADE_BAND_PRESETS = {
+/** A generator preset: display text plus the toggles it sets. */
+export interface GradeBandPreset {
+  label: string;
+  subtitle: string;
+  toggles: Toggles;
+}
+
+export const GRADE_BAND_PRESETS: Record<Exclude<GradeBand, "Unassigned">, GradeBandPreset> = {
   "K-2": {
     label: "Grades K\u20132",
     subtitle: "Maximum Protection",
@@ -104,7 +113,7 @@ export const METRIC_KEYS = [
   "aiModeRedirects",
   "omniboxFallbackRedirects",
   "auxAiHidden"
-];
+] as const;
 
 export const STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
@@ -118,7 +127,7 @@ export const MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
  * Create a zeroed aggregate counter object.
  * @returns One zero per METRIC_KEYS entry.
  */
-export function createEmptyMetrics() {
+export function createEmptyMetrics(): Metrics {
   return {
     overviewsHidden: 0,
     aiModeUiHidden: 0,
@@ -132,7 +141,7 @@ export function createEmptyMetrics() {
  * Create the telemetry state for a new install or a reset.
  * @returns Zero lifetime counters and an empty diagnostic log.
  */
-export function createInitialTelemetryState() {
+export function createInitialTelemetryState(): TelemetryState {
   return {
     lifetimeMetrics: createEmptyMetrics(),
     diagnosticLog: []

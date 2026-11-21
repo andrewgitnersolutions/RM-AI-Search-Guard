@@ -5,8 +5,7 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["chrome"],
-    "strict": false,
-    "alwaysStrict": true,
+    "strict": true,
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true

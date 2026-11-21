@@ -1,5 +1,7 @@
-// U-05, U-06, U-07 (docs/07 §6.2): DNR rule building and redirect simulation.
+// U-05, U-06, U-07 (docs/07 §6.2): DNR rule building and redirect simulation, plus X-04, a
+// self-check of the simulator's matching rules (not in docs/07; it tests the harness, not a build).
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { simulate } from "../helpers/dnr-sim.mjs";
 import { equivalent, plain } from "../helpers/equivalence.mjs";
 import { loadServiceWorker } from "../helpers/sw-harness.mjs";
@@ -71,3 +73,17 @@ equivalent("U-07", "cleanAiModeUrl() (BP-05 JS copy) matches the DNR simulation 
   for (const u of URLS) assert.equal(sw.ctx.cleanAiModeUrl(u, { ...BASE, blockAiModeNavigation: true, forceWebOnlySearch: true }), simulate(rules, u).url);
   return true;
 }, { bp: "BP-05" });
+
+test("X-04 DNR simulator: regexFilter is case-insensitive by default; isUrlFilterCaseSensitive:true is honored", () => {
+  const rule = (extra) => [{
+    id: 1,
+    priority: 1,
+    action: { type: "redirect", redirect: { url: "https://www.google.com/" } },
+    condition: { regexFilter: "^https://www\\.google\\.com/aimode", resourceTypes: ["main_frame"], ...extra },
+  }];
+  const upper = "https://www.google.com/AIMODE?q=x";
+  assert.deepEqual(simulate(rule({}), upper).ruleIds, [1], "default: case-insensitive, like Chrome");
+  assert.deepEqual(simulate(rule({ isUrlFilterCaseSensitive: false }), upper).ruleIds, [1]);
+  assert.deepEqual(simulate(rule({ isUrlFilterCaseSensitive: true }), upper).ruleIds, [], "explicit true: case-sensitive");
+  assert.deepEqual(simulate(rule({ isUrlFilterCaseSensitive: true }), "https://www.google.com/aimode?q=x").ruleIds, [1]);
+});

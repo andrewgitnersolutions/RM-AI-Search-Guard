@@ -5,6 +5,8 @@
 <head>
   <meta charset="utf-8">
   <title>x - Google Search</title>
+  <!-- Inline on purpose: B-01 needs a synchronous parse-time probe. An external script adds a
+       fetch that lets the async policy land first, so B-01 would flake and stop detecting BP-02. -->
   <script>window.__attrAtParse = document.documentElement.getAttribute("data-rmsg-hide-overviews");</script>
 </head>
 <body>

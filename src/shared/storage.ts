@@ -8,11 +8,12 @@
 
 import { MAX_DIAGNOSTIC_LOG_ENTRIES, METRIC_KEYS, STORAGE_KEYS, createEmptyMetrics, createInitialTelemetryState } from "./defaults";
 import { ALL_ERROR_CODES, createDiagnosticEntry, formatRemediation, getTodayDateBucket } from "./errors";
+import type { DiagnosticEntry, ErrorCode, Metrics, RawRecord, TelemetryState } from "./types";
 
 /**
  * Tail of the promise chain that serializes read-modify-write storage operations.
  */
-export let storageQueueTail = Promise.resolve();
+export let storageQueueTail: Promise<void> = Promise.resolve();
 
 /**
  * Run an async storage operation after all earlier queued ones finish.
@@ -20,10 +21,10 @@ export let storageQueueTail = Promise.resolve();
  * @param fn - Operation to run.
  * @returns fn's result. A rejection propagates to the caller but never blocks the queue.
  */
-export async function enqueueStorageOp(fn) {
+export async function enqueueStorageOp<T>(fn: () => Promise<T>): Promise<T> {
   const previous = storageQueueTail;
-  let release;
-  storageQueueTail = new Promise((resolve) => {
+  let release!: () => void;
+  storageQueueTail = new Promise<void>((resolve) => {
     release = resolve;
   });
   await previous;
@@ -39,7 +40,7 @@ export async function enqueueStorageOp(fn) {
  * @param err - Thrown value.
  * @returns err.message for Errors, otherwise String(err).
  */
-export function formatErrorMessage(err) {
+export function formatErrorMessage(err: unknown): string {
   if (err instanceof Error) {
     return err.message;
   }
@@ -51,12 +52,12 @@ export function formatErrorMessage(err) {
  * @param raw - Untrusted stored value.
  * @returns Clean metrics; bad or missing fields become 0.
  */
-export function sanitizeMetrics(raw) {
+export function sanitizeMetrics(raw: unknown): Metrics {
   const metrics = createEmptyMetrics();
   if (!raw || typeof raw !== "object") {
     return metrics;
   }
-  const obj = raw;
+  const obj = raw as RawRecord;
   for (const key of METRIC_KEYS) {
     const val = obj[key];
     if (typeof val === "number" && Number.isFinite(val) && val >= 0) {
@@ -71,21 +72,21 @@ export function sanitizeMetrics(raw) {
  * @param raw - Untrusted stored value.
  * @returns Up to MAX_DIAGNOSTIC_LOG_ENTRIES entries with known codes; others are dropped.
  */
-export function sanitizeDiagnosticLog(raw) {
+export function sanitizeDiagnosticLog(raw: unknown): DiagnosticEntry[] {
   if (!Array.isArray(raw)) {
     return [];
   }
-  const validCodes = new Set(ALL_ERROR_CODES);
-  const entries = [];
+  const validCodes = new Set<string>(ALL_ERROR_CODES);
+  const entries: DiagnosticEntry[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") {
       continue;
     }
-    const candidate = item;
+    const candidate = item as RawRecord;
     if (typeof candidate.code !== "string" || !validCodes.has(candidate.code)) {
       continue;
     }
-    const code = candidate.code;
+    const code = candidate.code as ErrorCode;
     const detail = typeof candidate.detail === "string" ? candidate.detail : "";
     const firstSeenDate = typeof candidate.firstSeenDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(candidate.firstSeenDate) ? candidate.firstSeenDate : getTodayDateBucket();
     const lastSeenDate = typeof candidate.lastSeenDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(candidate.lastSeenDate) ? candidate.lastSeenDate : firstSeenDate;
@@ -109,14 +110,14 @@ export function sanitizeDiagnosticLog(raw) {
  * @param raw - Untrusted value from chrome.storage.local.
  * @returns A valid state; anything malformed is reset to its initial value.
  */
-export function normalizeTelemetryState(raw) {
+export function normalizeTelemetryState(raw: unknown): TelemetryState {
   const initial = createInitialTelemetryState();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return initial;
   }
   // Only known fields are kept, so leftovers from older versions (e.g. the removed
   // analytics buckets) are dropped on the next write.
-  const obj = raw;
+  const obj = raw as RawRecord;
   return {
     lifetimeMetrics: sanitizeMetrics(obj.lifetimeMetrics),
     diagnosticLog: sanitizeDiagnosticLog(obj.diagnosticLog)
@@ -128,7 +129,7 @@ export function normalizeTelemetryState(raw) {
  * @returns { data, error? }. On failure data is {} and error is set; parsePolicy then
  * treats the device as unmanaged (see BP-01).
  */
-export async function readManagedPolicyRaw() {
+export async function readManagedPolicyRaw(): Promise<{ data: RawRecord; error?: string }> {
   if (typeof chrome === "undefined" || !chrome.storage?.managed) {
     return { data: {} };
   }
@@ -147,7 +148,7 @@ export async function readManagedPolicyRaw() {
  * Read local IT test-mode overrides from chrome.storage.local.
  * @returns { data, error? }. data is null when absent, malformed or unreadable.
  */
-export async function readLocalOverrides() {
+export async function readLocalOverrides(): Promise<{ data: RawRecord | null; error?: string }> {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
     return { data: null };
   }
@@ -157,7 +158,7 @@ export async function readLocalOverrides() {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       return { data: null };
     }
-    return { data: raw };
+    return { data: raw as RawRecord };
   } catch (err) {
     return { data: null, error: formatErrorMessage(err) };
   }
@@ -168,7 +169,7 @@ export async function readLocalOverrides() {
  * @param overrides - Sanitized toggle/gradeBand object.
  * @returns Resolves when written. Throws if chrome.storage.local is unavailable.
  */
-export async function writeLocalOverrides(overrides) {
+export async function writeLocalOverrides(overrides: RawRecord): Promise<void> {
   await enqueueStorageOp(async () => {
     if (typeof chrome === "undefined" || !chrome.storage?.local) {
       throw new Error("chrome.storage.local is unavailable");
@@ -181,7 +182,7 @@ export async function writeLocalOverrides(overrides) {
  * Read and normalize telemetry state from chrome.storage.local.
  * @returns Telemetry state; the initial state when storage is unavailable. Read errors propagate.
  */
-export async function readTelemetryState() {
+export async function readTelemetryState(): Promise<TelemetryState> {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
     return createInitialTelemetryState();
   }
@@ -194,7 +195,7 @@ export async function readTelemetryState() {
  * @param state - Full telemetry state.
  * @returns Resolves when written. Throws if storage is unavailable.
  */
-export async function writeTelemetryState(state) {
+export async function writeTelemetryState(state: TelemetryState): Promise<void> {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
     throw new Error("chrome.storage.local is unavailable");
   }
@@ -206,7 +207,7 @@ export async function writeTelemetryState(state) {
  * @param deltas - Partial metrics; non-positive or non-numeric values are ignored.
  * @returns Updated state. Writes only if something changed. A missing deltas object throws (BP-13).
  */
-export async function incrementTelemetryMetrics(deltas) {
+export async function incrementTelemetryMetrics(deltas: Partial<Record<string, unknown>>): Promise<TelemetryState> {
   return enqueueStorageOp(async () => {
     const state = await readTelemetryState();
     let changed = false;
@@ -235,7 +236,7 @@ export async function incrementTelemetryMetrics(deltas) {
  * @param now - Time used for the date bucket.
  * @returns Updated state.
  */
-export async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ new Date()) {
+export async function recordDiagnosticEntry(code: ErrorCode, detail: string = "", now: Date = /* @__PURE__ */ new Date()): Promise<TelemetryState> {
   return enqueueStorageOp(async () => {
     const state = await readTelemetryState();
     const dateBucket = getTodayDateBucket(now);
@@ -270,7 +271,7 @@ export async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE_
  * Replace telemetry with a fresh state (counters and log).
  * @returns The fresh state.
  */
-export async function resetLocalTelemetry() {
+export async function resetLocalTelemetry(): Promise<TelemetryState> {
   return enqueueStorageOp(async () => {
     const fresh = createInitialTelemetryState();
     await writeTelemetryState(fresh);

@@ -8,6 +8,10 @@
  */
 
 import { SELECTORS } from "../shared/selectors";
+import type { PolicyError, Toggles } from "../shared/types";
+
+/** Which policy toggle an element was hidden under (stored in data-rmsg-hidden). */
+export type HideCategory = "overview" | "aimode" | "aux";
 
 export const PROTECTED_TAG_SET = new Set(SELECTORS.safetyGuard.protectedTags);
 
@@ -26,7 +30,7 @@ export const AI_ATTRIBUTION_MARKER_SET = new Set(SELECTORS.tier1.auxiliaryAi.aiA
  * @param text - Raw text (may be null).
  * @returns Normalized text, or "".
  */
-export function normalizeText(text) {
+export function normalizeText(text: string | null | undefined): string {
   if (!text) {
     return "";
   }
@@ -39,7 +43,7 @@ export function normalizeText(text) {
  * @param selector - CSS selector.
  * @returns Match result.
  */
-export function safeMatches(el, selector) {
+export function safeMatches(el: Element, selector: string): boolean {
   try {
     return el.matches(selector);
   } catch {
@@ -54,7 +58,7 @@ export function safeMatches(el, selector) {
  * @param errors - Collector for diagnostics.
  * @returns Matches, or [] on a bad selector so other tiers keep working.
  */
-export function safeQueryAll(root, selector, errors): Element[] {
+export function safeQueryAll(root: ParentNode, selector: string, errors: PolicyError[]): Element[] {
   try {
     return Array.from(root.querySelectorAll(selector));
   } catch (err) {
@@ -72,7 +76,7 @@ export function safeQueryAll(root, selector, errors): Element[] {
  * @param el - Element.
  * @returns e.g. "div#rso".
  */
-export function describeElementSafe(el) {
+export function describeElementSafe(el: Element): string {
   const tag = el.tagName.toLowerCase();
   return el.id ? `${tag}#${el.id}` : tag;
 }
@@ -82,7 +86,7 @@ export function describeElementSafe(el) {
  * @param hash - location.hash.
  * @returns "omnibox", "aimode" or null.
  */
-export function parseRedirectHash(hash) {
+export function parseRedirectHash(hash: string): "omnibox" | "aimode" | null {
   if (hash === "#rm_sg_omnibox") {
     return "omnibox";
   }
@@ -100,7 +104,7 @@ export function parseRedirectHash(hash) {
  * @param doc - Owning document (defaults to el.ownerDocument).
  * @returns true if the element must not be hidden. Query errors are ignored so the remaining checks still run.
  */
-export function isUnsafeToHide(el, doc) {
+export function isUnsafeToHide(el: Element, doc?: Document | null): boolean {
   if (PROTECTED_TAG_SET.has(el.tagName.toUpperCase())) {
     return true;
   }
@@ -148,7 +152,7 @@ export function isUnsafeToHide(el, doc) {
  * @param policy - Effective policy; masterEnabled false removes all three.
  * @returns Nothing. No-op when there is no documentElement yet.
  */
-export function applyPolicyAttributes(doc, policy) {
+export function applyPolicyAttributes(doc: Document, policy: Toggles): void {
   const root = doc.documentElement;
   if (!root) {
     return;
@@ -180,9 +184,9 @@ export function applyPolicyAttributes(doc, policy) {
  * Undo hideElement(): restore the saved inline display and remove marker attributes.
  * @param el - Previously hidden element.
  */
-export function restoreElementVisibility(el) {
+export function restoreElementVisibility(el: Element): void {
   el.removeAttribute("data-rmsg-hidden");
-  const htmlEl = el;
+  const htmlEl = el as HTMLElement;
   if (htmlEl.style) {
     const prevDisplay = el.getAttribute("data-rmsg-prev-display");
     const prevPriority = el.getAttribute("data-rmsg-prev-display-priority") ?? "";
@@ -200,7 +204,7 @@ export function restoreElementVisibility(el) {
  * Restore every element this extension hid (used when masterEnabled turns off).
  * @param doc - Page document.
  */
-export function unhideAllElements(doc) {
+export function unhideAllElements(doc: Document): void {
   const hiddenElements = doc.querySelectorAll("[data-rmsg-hidden]");
   for (const el of hiddenElements) {
     restoreElementVisibility(el);
@@ -212,7 +216,7 @@ export function unhideAllElements(doc) {
  * @param doc - Page document.
  * @param category - "overview" | "aimode" | "aux".
  */
-export function unhideCategoryElements(doc, category) {
+export function unhideCategoryElements(doc: Document, category: HideCategory): void {
   const hiddenElements = doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`);
   for (const el of hiddenElements) {
     restoreElementVisibility(el);
@@ -224,9 +228,9 @@ export function unhideCategoryElements(doc, category) {
  * @param el - Vetted candidate.
  * @param category - Category recorded in data-rmsg-hidden.
  */
-export function hideElement(el, category) {
+export function hideElement(el: Element, category: HideCategory): void {
   el.setAttribute("data-rmsg-hidden", category);
-  const htmlEl = el;
+  const htmlEl = el as HTMLElement;
   if (htmlEl.style) {
     const prevDisplay = htmlEl.style.getPropertyValue("display");
     const prevPriority = htmlEl.style.getPropertyPriority("display");
@@ -245,7 +249,7 @@ export function hideElement(el, category) {
  * @param el - Element.
  * @returns true if hidden.
  */
-export function isAlreadyHidden(el) {
+export function isAlreadyHidden(el: Element): boolean {
   if (el.hasAttribute("data-rmsg-hidden")) {
     return true;
   }
@@ -261,9 +265,15 @@ export function isAlreadyHidden(el) {
  * @param reportedUnsafe - Elements already reported this sweep.
  * @returns Number of elements newly hidden.
  */
-export function processCategoryCandidates(candidates, category, doc, errors, reportedUnsafe) {
+export function processCategoryCandidates(
+  candidates: Element[],
+  category: HideCategory,
+  doc: Document,
+  errors: PolicyError[],
+  reportedUnsafe: Set<Element>
+): number {
   const uniqueCandidates = Array.from(new Set(candidates));
-  const safeCandidates = [];
+  const safeCandidates: Element[] = [];
   for (const candidate of uniqueCandidates) {
     if (isAlreadyHidden(candidate)) {
       continue;
@@ -301,7 +311,7 @@ export function processCategoryCandidates(candidates, category, doc, errors, rep
  * @returns The nearest container-ancestor match, else the parent if safe, else the heading.
  * Stops at the first unsafe ancestor (see BP-08 for the data-hveid concern).
  */
-export function findOverviewHeadingContainer(headingEl, doc) {
+export function findOverviewHeadingContainer(headingEl: Element, doc: Document): Element {
   let cursor = headingEl.parentElement;
   while (cursor) {
     if (safeMatches(cursor, CONTAINER_ANCESTOR_COMBINED)) {
@@ -327,8 +337,8 @@ export function findOverviewHeadingContainer(headingEl, doc) {
  * @param errors - Collector for selector errors.
  * @returns Candidate elements (unvetted).
  */
-export function collectAiOverviewCandidates(doc, errors) {
-  const candidates = [];
+export function collectAiOverviewCandidates(doc: Document, errors: PolicyError[]): Element[] {
+  const candidates: Element[] = [];
   for (const selector of SELECTORS.tier1.aiOverviews.directSelectors) {
     candidates.push(...safeQueryAll(doc, selector, errors));
   }
@@ -350,7 +360,7 @@ export function collectAiOverviewCandidates(doc, errors) {
  * @param doc - Page document.
  * @returns Element to hide.
  */
-export function promoteAiModeTarget(el, doc) {
+export function promoteAiModeTarget(el: Element, doc: Document): Element {
   const navItem = el.closest(SELECTORS.tier1.aiModeUi.navItemAncestor);
   if (navItem && !isUnsafeToHide(navItem, doc)) {
     return navItem;
@@ -370,8 +380,8 @@ export function promoteAiModeTarget(el, doc) {
  * @param errors - Collector for selector errors.
  * @returns Candidate elements (unvetted).
  */
-export function collectAiModeUiCandidates(doc, errors) {
-  const candidates = [];
+export function collectAiModeUiCandidates(doc: Document, errors: PolicyError[]): Element[] {
+  const candidates: Element[] = [];
   const directSelectors = [
     ...SELECTORS.tier1.aiModeUi.directSelectors,
     // FRAGILE(google-dom, last verified NONE, see test L-07): bare google.com host variant of the /ai link selector.
@@ -403,7 +413,7 @@ export function collectAiModeUiCandidates(doc, errors) {
  * @param card - Card element.
  * @returns true if an aria-label or leaf text exactly matches an attribution marker.
  */
-export function hasAiAttributionBadge(card) {
+export function hasAiAttributionBadge(card: Element): boolean {
   const ariaLabel = normalizeText(card.getAttribute("aria-label"));
   if (ariaLabel && AI_ATTRIBUTION_MARKER_SET.has(ariaLabel)) {
     return true;
@@ -430,8 +440,8 @@ export function hasAiAttributionBadge(card) {
  * @param errors - Collector for selector errors.
  * @returns Candidate elements (unvetted).
  */
-export function collectAuxAiCandidates(doc, errors) {
-  const candidates = [];
+export function collectAuxAiCandidates(doc: Document, errors: PolicyError[]): Element[] {
+  const candidates: Element[] = [];
   for (const selector of SELECTORS.tier1.auxiliaryAi.directSelectors) {
     candidates.push(...safeQueryAll(doc, selector, errors));
   }
@@ -456,14 +466,19 @@ export function collectAuxAiCandidates(doc, errors) {
  * @param pageKey - Opaque page key; defaults to location.href (kept local, never sent).
  * @returns { deltas, errors } for the caller to report.
  */
-export function sweepDom(doc, policy, seenOverviewUrls, pageKey) {
+export function sweepDom(
+  doc: Document,
+  policy: Toggles,
+  seenOverviewUrls: Set<string>,
+  pageKey?: string
+): { deltas: Record<string, number>; errors: PolicyError[] } {
   const deltas: Record<string, number> = {};
-  const errors = [];
+  const errors: PolicyError[] = [];
   if (!policy.masterEnabled) {
     return { deltas, errors };
   }
   const resolvedPageKey = pageKey ?? (doc.location && doc.location.href ? doc.location.href : "default");
-  const reportedUnsafe = /* @__PURE__ */ new Set();
+  const reportedUnsafe = /* @__PURE__ */ new Set<Element>();
   if (policy.hideAiOverviews) {
     const overviewCandidates = collectAiOverviewCandidates(doc, errors);
     const hiddenOverviews = processCategoryCandidates(

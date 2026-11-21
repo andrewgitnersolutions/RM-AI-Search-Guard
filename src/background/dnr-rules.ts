@@ -8,17 +8,21 @@
  */
 
 import { enqueueStorageOp } from "../shared/storage";
+import type { Toggles } from "../shared/types";
+
+type Rule = chrome.declarativeNetRequest.Rule;
+type QueryTransform = chrome.declarativeNetRequest.QueryTransform;
 
 /**
  * Every dynamic rule ID this extension owns; all are removed before each re-sync.
  */
 export const ALL_MANAGED_RULE_IDS = [101, 102, 110, 111, 120, 130];
 
-export const ACTION_REDIRECT = "redirect";
+export const ACTION_REDIRECT = "redirect" as chrome.declarativeNetRequest.RuleActionType.REDIRECT;
 
-export const ACTION_ALLOW = "allow";
+export const ACTION_ALLOW = "allow" as chrome.declarativeNetRequest.RuleActionType.ALLOW;
 
-export const RESOURCE_MAIN_FRAME = "main_frame";
+export const RESOURCE_MAIN_FRAME = "main_frame" as chrome.declarativeNetRequest.ResourceType.MAIN_FRAME;
 
 // FRAGILE(google-dom, last verified NONE, see test L-07): udm=14 (Web-only results) and AI Mode session params aep, arv, mstk, csuir.
 /**
@@ -26,7 +30,7 @@ export const RESOURCE_MAIN_FRAME = "main_frame";
  * @param forceWebOnlySearch - true replaces udm with 14; false removes udm.
  * @returns DNR queryTransform that also strips AI Mode session params.
  */
-export function createAiModeQueryTransform(forceWebOnlySearch) {
+export function createAiModeQueryTransform(forceWebOnlySearch: boolean): QueryTransform {
   if (forceWebOnlySearch) {
     return {
       addOrReplaceParams: [{ key: "udm", value: "14" }],
@@ -47,11 +51,11 @@ export function createAiModeQueryTransform(forceWebOnlySearch) {
  * @param policy - Effective policy.
  * @returns Rule list; [] when masterEnabled is false.
  */
-export function buildDynamicRules(policy) {
+export function buildDynamicRules(policy: Toggles): Rule[] {
   if (!policy.masterEnabled) {
     return [];
   }
-  const rules = [];
+  const rules: Rule[] = [];
   if (policy.blockAiModeNavigation) {
     rules.push({
       id: 101,
@@ -159,7 +163,7 @@ export function buildDynamicRules(policy) {
  * @returns { activeRuleCount, error? }. Never throws; on failure error is set and the caller logs
  * ERR_DNR_SYNC_FAILED (rules Chrome already had stay in place).
  */
-export async function syncDynamicRules(policy) {
+export async function syncDynamicRules(policy: Toggles): Promise<{ activeRuleCount: number; error?: string }> {
   return enqueueStorageOp(async () => {
     try {
       const existingRules = await chrome.declarativeNetRequest.getDynamicRules();

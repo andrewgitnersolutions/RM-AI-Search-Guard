@@ -11,6 +11,7 @@ import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS, createInitialTele
 import { getTodayDateBucket } from "../shared/errors";
 import { parsePolicy } from "../shared/policy";
 import { mountPolicyGenerator } from "./policy-generator-core";
+import type { DiagnosticEntry, DiagnosticSnapshot, RawRecord, TelemetryState, ToggleKey } from "../shared/types";
 
 // Reset needs a second click within this window.
 const RESET_CONFIRM_WINDOW_MS = 1e4;
@@ -20,7 +21,7 @@ const RESET_CONFIRM_WINDOW_MS = 1e4;
  * @param entries - Diagnostic entries.
  * @returns New sorted array.
  */
-function sortDiagnosticEntries(entries) {
+function sortDiagnosticEntries(entries: DiagnosticEntry[]): DiagnosticEntry[] {
   return [...entries].sort((a, b) => {
     if (a.severity !== b.severity) {
       return a.severity === "error" ? -1 : 1;
@@ -40,7 +41,7 @@ function sortDiagnosticEntries(entries) {
  * @param snapshot - Diagnostic snapshot.
  * @returns Report object.
  */
-function buildZeroPiiDiagnosticBundle(snapshot) {
+function buildZeroPiiDiagnosticBundle(snapshot: DiagnosticSnapshot) {
   const { policy, telemetry } = snapshot;
   return {
     schemaVersion: 1,
@@ -71,7 +72,7 @@ function buildZeroPiiDiagnosticBundle(snapshot) {
  * @param value - Cell value.
  * @returns Escaped cell text.
  */
-function escapeCsvCell(value) {
+function escapeCsvCell(value: unknown): string {
   const str = String(value);
   if (/[",\r\n]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
@@ -84,7 +85,7 @@ function escapeCsvCell(value) {
  * @param snapshot - Diagnostic snapshot.
  * @returns CSV text.
  */
-function buildMetricsCsv(snapshot) {
+function buildMetricsCsv(snapshot: DiagnosticSnapshot): string {
   const header = [
     "RowType",
     "DateBucket",
@@ -117,7 +118,7 @@ function buildMetricsCsv(snapshot) {
  * @param text - Text to copy.
  * @returns true if copied.
  */
-async function copyText(text) {
+async function copyText(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -148,7 +149,7 @@ async function copyText(text) {
  * @param content - File contents.
  * @param mimeType - MIME type.
  */
-function downloadFile(filename, content, mimeType) {
+function downloadFile(filename: string, content: string, mimeType: string): void {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -167,21 +168,21 @@ function downloadFile(filename, content, mimeType) {
  * Get the diagnostic snapshot from the service worker, or build one from storage if it doesn't answer.
  * @returns Snapshot; activeRuleCount is 0 in the fallback.
  */
-async function fetchDiagnosticSnapshot() {
+async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
     try {
       const response = await chrome.runtime.sendMessage({
         type: "GET_DIAGNOSTIC_SNAPSHOT"
-      });
+      }) as Partial<DiagnosticSnapshot> | null;
       if (response && response.policy && response.telemetry) {
-        return response;
+        return response as DiagnosticSnapshot;
       }
     } catch {
     }
   }
-  let managedRaw = null;
-  let localRaw = null;
-  let telemetry = createInitialTelemetryState();
+  let managedRaw: RawRecord | null = null;
+  let localRaw: RawRecord | null = null;
+  let telemetry: TelemetryState = createInitialTelemetryState();
   if (typeof chrome !== "undefined" && chrome.storage?.managed?.get) {
     try {
       managedRaw = await chrome.storage.managed.get(null);
@@ -195,7 +196,7 @@ async function fetchDiagnosticSnapshot() {
         STORAGE_KEYS.LOCAL_OVERRIDES,
         STORAGE_KEYS.TELEMETRY
       ]);
-      localRaw = localData[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null;
+      localRaw = (localData[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null) as RawRecord | null;
       if (localData[STORAGE_KEYS.TELEMETRY]) {
         telemetry = localData[STORAGE_KEYS.TELEMETRY] as typeof telemetry;
       }
@@ -224,7 +225,7 @@ function setupAccessibleTabs() {
   if (tabs.length === 0 || tabs.length !== panels.length) {
     return;
   }
-  function activateTab(index, moveFocus) {
+  function activateTab(index: number, moveFocus: boolean): void {
     const safeIndex = (index % tabs.length + tabs.length) % tabs.length;
     for (let i = 0; i < tabs.length; i += 1) {
       const isSelected = i === safeIndex;
@@ -287,7 +288,7 @@ async function bootOptionsPage() {
   }
   setupAccessibleTabs();
   const globalAnnouncer = document.getElementById("global-announcer");
-  const announce = (message) => {
+  const announce = (message: string) => {
     if (!globalAnnouncer) return;
     globalAnnouncer.textContent = "";
     globalAnnouncer.textContent = message;
@@ -295,7 +296,7 @@ async function bootOptionsPage() {
   const generatorRoot = document.getElementById("options-policy-generator-root");
   if (generatorRoot) {
     mountPolicyGenerator(generatorRoot, {
-      onStatus: (msg) => announce(msg)
+      onStatus: (msg: string) => announce(msg)
     });
   }
   const versionBadge = document.getElementById("ext-version-badge");
@@ -309,9 +310,9 @@ async function bootOptionsPage() {
   const togglesSubtitle = document.getElementById("toggles-subtitle");
   const statusSaveFeedback = document.getElementById("status-save-feedback");
   const lockBadges = Array.from(document.querySelectorAll<HTMLElement>("[data-lock-badge]"));
-  const toggleInputs = {};
+  const toggleInputs = {} as Record<ToggleKey, HTMLInputElement | null>;
   for (const key of FEATURE_TOGGLE_KEYS) {
-    toggleInputs[key] = document.getElementById(`toggle-${key}`);
+    toggleInputs[key] = document.getElementById(`toggle-${key}`) as HTMLInputElement | null;
   }
   const metricEls = {
     overviewsHidden: document.getElementById("metric-overviewsHidden"),
@@ -329,16 +330,16 @@ async function bootOptionsPage() {
   const cancelResetBtn = document.getElementById("btn-cancel-reset");
   const diagActionStatus = document.getElementById("diag-action-status");
   const diagTableBody = document.getElementById("diag-table-body");
-  let currentSnapshot = null;
+  let currentSnapshot: DiagnosticSnapshot | null = null;
   let resetArmed = false;
-  let resetArmTimer = null;
-  function setStatusFeedback(message, isError = false) {
+  let resetArmTimer: number | null = null;
+  function setStatusFeedback(message: string, isError = false) {
     if (!statusSaveFeedback) return;
     statusSaveFeedback.textContent = message;
     statusSaveFeedback.classList.toggle("status-line-error", isError);
     announce(message);
   }
-  function setDiagFeedback(message, isError = false) {
+  function setDiagFeedback(message: string, isError = false) {
     if (!diagActionStatus) return;
     diagActionStatus.textContent = message;
     diagActionStatus.classList.toggle("status-line-error", isError);
@@ -359,7 +360,7 @@ async function bootOptionsPage() {
       cancelResetBtn.hidden = true;
     }
   }
-  function renderDiagnosticTable(entries) {
+  function renderDiagnosticTable(entries: DiagnosticEntry[]): void {
     if (!diagTableBody) return;
     diagTableBody.replaceChildren();
     const sorted = sortDiagnosticEntries(entries);
@@ -400,7 +401,7 @@ async function bootOptionsPage() {
       diagTableBody.append(tr);
     }
   }
-  function renderSnapshot(snapshot) {
+  function renderSnapshot(snapshot: DiagnosticSnapshot): void {
     currentSnapshot = snapshot;
     const { policy, telemetry } = snapshot;
     if (versionBadge) {
@@ -487,7 +488,7 @@ async function bootOptionsPage() {
     const snapshot = await fetchDiagnosticSnapshot();
     renderSnapshot(snapshot);
   }
-  async function persistLocalOverride(partial) {
+  async function persistLocalOverride(partial: RawRecord): Promise<void> {
     if (currentSnapshot?.policy.isManaged) {
       setStatusFeedback("Policy is locked by Google Admin Console and cannot be changed locally.", true);
       return;
@@ -513,7 +514,7 @@ async function bootOptionsPage() {
   if (gradeBandSelect) {
     gradeBandSelect.addEventListener("change", () => {
       const value = gradeBandSelect.value;
-      if (VALID_GRADE_BANDS.includes(value)) {
+      if ((VALID_GRADE_BANDS as readonly string[]).includes(value)) {
         void persistLocalOverride({ gradeBand: value });
       }
     });

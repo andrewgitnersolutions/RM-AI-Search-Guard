@@ -1,7 +1,10 @@
 // G-01: Phase 0a code-equivalence gate (docs/07 §5). The rebuilt build/ must match the original
-// dist/ snapshot in baseline-dist/ once comments and whitespace are stripped: JS via esbuild's
-// whitespace-only minifier, CSS and HTML by removing comments and whitespace, JSON and icons
-// byte for byte. Skipped when baseline-dist/ is absent (it is kept only until the gate passes).
+// dist/ snapshot in baseline-dist/ once comments and insignificant whitespace are stripped:
+// JS and CSS via esbuild's whitespace-only minifier (syntax-aware, so `.a .b` and `.a.b` stay
+// different), HTML by removing comments and collapsing each whitespace run to one space (the
+// way HTML renders it; the extension's pages have no <pre> or whitespace-sensitive attributes),
+// JSON and icons byte for byte. Skipped when baseline-dist/ is absent (it is kept only until
+// the gate passes).
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -25,8 +28,8 @@ function listFiles(dir, base = dir) {
 function canonical(rel, buf) {
   const text = buf.toString("utf8");
   if (rel.endsWith(".js")) return transformSync(text, { loader: "js", minifyWhitespace: true }).code;
-  if (rel.endsWith(".css")) return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, "");
-  if (rel.endsWith(".html")) return text.replace(/<!--[\s\S]*?-->/g, "").replace(/\s+/g, "");
+  if (rel.endsWith(".css")) return transformSync(text, { loader: "css", minifyWhitespace: true }).code;
+  if (rel.endsWith(".html")) return text.replace(/<!--[\s\S]*?-->/g, "").replace(/\s+/g, " ").trim();
   return buf.toString("base64");
 }
 

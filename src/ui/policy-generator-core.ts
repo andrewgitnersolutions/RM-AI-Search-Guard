@@ -8,12 +8,25 @@
 
 import { FEATURE_TOGGLE_KEYS, GRADE_BAND_PRESETS } from "../shared/defaults";
 import { formatAdminConsolePolicyJson, validatePolicyDraft } from "../shared/policy";
+import type { GradeBand, ToggleKey, Toggles } from "../shared/types";
 
-export const PRIMARY_BANDS = ["K-2", "3-5", "6-8", "9-12"];
+/** A grade band that has a generator card (every band but "Unassigned"). */
+export type PresetBand = Exclude<GradeBand, "Unassigned">;
 
-export const ALL_BANDS = ["K-2", "3-5", "6-8", "9-12", "Staff"];
+/** DOM nodes of one band card that renderBandCard() updates. */
+interface BandCardRefs {
+  article: HTMLElement;
+  reminder: HTMLElement;
+  codeEl: HTMLElement;
+  toggleInputs: Record<ToggleKey, HTMLInputElement>;
+  toggleItems: Record<ToggleKey, HTMLElement>;
+}
 
-export const TOGGLE_LABELS = {
+export const PRIMARY_BANDS: PresetBand[] = ["K-2", "3-5", "6-8", "9-12"];
+
+export const ALL_BANDS: PresetBand[] = ["K-2", "3-5", "6-8", "9-12", "Staff"];
+
+export const TOGGLE_LABELS: Record<ToggleKey, string> = {
   masterEnabled: "Master Protection Switch",
   hideAiOverviews: "Hide AI Overviews",
   hideAiModeUi: "Hide AI Mode Buttons & Tabs",
@@ -31,7 +44,7 @@ export let mountInstanceCounter = 0;
  * Copy the recommended presets into editable per-band state.
  * @returns Map of band → { toggles }.
  */
-export function createDefaultBandStates() {
+export function createDefaultBandStates(): Record<PresetBand, Toggles> {
   return {
     "K-2": { ...GRADE_BAND_PRESETS["K-2"].toggles },
     "3-5": { ...GRADE_BAND_PRESETS["3-5"].toggles },
@@ -47,7 +60,7 @@ export function createDefaultBandStates() {
  * @param toggles - Feature toggles.
  * @returns Pretty-printed JSON string.
  */
-export function buildBandAdminJsonString(gradeBand, toggles) {
+export function buildBandAdminJsonString(gradeBand: string, toggles: Toggles): string {
   const payload = formatAdminConsolePolicyJson({
     gradeBand,
     ...toggles
@@ -60,7 +73,7 @@ export function buildBandAdminJsonString(gradeBand, toggles) {
  * @param text - Text to copy.
  * @returns true if copied.
  */
-export async function copyTextToClipboard(text) {
+export async function copyTextToClipboard(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -94,7 +107,7 @@ export async function copyTextToClipboard(text) {
  * @param content - File contents.
  * @param mimeType - MIME type.
  */
-export function triggerFileDownload(filename, content, mimeType = "application/json") {
+export function triggerFileDownload(filename: string, content: string, mimeType: string = "application/json"): void {
   if (typeof document === "undefined" || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
     return;
   }
@@ -118,7 +131,7 @@ export function triggerFileDownload(filename, content, mimeType = "application/j
  * @param errorId - Error element ID.
  * @param shown - Whether the error is visible.
  */
-export function syncFieldErrorLink(input, errorId, shown) {
+export function syncFieldErrorLink(input: Element, errorId: string, shown: boolean): void {
   const existing = (input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((id) => id.length > 0 && id !== errorId);
   if (shown) {
     existing.push(errorId);
@@ -136,7 +149,7 @@ export function syncFieldErrorLink(input, errorId, shown) {
  * @param options - Optional callbacks (onStatus).
  * A draft that fails validation is still copied, with a warning in the status line.
  */
-export function mountPolicyGenerator(container, options) {
+export function mountPolicyGenerator(container: HTMLElement, options?: { onStatus?: (message: string) => void }): void {
   mountInstanceCounter += 1;
   const idPrefix = `rm-pg-${mountInstanceCounter}`;
   let bandStates = createDefaultBandStates();
@@ -191,14 +204,14 @@ export function mountPolicyGenerator(container, options) {
   statusLine.setAttribute("role", "status");
   statusLine.setAttribute("aria-live", "polite");
   root.append(statusLine);
-  const setStatus = (message, isError = false) => {
+  const setStatus = (message: string, isError = false) => {
     statusLine.textContent = message;
     statusLine.classList.toggle("status-line-error", isError);
     options?.onStatus?.(message);
   };
   const matrix = document.createElement("div");
   matrix.className = "pg-matrix";
-  const cardRefs: Record<string, any> = {};
+  const cardRefs = {} as Record<PresetBand, BandCardRefs>;
   for (const band of ALL_BANDS) {
     const preset = GRADE_BAND_PRESETS[band];
     const article = document.createElement("article");
@@ -230,8 +243,8 @@ export function mountPolicyGenerator(container, options) {
     );
     const togglesContainer = document.createElement("div");
     togglesContainer.className = "band-toggles";
-    const toggleInputs = {};
-    const toggleItems = {};
+    const toggleInputs = {} as Record<ToggleKey, HTMLInputElement>;
+    const toggleItems = {} as Record<ToggleKey, HTMLElement>;
     for (const key of FEATURE_TOGGLE_KEYS) {
       const item = document.createElement("div");
       item.className = "band-toggle-item";
@@ -312,7 +325,7 @@ export function mountPolicyGenerator(container, options) {
   }
   root.append(matrix);
   container.append(root);
-  function renderBandCard(band) {
+  function renderBandCard(band: PresetBand): void {
     const refs = cardRefs[band];
     const toggles = bandStates[band];
     for (const key of FEATURE_TOGGLE_KEYS) {

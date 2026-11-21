@@ -8,6 +8,7 @@
 
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS } from "../shared/defaults";
 import { parsePolicy } from "../shared/policy";
+import type { EffectivePolicy, RawRecord } from "../shared/types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -16,8 +17,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * @param className - Class for the <svg>.
  * @returns SVG element.
  */
-function createShieldIcon(className) {
-  const svg = document.createElementNS(SVG_NS, "svg");
+function createShieldIcon(className: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
   svg.setAttribute("class", className);
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("width", "18");
@@ -41,7 +42,7 @@ function createShieldIcon(className) {
  * @param policy - Effective policy.
  * @returns Number of the five feature toggles that are on.
  */
-function countActiveProtections(policy) {
+function countActiveProtections(policy: EffectivePolicy): number {
   if (!policy.masterEnabled) {
     return 0;
   }
@@ -69,7 +70,7 @@ async function openOptionsPageSafe() {
  * @param policy - Effective policy.
  * @param onOpenOptions - Click handler for the Options link.
  */
-function renderPopup(root, policy, onOpenOptions) {
+function renderPopup(root: HTMLElement, policy: EffectivePolicy, onOpenOptions?: () => void): void {
   root.replaceChildren();
   if (policy.isManaged) {
     const notice = document.createElement("div");
@@ -115,7 +116,7 @@ function renderPopup(root, policy, onOpenOptions) {
  * Resolve the policy to display: managed storage, then the service worker, then local overrides.
  * @returns Effective policy. With no managed keys this shows the unmanaged view (BP-01).
  */
-async function resolvePopupPolicy() {
+async function resolvePopupPolicy(): Promise<EffectivePolicy> {
   if (typeof chrome !== "undefined" && chrome.storage?.managed?.get) {
     try {
       const managedRaw = await chrome.storage.managed.get(null);
@@ -129,9 +130,9 @@ async function resolvePopupPolicy() {
     try {
       const response = await chrome.runtime.sendMessage({
         type: "GET_EFFECTIVE_POLICY"
-      });
+      }) as Partial<EffectivePolicy> | null;
       if (response && typeof response.isManaged === "boolean") {
-        return response;
+        return response as EffectivePolicy;
       }
     } catch {
     }
@@ -139,7 +140,7 @@ async function resolvePopupPolicy() {
   if (typeof chrome !== "undefined" && chrome.storage?.local?.get) {
     try {
       const localResult = await chrome.storage.local.get(STORAGE_KEYS.LOCAL_OVERRIDES);
-      const localRaw = localResult[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null;
+      const localRaw = (localResult[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null) as RawRecord | null;
       return parsePolicy(null, localRaw).policy;
     } catch {
     }

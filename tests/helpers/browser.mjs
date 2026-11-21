@@ -25,6 +25,9 @@ function fixtureFor(url) {
 
 /**
  * Launch Chromium with one target build loaded as an unpacked extension.
+ * Fails closed on setup errors: if launch or the DNR readiness wait throws, the browser is
+ * closed and the temporary profile removed before rethrowing, so a failed test can't leak a
+ * Chromium process or profile folder.
  * @param {{ dir: string }} target - Build folder.
  * @returns {Promise<object>} { context, sw, extensionId, requests, close }
  */
@@ -33,37 +36,46 @@ export async function launchWithExtension(target) {
   // RM_CHROMIUM_PATH points at a local Chromium / Chrome for Testing build (>= 134) when
   // Playwright's own download isn't available. Branded Chrome can't load unpacked extensions.
   const executablePath = process.env.RM_CHROMIUM_PATH || undefined;
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    ...(executablePath ? { executablePath } : { channel: "chromium" }),
-    headless: true,
-    args: [`--disable-extensions-except=${target.dir}`, `--load-extension=${target.dir}`],
-  });
-  const requests = [];
-  // Registered first so it has the lowest precedence: any other web request is aborted.
-  // chrome-extension:// URLs also pass through routing, so they must be left alone.
-  await context.route((url) => url.protocol === "http:" || url.protocol === "https:", (route) => route.abort());
-  await context.route(/^https:\/\/(www\.)?google\.com\//, (route) => {
-    const url = new URL(route.request().url());
-    requests.push(url.href);
-    const file = fixtureFor(url);
-    if (!file) return route.fulfill({ status: 404, body: "" });
-    return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: readFileSync(path.join(FIXTURES, file), "utf8") });
-  });
-  let [sw] = context.serviceWorkers();
-  if (!sw) sw = await context.waitForEvent("serviceworker");
-  const extensionId = new URL(sw.url()).host;
-  // Wait for onInstalled to finish installing the DNR rules before any navigation.
-  await waitFor(async () => (await sw.evaluate(() => chrome.declarativeNetRequest.getDynamicRules())).length > 0);
-  return {
-    context,
-    sw,
-    extensionId,
-    requests,
-    async close() {
-      await context.close();
-      rmSync(userDataDir, { recursive: true, force: true });
-    },
-  };
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(userDataDir, {
+      ...(executablePath ? { executablePath } : { channel: "chromium" }),
+      headless: true,
+      args: [`--disable-extensions-except=${target.dir}`, `--load-extension=${target.dir}`],
+    });
+    const requests = [];
+    // Registered first so it has the lowest precedence: any other web request is aborted.
+    // chrome-extension:// URLs also pass through routing, so they must be left alone.
+    await context.route((url) => url.protocol === "http:" || url.protocol === "https:", (route) => route.abort());
+    await context.route(/^https:\/\/(www\.)?google\.com\//, (route) => {
+      const url = new URL(route.request().url());
+      requests.push(url.href);
+      const file = fixtureFor(url);
+      if (!file) return route.fulfill({ status: 404, body: "" });
+      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: readFileSync(path.join(FIXTURES, file), "utf8") });
+    });
+    let [sw] = context.serviceWorkers();
+    if (!sw) sw = await context.waitForEvent("serviceworker");
+    const extensionId = new URL(sw.url()).host;
+    // Wait for onInstalled to finish installing the DNR rules before any navigation. A cold
+    // profile on a slow machine can take more than 5 s, so this wait gets a longer limit.
+    await waitFor(async () => (await sw.evaluate(() => chrome.declarativeNetRequest.getDynamicRules())).length > 0, 20000);
+    const ctx = context;
+    return {
+      context: ctx,
+      sw,
+      extensionId,
+      requests,
+      async close() {
+        await ctx.close();
+        rmSync(userDataDir, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    await context?.close().catch(() => {});
+    rmSync(userDataDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /**

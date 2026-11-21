@@ -12,12 +12,13 @@ import { getTodayDateBucket } from "../shared/errors";
 import { parsePolicy } from "../shared/policy";
 import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, writeLocalOverrides } from "../shared/storage";
 import { syncDynamicRules } from "./dnr-rules";
+import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, RawRecord } from "../shared/types";
 
 /**
  * Read the extension version from the manifest.
  * @returns Version string, or "1.0.0" outside Chrome.
  */
-function getExtensionVersion() {
+function getExtensionVersion(): string {
   if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
     return chrome.runtime.getManifest().version;
   }
@@ -29,14 +30,14 @@ function getExtensionVersion() {
  * @param raw - Untrusted message payload.
  * @returns Clean override object.
  */
-function sanitizeLocalOverridesInput(raw) {
+function sanitizeLocalOverridesInput(raw: RawRecord): RawRecord {
   const clean: Record<string, unknown> = {};
   for (const key of FEATURE_TOGGLE_KEYS) {
     if (typeof raw[key] === "boolean") {
       clean[key] = raw[key];
     }
   }
-  if (typeof raw.gradeBand === "string" && VALID_GRADE_BANDS.includes(raw.gradeBand)) {
+  if (typeof raw.gradeBand === "string" && (VALID_GRADE_BANDS as readonly string[]).includes(raw.gradeBand)) {
     clean.gradeBand = raw.gradeBand;
   }
   return clean;
@@ -46,7 +47,7 @@ function sanitizeLocalOverridesInput(raw) {
  * Count the dynamic DNR rules Chrome currently has.
  * @returns Rule count; 0 if the API is missing or fails (display only).
  */
-async function getActiveDynamicRuleCount() {
+async function getActiveDynamicRuleCount(): Promise<number> {
   if (typeof chrome === "undefined" || !chrome.declarativeNetRequest?.getDynamicRules) {
     return 0;
   }
@@ -82,7 +83,7 @@ async function resolvePolicyFromStorage() {
  * @param options - recordPolicyDiagnostics: log policy warnings and errors.
  * @returns { policy, activeRuleCount }. DNR failures are logged as ERR_DNR_SYNC_FAILED, not thrown.
  */
-async function syncRuntimeState(options) {
+async function syncRuntimeState(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
   const { policy, errors } = await resolvePolicyFromStorage();
   if (options.recordPolicyDiagnostics) {
     for (const err of errors) {
@@ -102,14 +103,14 @@ async function syncRuntimeState(options) {
  * @param message - { type, ... }.
  * @returns The response for that type, or undefined for unknown types. Errors propagate to the onMessage wrapper.
  */
-async function handleRuntimeMessage(message) {
+async function handleRuntimeMessage(message: RawRecord): Promise<unknown> {
   switch (message.type) {
     case "GET_EFFECTIVE_POLICY": {
       const { policy } = await resolvePolicyFromStorage();
       return policy;
     }
     case "INCREMENT_METRICS": {
-      await incrementTelemetryMetrics(message.deltas);
+      await incrementTelemetryMetrics(message.deltas as RawRecord);
       return { ok: true };
     }
     case "RECORD_REDIRECT": {
@@ -130,7 +131,7 @@ async function handleRuntimeMessage(message) {
       return { ok: true };
     }
     case "LOG_DIAGNOSTIC": {
-      await recordDiagnosticEntry(message.code, message.detail ?? "");
+      await recordDiagnosticEntry(message.code as ErrorCode, (message.detail ?? "") as string);
       return { ok: true };
     }
     case "GET_DIAGNOSTIC_SNAPSHOT": {
@@ -139,7 +140,7 @@ async function handleRuntimeMessage(message) {
         readTelemetryState(),
         getActiveDynamicRuleCount()
       ]);
-      const snapshot = {
+      const snapshot: DiagnosticSnapshot = {
         policy,
         telemetry,
         activeRuleCount,
@@ -156,7 +157,7 @@ async function handleRuntimeMessage(message) {
       const existingLocalRes = await readLocalOverrides();
       const merged = {
         ...existingLocalRes.data ?? {},
-        ...sanitizeLocalOverridesInput(message.toggles)
+        ...sanitizeLocalOverridesInput(message.toggles as RawRecord)
       };
       await writeLocalOverrides(merged);
       const { policy: updatedPolicy } = await syncRuntimeState({

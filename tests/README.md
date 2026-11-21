@@ -37,7 +37,7 @@ be empty after Phase 4.
 
 | Variable | Meaning |
 |---|---|
-| `RM_TARGETS` | Comma list of folders to test (default `build`). The gate uses `baseline-dist,build`. |
+| `RM_TARGETS` | Comma list of folders to test (default `build` when unset; set but empty is an error). The gate uses `baseline-dist,build`. |
 | `RM_PRE_PROMOTE=1` | Skip S-02b (dist/ equals a clean build), which can only pass after `npm run promote`. |
 | `RM_IGNORE_FIELDS` | Object keys dropped before comparing targets. Used only when comparing builds whose allowed differences are whole fields (Phase 0b: the D6 analytics fields). |
 | `RM_ALLOWED_DIFF` | Test IDs whose cross-target difference is reported as TODO instead of failing; the newest target must still pass on its own. Every ID needs a reason in the commit message. |

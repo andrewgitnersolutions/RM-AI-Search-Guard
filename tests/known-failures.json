@@ -66,12 +66,32 @@
       "phase": 2,
       "message": "AssertionError: cleanAiModeUrl is not implemented\n+ actual - expected\n\n+ 'undefined'\n- 'function'\n"
     },
-    "U-12": {
+    "U-12a": {
       "bp": "BP-13",
       "phase": 2,
       "message": "AssertionError: SET_LOCAL_OVERRIDES from a google.com tab must be refused\n+ actual - expected\n\n+ undefined\n- false\n"
     },
-    "U-14": {
+    "U-12b": {
+      "bp": "BP-13",
+      "phase": 2,
+      "message": "AssertionError: RESET_LOCAL_METRICS from a google.com tab must be refused\n+ actual - expected\n\n+ undefined\n- false\n"
+    },
+    "U-12c": {
+      "bp": "BP-13",
+      "phase": 2,
+      "message": "AssertionError: GET_DIAGNOSTIC_SNAPSHOT from a google.com tab must be refused\n+ actual - expected\n\n+ undefined\n- false\n"
+    },
+    "U-12e": {
+      "bp": "BP-13",
+      "phase": 2,
+      "message": "AssertionError: Expected values to be strictly equal:\n+ actual - expected\n\n+ \"Cannot read properties of undefined (reading 'severity')\"\n- 'bad_message'\n"
+    },
+    "U-12f": {
+      "bp": "BP-13",
+      "phase": 2,
+      "message": "AssertionError: Expected values to be strictly equal:\n+ actual - expected\n\n+ \"Cannot read properties of undefined (reading 'overviewsHidden')\"\n- 'bad_message'\n"
+    },
+    "U-14a": {
       "bp": "BP-07",
       "phase": 2,
       "message": "AssertionError: reset must be refused when locked\n+ actual - expected\n\n+ undefined\n- false\n"

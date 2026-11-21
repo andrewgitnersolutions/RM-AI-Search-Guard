@@ -5,6 +5,8 @@
  * Shared with: shared/storage.ts (diagnostic log), background/service-worker.ts, ui/options.ts.
  */
 
+import type { CatalogEntry, DiagnosticEntry, ErrorCode } from "./types";
+
 export const ALL_ERROR_CODES = [
   "ERR_POLICY_INVALID",
   "ERR_DNR_SYNC_FAILED",
@@ -13,7 +15,7 @@ export const ALL_ERROR_CODES = [
   "ERR_STORAGE_FAILURE",
   "WARN_NO_MANAGED_POLICY",
   "WARN_OMNIBOX_POLICY_MISSING"
-];
+] as const;
 
 export const ERROR_CATALOG = {
   ERR_POLICY_INVALID: {
@@ -66,8 +68,8 @@ export const ERROR_CATALOG = {
  * @param detail - Free-text detail; whitespace is collapsed and it is cut to 240 chars.
  * @returns Remediation text for IT.
  */
-export function formatRemediation(code, detail) {
-  const entry = ERROR_CATALOG[code];
+export function formatRemediation(code: ErrorCode, detail: unknown): string {
+  const entry: CatalogEntry = ERROR_CATALOG[code];
   const sanitizedDetail = typeof detail === "string" && detail.trim().length > 0 ? detail.trim().replace(/\s+/g, " ").slice(0, 240) : "unspecified";
   return entry.remediationTemplate.replace("{detail}", sanitizedDetail);
 }
@@ -77,7 +79,7 @@ export function formatRemediation(code, detail) {
  * @param now - Time to bucket; defaults to now.
  * @returns Date string. Day-level only, so no precise timestamp is ever stored or sent.
  */
-export function getTodayDateBucket(now = /* @__PURE__ */ new Date()) {
+export function getTodayDateBucket(now: Date = /* @__PURE__ */ new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
@@ -88,8 +90,8 @@ export function getTodayDateBucket(now = /* @__PURE__ */ new Date()) {
  * @param dateBucket - Date bucket; defaults to today.
  * @returns The entry.
  */
-export function createDiagnosticEntry(code, detail, dateBucket) {
-  const catalogEntry = ERROR_CATALOG[code];
+export function createDiagnosticEntry(code: ErrorCode, detail: string, dateBucket?: string): DiagnosticEntry {
+  const catalogEntry: CatalogEntry = ERROR_CATALOG[code];
   const date = dateBucket ?? getTodayDateBucket();
   const cleanDetail = detail.trim().replace(/\s+/g, " ").slice(0, 240);
   return {

@@ -12,13 +12,14 @@ import { STORAGE_KEYS } from "../shared/defaults";
 import { parsePolicy } from "../shared/policy";
 import { readLocalOverrides, readManagedPolicyRaw } from "../shared/storage";
 import { applyPolicyAttributes, parseRedirectHash, sweepDom, unhideAllElements, unhideCategoryElements } from "./dom-engine";
+import type { EffectivePolicy, RawRecord } from "../shared/types";
 
 /**
  * Send a message to the service worker.
  * @param message - Message object.
  * @returns The response, or null if the worker is unavailable or throws.
  */
-async function sendRuntimeMessage(message) {
+async function sendRuntimeMessage(message: RawRecord): Promise<unknown> {
   if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
     return null;
   }
@@ -34,7 +35,7 @@ async function sendRuntimeMessage(message) {
  * The key never leaves the content script.
  * @returns "p-<hex>".
  */
-function computeOpaquePageKey() {
+function computeOpaquePageKey(): string {
   const input = `${window.location.pathname}${window.location.search}`;
   // FNV-1a 32-bit offset basis and prime: a fast, non-reversible local key.
   let hash = 2166136261;
@@ -68,17 +69,17 @@ function handleRedirectHashTelemetry() {
 // Handle a redirect marker before anything else so the fragment is gone before Google reads it.
 handleRedirectHashTelemetry();
 
-let currentPolicy = null;
+let currentPolicy: EffectivePolicy | null = null;
 
-let bodyObserver = null;
+let bodyObserver: MutationObserver | null = null;
 
-let rootObserver = null;
+let rootObserver: MutationObserver | null = null;
 
 let pendingRaf = false;
 
-const seenOverviewPages = /* @__PURE__ */ new Set();
+const seenOverviewPages = /* @__PURE__ */ new Set<string>();
 
-const reportedErrorKeys = /* @__PURE__ */ new Set();
+const reportedErrorKeys = /* @__PURE__ */ new Set<string>();
 
 /**
  * Stop both MutationObservers and cancel the pending sweep flag.
@@ -173,7 +174,7 @@ function attachMutationObserver() {
  * Apply a policy: set attributes, restore categories that were turned off, and start sweeping.
  * @param policy - Effective policy; masterEnabled false unhides everything and stops observers.
  */
-function applyEffectivePolicy(policy) {
+function applyEffectivePolicy(policy: EffectivePolicy): void {
   currentPolicy = policy;
   applyPolicyAttributes(document, policy);
   if (!policy.masterEnabled) {
@@ -198,12 +199,12 @@ function applyEffectivePolicy(policy) {
  * Get the effective policy from the service worker, or parse storage directly if it doesn't answer.
  * @returns Effective policy.
  */
-async function loadEffectivePolicy() {
+async function loadEffectivePolicy(): Promise<EffectivePolicy> {
   const fromSw = await sendRuntimeMessage({
     type: "GET_EFFECTIVE_POLICY"
-  });
+  }) as Partial<EffectivePolicy> | null;
   if (fromSw && typeof fromSw.masterEnabled === "boolean") {
-    return fromSw;
+    return fromSw as EffectivePolicy;
   }
   const [managedRes, localRes] = await Promise.all([
     readManagedPolicyRaw(),

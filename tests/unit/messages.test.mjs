@@ -1,5 +1,6 @@
-// U-02, U-12, U-13, U-14, U-15 (docs/07 §6.2) plus X-01/X-02 regression probes of the
-// message router and lifecycle listeners (not in docs/07; added for the Phase 0 gate).
+// U-02, U-12a–f, U-13, U-14a–b, U-15 (docs/07 §6.2; U-12 and U-14 are split per behavior)
+// plus X-01/X-02/X-03 regression probes of the message router and lifecycle listeners (not in
+// docs/07; added for the Phase 0 gate).
 import assert from "node:assert/strict";
 import { equivalent, plain } from "../helpers/equivalence.mjs";
 import { loadServiceWorker } from "../helpers/sw-harness.mjs";
@@ -33,29 +34,44 @@ equivalent("U-02b", "SET_LOCAL_OVERRIDES refused on a force-installed device wit
   return res;
 }, { bp: "BP-01" });
 
-equivalent("U-12", "message gating: SET_LOCAL_OVERRIDES / RESET_LOCAL_METRICS / GET_DIAGNOSTIC_SNAPSHOT refused from a google.com tab, accepted from an extension page; unknown LOG_DIAGNOSTIC code and missing deltas → bad_message", async (target) => {
-  const sw = loadServiceWorker(target);
-  const privileged = [
-    { type: "SET_LOCAL_OVERRIDES", toggles: { masterEnabled: false } },
-    { type: "RESET_LOCAL_METRICS" },
-    { type: "GET_DIAGNOSTIC_SNAPSHOT" },
-  ];
-  const fromTab = {};
-  for (const msg of privileged) {
-    fromTab[msg.type] = await sw.send(msg, GOOGLE_TAB_SENDER);
-    assert.equal(fromTab[msg.type]?.ok, false, `${msg.type} from a google.com tab must be refused`);
-  }
+// U-12 is split per behavior so each one is tracked (and can be fixed) on its own.
+const PRIVILEGED = [
+  ["U-12a", { type: "SET_LOCAL_OVERRIDES", toggles: { masterEnabled: false } }],
+  ["U-12b", { type: "RESET_LOCAL_METRICS" }],
+  ["U-12c", { type: "GET_DIAGNOSTIC_SNAPSHOT" }],
+];
+for (const [id, msg] of PRIVILEGED) {
+  equivalent(id, `message gating: ${msg.type} refused from a google.com tab`, async (target) => {
+    const sw = loadServiceWorker(target);
+    const res = await sw.send(msg, GOOGLE_TAB_SENDER);
+    assert.equal(res?.ok, false, `${msg.type} from a google.com tab must be refused`);
+    return res;
+  }, { bp: "BP-13" });
+}
+
+equivalent("U-12d", "message gating: SET_LOCAL_OVERRIDES / RESET_LOCAL_METRICS / GET_DIAGNOSTIC_SNAPSHOT accepted from an extension page", async (target) => {
   const fromPage = {};
-  for (const msg of privileged) {
+  for (const [, msg] of PRIVILEGED) {
+    const sw = loadServiceWorker(target);
     fromPage[msg.type] = await sw.send(msg, OPTIONS_SENDER);
     assert.notEqual(fromPage[msg.type]?.ok, false, `${msg.type} from an extension page must be accepted`);
   }
-  const unknownCode = await sw.send({ type: "LOG_DIAGNOSTIC", code: "NOPE" }, OPTIONS_SENDER);
-  assert.equal(unknownCode?.error, "bad_message");
+  return fromPage;
+}, { bp: "BP-13" });
+
+equivalent("U-12e", "message gating: LOG_DIAGNOSTIC with an unknown code → bad_message and no log entry", async (target) => {
+  const sw = loadServiceWorker(target);
+  const res = await sw.send({ type: "LOG_DIAGNOSTIC", code: "NOPE" }, OPTIONS_SENDER);
+  assert.equal(res?.error, "bad_message");
   assert.equal(telemetry(sw)?.diagnosticLog?.length ?? 0, 0, "no log entry for a bad message");
-  const noDeltas = await sw.send({ type: "INCREMENT_METRICS" }, GOOGLE_TAB_SENDER);
-  assert.equal(noDeltas?.error, "bad_message");
-  return { fromTab, fromPage, unknownCode, noDeltas };
+  return res;
+}, { bp: "BP-13" });
+
+equivalent("U-12f", "message gating: INCREMENT_METRICS with no deltas → bad_message", async (target) => {
+  const sw = loadServiceWorker(target);
+  const res = await sw.send({ type: "INCREMENT_METRICS" }, GOOGLE_TAB_SENDER);
+  assert.equal(res?.error, "bad_message");
+  return res;
 }, { bp: "BP-13" });
 
 equivalent("U-13", "policy sent to content scripts has no analyticsEndpointUrl or analyticsSharedToken", async (target) => {
@@ -68,13 +84,18 @@ equivalent("U-13", "policy sent to content scripts has no analyticsEndpointUrl o
 });
 
 // The former Test Flush rate-limit half of U-14 was dropped with analytics (D6; docs/07 §6.2).
-equivalent("U-14", "RESET_LOCAL_METRICS refused when locked (with a reason); accepted on unlocked development/normal installs", async (target) => {
+// U-14 is split so the unlocked half is checked even while the locked half is a known failure.
+equivalent("U-14a", "RESET_LOCAL_METRICS refused when locked (with a reason); counters kept", async (target) => {
   const locked = loadServiceWorker(target, { managed: { gradeBand: "6-8" } });
   await locked.send({ type: "INCREMENT_METRICS", deltas: { overviewsHidden: 2 } }, GOOGLE_TAB_SENDER);
   const refused = await locked.send({ type: "RESET_LOCAL_METRICS" }, OPTIONS_SENDER);
   assert.equal(refused?.ok, false, "reset must be refused when locked");
   assert.equal(typeof refused?.reason, "string", "refusal must give a reason");
   assert.equal(telemetry(locked).lifetimeMetrics.overviewsHidden, 2);
+  return refused;
+}, { bp: "BP-07" });
+
+equivalent("U-14b", "RESET_LOCAL_METRICS accepted on unlocked development/normal installs and clears counters", async (target) => {
   const accepted = {};
   for (const installType of ["development", "normal"]) {
     const sw = loadServiceWorker(target, { installType });
@@ -82,7 +103,7 @@ equivalent("U-14", "RESET_LOCAL_METRICS refused when locked (with a reason); acc
     accepted[installType] = await sw.send({ type: "RESET_LOCAL_METRICS" }, OPTIONS_SENDER);
     assert.equal(telemetry(sw).lifetimeMetrics.overviewsHidden, 0, `${installType}: reset must clear counters`);
   }
-  return { refused, accepted };
+  return accepted;
 }, { bp: "BP-07" });
 
 equivalent("U-15", "diagnostic log: same code+detail dedupes and counts; 51st distinct entry evicts the oldest", async (target) => {
