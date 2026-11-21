@@ -33,18 +33,30 @@ equivalent("U-18", "two concurrent SET_LOCAL_OVERRIDES with different toggles â†
 }, { bp: "BP-17" });
 
 equivalent("U-20", "content script: an older policy load finishing after a newer one is dropped (tab stays protected)", async (target) => {
+  const ON = { "data-rmsg-hide-overviews": "1", "data-rmsg-hide-aimode": "1", "data-rmsg-hide-aux": "1" };
+  const enabled = { masterEnabled: true, hideAiOverviews: true, hideAiModeUi: true, hideAuxiliaryAiFeatures: true, blockAiModeNavigation: true, forceWebOnlySearch: true, isManaged: false };
+  const disabled = { ...enabled, masterEnabled: false };
   const cs = loadContentScript(target);
   await cs.flush();
-  // Load 1 (bootstrap) is pending; a storage change starts load 2.
+  // Warm-up: the bootstrap load resolves disabled, so applying a result is observable (the
+  // fail-closed attributes are removed). Without this, dropping every result would also pass.
+  cs.policyRequests[0]({ ...disabled });
+  await cs.flush();
+  const afterWarmUp = Object.fromEntries(cs.attrs);
+  assert.deepEqual(afterWarmUp, {}, "the bootstrap policy was not applied");
+  // Two overlapping loads: the older resolves disabled after the newer resolves enabled.
   cs.fireStorageChange();
   await cs.flush();
-  assert.equal(cs.policyRequests.length, 2, "expected two overlapping policy loads");
-  const enabled = { masterEnabled: true, hideAiOverviews: true, hideAiModeUi: true, hideAuxiliaryAiFeatures: true, blockAiModeNavigation: true, forceWebOnlySearch: true, isManaged: false };
-  cs.policyRequests[1]({ ...enabled });
+  cs.fireStorageChange();
   await cs.flush();
-  cs.policyRequests[0]({ ...enabled, masterEnabled: false });
+  assert.equal(cs.policyRequests.length, 3, "expected two overlapping policy loads");
+  cs.policyRequests[2]({ ...enabled });
   await cs.flush();
-  const attrs = Object.fromEntries(cs.attrs);
-  assert.deepEqual(attrs, { "data-rmsg-hide-overviews": "1", "data-rmsg-hide-aimode": "1", "data-rmsg-hide-aux": "1" }, "stale disabled load unprotected the tab");
-  return attrs;
+  const afterNewer = Object.fromEntries(cs.attrs);
+  assert.deepEqual(afterNewer, ON, "the newer enabled policy was not applied");
+  cs.policyRequests[1]({ ...disabled });
+  await cs.flush();
+  const afterOlder = Object.fromEntries(cs.attrs);
+  assert.deepEqual(afterOlder, ON, "stale disabled load unprotected the tab");
+  return { afterWarmUp, afterNewer, afterOlder };
 }, { bp: "BP-17" });

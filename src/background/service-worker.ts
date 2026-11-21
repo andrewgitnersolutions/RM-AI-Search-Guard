@@ -15,29 +15,21 @@ import { syncDynamicRules } from "./dnr-rules";
 import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, InstallType, RawRecord } from "../shared/types";
 
 /**
- * Cached install type for this worker wake. Only a successful read is cached, so a failed
- * lookup is retried on the next policy resolve instead of sticking for the worker's lifetime.
- */
-let cachedInstallType: InstallType | null = null;
-
-/**
  * Learn how the extension was installed (BP-01). chrome.management.getSelf() needs no
- * "management" permission (verified 2026-11-21 in Chromium 153 with this manifest).
+ * "management" permission (verified 2026-11-21 in Chromium 153 with this manifest). It is
+ * read on every policy resolve rather than cached: docs/03 allows no mutable module-level
+ * state in the service worker, and the call is cheap.
  * @returns The install type, or "unknown" if the API is missing or throws. "unknown" locks
  * (fail closed): a force-installed student device must never fall into local test mode.
  */
 async function resolveInstallType(): Promise<InstallType> {
-  if (cachedInstallType) {
-    return cachedInstallType;
-  }
   if (typeof chrome === "undefined" || typeof chrome.management?.getSelf !== "function") {
     return "unknown";
   }
   try {
     const self = await chrome.management.getSelf();
     if (typeof self?.installType === "string") {
-      cachedInstallType = self.installType as InstallType;
-      return cachedInstallType;
+      return self.installType as InstallType;
     }
   } catch {
   }
@@ -113,7 +105,8 @@ async function resolvePolicyFromStorage() {
 /**
  * Tail of the chain that runs whole policy syncs one at a time (BP-17). It is separate from the
  * storage queue on purpose: a sync enqueues storage operations itself, so running it inside
- * that queue would deadlock.
+ * that queue would deadlock. Like storageQueueTail it only orders work within one worker wake;
+ * it holds no policy or user state, so docs/03's no-module-state rule isn't broken.
  */
 let syncChainTail: Promise<unknown> = Promise.resolve();
 

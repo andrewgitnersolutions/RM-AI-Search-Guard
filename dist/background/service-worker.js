@@ -552,19 +552,14 @@ async function syncDynamicRules(policy) {
 }
 
 // src/background/service-worker.ts
-var cachedInstallType = null;
 async function resolveInstallType() {
-  if (cachedInstallType) {
-    return cachedInstallType;
-  }
   if (typeof chrome === "undefined" || typeof chrome.management?.getSelf !== "function") {
     return "unknown";
   }
   try {
     const self = await chrome.management.getSelf();
     if (typeof self?.installType === "string") {
-      cachedInstallType = self.installType;
-      return cachedInstallType;
+      return self.installType;
     }
   } catch {
   }

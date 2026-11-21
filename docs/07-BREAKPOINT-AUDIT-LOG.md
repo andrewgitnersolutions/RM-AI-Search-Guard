@@ -109,7 +109,7 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **2026-11-21, fixed in `src/` (Phase 1):**
 - **Install types:** only `normal` and `development` unlock test mode. Everything else locks when there are no managed keys: `admin`, plus `sideload`, `other` (two more values Chrome can report), an unreadable install type and a missing one.
 - **Permission check:** `chrome.management.getSelf()` was confirmed to work with no `management` permission. It was called from the service worker and the Options page of the current build in Chromium 153, and the `@types/chrome` docs say the same. The manifest is unchanged.
-- **Install-type caching:** the worker caches the install type only after a successful read.
+- **Install-type reads:** the worker reads the install type on every policy resolve, with no cache, because docs/03 allows no mutable module-level state (CodeRabbit review of PR #4).
 - **Fallbacks:** every path that can't read the install type locks: the content-script storage fallback, the Options fallback, and the popup when the worker is unreachable.
 - **Tests:** U-01a (admin, sideload, other, unknown, missing), U-01d (`getSelf` throws or is missing), U-02 (development and normal), U-02b, B-13, B-13b (popup locked view), B-13c (popup, worker unreachable) and B-13d (Options banner and disabled switches when locked or unreachable) all pass. U-01a and U-02b were removed from `tests/known-failures.json`.
 - **NOT RUN:** M-01, M-02 and M-05 need a managed device.
