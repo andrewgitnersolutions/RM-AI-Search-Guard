@@ -22,8 +22,13 @@ export const SELECTORS = {
       "#searchform"
     ],
     organicResultSelector: "a > h3, h3.LC20lb",
-    // BP-08 proposes 1 for the overview category; unchanged in Phase 0.
+    // Refuse to hide anything holding this many organic results. AI Overview candidates are held
+    // to 1 (BP-08): an Overview card never legitimately contains a real result, so a candidate
+    // that does is a wrapper and hiding it would remove real results.
     organicResultThreshold: 3,
+    overviewOrganicResultThreshold: 1,
+    // How far findOverviewHeadingContainer may walk up from an "AI Overview" heading (BP-08).
+    maxAncestorDepth: 8,
     searchInputSelector: 'textarea[name="q"], input[name="q"]'
   },
   // FRAGILE(google-dom, last verified NONE, see test L-07): Tier 1 attributes, label text (English only, BP-03) and /aimode, udm=50 hrefs.
@@ -36,19 +41,37 @@ export const SELECTORS = {
       ],
       headingSelectors: ["h1", "h2", '[role="heading"]', "div.Fzsovc"],
       headingTexts: ["ai overview"],
+      // No [data-hveid] (BP-08): Google puts it on most result blocks, so the nearest one can
+      // be a wrapper that also holds organic results.
       containerAncestors: [
         "[data-mcpr]",
         "[data-attrid]",
         "[data-async-type]",
-        "[data-hveid]",
         "div#eKIzJc"
       ]
     },
     aiModeUi: {
+      // Google destinations only (BP-08): relative links or the two google.com hosts. A link to
+      // another site whose URL merely contains "udm=50" or "/aimode" is an organic result.
+      // Keep in sync with static-guard.css.
       directSelectors: [
-        'a[href*="udm=50"]',
-        'a[href*="/aimode"]',
-        'a[href^="https://www.google.com/ai"]'
+        // A query-only relative link (href="?q=x&udm=50") resolves to /search on a results page.
+        'a[href^="?"][href*="udm=50"]',
+        'a[href^="/search"][href*="udm=50"]',
+        'a[href^="https://www.google.com/search"][href*="udm=50"]',
+        'a[href^="https://google.com/search"][href*="udm=50"]',
+        'a[href^="/aimode"]',
+        'a[href^="https://www.google.com/aimode"]',
+        'a[href^="https://google.com/aimode"]',
+        'a[href="/ai"]',
+        'a[href^="/ai?"]',
+        'a[href^="/ai/"]',
+        'a[href="https://www.google.com/ai"]',
+        'a[href^="https://www.google.com/ai?"]',
+        'a[href^="https://www.google.com/ai/"]',
+        'a[href="https://google.com/ai"]',
+        'a[href^="https://google.com/ai?"]',
+        'a[href^="https://google.com/ai/"]'
       ],
       textCandidateSelectors: [
         '[role="tab"]',

@@ -224,9 +224,21 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Add `cleanAiModeUrl(url, policy)` (pure function) in the content script, mirroring `createAiModeQueryTransform` and rule 111 (`/ai`, `/aimode` → `https://www.google.com/`). Add a comment that it must match `buildDynamicRules`.
-- [ ] Track `lastHref`. In `runSweepNow`, on `popstate`, and on `pageshow`: if `blockAiModeNavigation && masterEnabled` and the URL is an AI Mode URL → `location.replace(clean + "#rm_sg_aimode")`, which reuses the existing telemetry path.
-- [ ] If `window.navigation` exists, add a `navigate` listener doing the same check before commit (verify it fires in the isolated world; drop it if not).
+- [x] Add `cleanAiModeUrl(url, policy)` (pure function) in the content script, mirroring `createAiModeQueryTransform` and rule 111 (`/ai`, `/aimode` → `https://www.google.com/`). Add a comment that it must match `buildDynamicRules`.
+- [x] Track `lastHref`. In `runSweepNow`, on `popstate`, and on `pageshow`: if `blockAiModeNavigation && masterEnabled` and the URL is an AI Mode URL → `location.replace(clean + "#rm_sg_aimode")`, which reuses the existing telemetry path.
+- [x] If `window.navigation` exists, add a `navigate` listener doing the same check before commit (verify it fires in the isolated world; drop it if not).
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **New module:** `src/shared/ai-mode-url.ts` `cleanAiModeUrl()` mirrors DNR rules 101, 102, 110, 111 and 112, including BP-19's keep-the-search rule. It returns the exact URL DNR would produce, with the `#rm_sg_omnibox` or `#rm_sg_aimode` marker, or null.
+- **When the content script checks:** before each sweep, after each applied policy, on `popstate` and `pageshow`, and on the Navigation API's `navigatesuccess`. It uses `navigatesuccess` rather than `navigate` because it runs after the URL commits. B-06b confirms it fires in the isolated world.
+- **Redirect:** one `location.replace()` per page, guarded by a flag instead of `lastHref`.
+- **Tests:**
+  - U-07 now runs the real content bundle in the vm harness for 15 URLs × both Web-only settings. It checks the redirect target equals the DNR simulation for AI Mode URLs and that nothing else redirects, including when `blockAiModeNavigation` is off.
+  - New U-07b covers `popstate` and `pageshow`.
+  - B-06 (pushState + DOM mutation) and new B-06b (pushState only) each count exactly one redirect.
+  - U-07 and U-07b fail on the old `dist/`. U-07 and B-06 were removed from `tests/known-failures.json`.
+- **NOT RUN:** L-06 on live Google.
+- **2026-11-21 (CodeRabbit review of PR #5):** `cleanAiModeUrl()` treats `/ai` or `/aimode` as having a search if *any* `q` value is non-empty, as rule 111's regex does (`?q=&q=fractions` keeps `fractions`). U-07 and U-19 now include that URL.
 
 **Done when:** on a fixture page, `history.pushState({}, "", "/search?q=x&udm=50")` followed by a DOM mutation ends on `udm=14` (or no `udm`) and increments `aiModeRedirects` once.
 
@@ -279,10 +291,17 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.** Enforce in the **service worker**, not only the UI.
 
 **To-do:**
-- [ ] Service worker: refuse `RESET_LOCAL_METRICS` when locked. Return `{ ok:false, reason:"locked" }`.
+- [x] Service worker: refuse `RESET_LOCAL_METRICS` when locked. Return `{ ok:false, reason:"locked" }`.
 - [ ] ~~Service worker: store `lastManualFlushAtMs` in telemetry state and refuse `TRIGGER_TEST_FLUSH` within 15 minutes, returning the time remaining.~~ Removed by D6: Test Flush no longer exists.
-- [ ] Options: disable Reset with explanatory text when locked; show the rate-limit message.
-- [ ] Keep Reset fully available in unmanaged/development mode.
+- [x] Options: disable Reset with explanatory text when locked; show the rate-limit message.
+- [x] Keep Reset fully available in unmanaged/development mode.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **Service worker:** refuses `RESET_LOCAL_METRICS` with `{ ok:false, reason:"locked" }` under the same lock rule as `SET_LOCAL_OVERRIDES`: managed or `admin-no-policy`, or an install type other than normal or development. BP-13 already refuses it from google.com tabs.
+- **Options:** when the policy is locked, Options disables Reset, disarms a pending confirm and shows "Counters can't be reset on a device managed by your school". If the worker still refuses, it reports that. The rate-limit message no longer applies, since Test Flush is gone (D6).
+- **Tests:** U-14a passes and was removed from `tests/known-failures.json`. U-14b (development and normal can reset), B-12 (Reset enabled when unmanaged) and B-13d (Reset disabled and the note shown when locked or the worker is unreachable) pass.
+- **`docs/04`:** the verification step mentions it.
+- **NOT RUN:** M-05 (managed device).
 
 **Done when:** on a locked device, Reset is disabled and a console-sent `RESET_LOCAL_METRICS` is refused, and a second Test Flush within 15 minutes is refused with a clear message.
 
@@ -306,15 +325,28 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Replace the broad href selectors in **both** `static-guard.css` and `SELECTORS.tier1.aiModeUi.directSelectors` and the extra selector at `content.js:535`.
-- [ ] Remove `"[data-hveid]"` from `containerAncestors`. Add a `maxAncestorDepth` constant (8) to `findOverviewHeadingContainer`.
-- [ ] Make the threshold per category: `overview: 1`, others `3`. Pass the category into `isUnsafeToHide`.
-- [ ] Keep `ERR_SAFETY_GUARD_TRIPPED` reporting as is.
+- [x] Replace the broad href selectors in **both** `static-guard.css` and `SELECTORS.tier1.aiModeUi.directSelectors` and the extra selector at `content.js:535`.
+- [x] Remove `"[data-hveid]"` from `containerAncestors`. Add a `maxAncestorDepth` constant (8) to `findOverviewHeadingContainer`.
+- [x] Make the threshold per category: `overview: 1`, others `3`. Pass the category into `isUnsafeToHide`.
+- [x] Keep `ERR_SAFETY_GUARD_TRIPPED` reporting as is.
 
 **Done when:** a fixture with an organic result linking to `https://example.com/blog/aimode-review` still shows it, and a fixture where the AI Overview's nearest `data-hveid` wrapper also holds one organic result hides only the Overview card.
 
 **Added 2026-11-21 (CodeRabbit review of PR #3, not yet verified):** the `static-guard.css` overview rules hide any matching `div[data-attrid="AIOverview"]` etc. outright, so the CSS path never runs `isUnsafeToHide()`. A matching container that also holds ≥3 organic results is hidden by CSS even though the JS guard would refuse it.
-- [ ] Confirm with a fixture (an `AIOverview` div wrapping 3 organic results). If confirmed, make the CSS path respect the guard (e.g. `:not(:has(a > h3 ~ …))`-style exclusions, or limit CSS to candidates the JS guard has marked) without weakening `isUnsafeToHide`.
+- [x] Confirm with a fixture (an `AIOverview` div wrapping 3 organic results). If confirmed, make the CSS path respect the guard (e.g. `:not(:has(a > h3 ~ …))`-style exclusions, or limit CSS to candidates the JS guard has marked) without weakening `isUnsafeToHide`.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **AI Mode links:** `SELECTORS.tier1.aiModeUi.directSelectors` and `static-guard.css` now share one Google-only list: `/search?…udm=50`, `/aimode…`, `/ai`, `/ai?…` and `/ai/…`, each relative or on `https://www.google.com` / `https://google.com`. The extra host selector in `dom-engine.ts` was folded into the list. The nav-tab `:has()` rule became three single-selector rules, to keep BP-10.
+- **Overview containers:** `[data-hveid]` was removed from `containerAncestors`, and `findOverviewHeadingContainer` stops after 8 levels (`maxAncestorDepth`).
+- **Safety guard:** `isUnsafeToHide(el, doc, category)` refuses an Overview candidate holding ≥1 organic result (`overviewOrganicResultThreshold`); other categories keep 3. This only makes the guard stricter.
+- **CSS gap:** confirmed. The old CSS hid an `AIOverview` container that wrapped an organic result, and B-05b fails on the old `dist/` for exactly that. Each Overview CSS rule now carries `:not(:has(a > h3)):not(:has(h3.LC20lb))`, in one rule per selector, so the JS guard decides and logs `ERR_SAFETY_GUARD_TRIPPED`.
+- **Tests:** B-04, B-05 and new B-05b (wrapped organic result visible with the guard error logged, external `?udm=50` link visible, absolute `https://www.google.com/aimode` link still hidden) pass. B-03 still passes. B-04 and B-05 were removed from `tests/known-failures.json`.
+- **NOT RUN:** L-07 (re-confirming the selectors on live Google).
+
+**2026-11-21, CodeRabbit review of PR #5:**
+- **Re-check on every sweep:** `processCategoryCandidates()` now re-runs the guard on every element its category already hid. A wrapper hidden while empty that later receives an organic result is restored and logged as `ERR_SAFETY_GUARD_TRIPPED` ("Un-hid …"). Test: new B-05c.
+- **Query-only links:** relative links such as `href="?q=x&udm=50"` (which resolve to `/search` on a results page) were added to the AI Mode link list in `selectors.ts` and `static-guard.css`. Test: B-05b.
+- B-05b and B-05c fail on the code before this change.
 
 ---
 
@@ -444,10 +476,18 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Add `isFromExtensionPage(sender)` and `isFromContentScript(sender)` helpers. Gate the privileged types.
-- [ ] Add `validateMessage(message)` per type. On failure return `{ ok:false, error:"bad_message" }` **without** logging `ERR_STORAGE_FAILURE`.
-- [ ] Add `toContentPolicy(policy)` returning only the 6 toggles, `gradeBand`, `isManaged`, and `blockAiModeNavigation`/`forceWebOnlySearch` (needed by BP-05). Use it for messages from content scripts.
-- [ ] Content-script fallback path (`content.js:785-789`): unchanged. It reads managed storage directly and never transmits anything.
+- [x] Add `isFromExtensionPage(sender)` and `isFromContentScript(sender)` helpers. Gate the privileged types.
+- [x] Add `validateMessage(message)` per type. On failure return `{ ok:false, error:"bad_message" }` **without** logging `ERR_STORAGE_FAILURE`.
+- [x] Add `toContentPolicy(policy)` returning only the 6 toggles, `gradeBand`, `isManaged`, and `blockAiModeNavigation`/`forceWebOnlySearch` (needed by BP-05). Use it for messages from content scripts.
+- [x] Content-script fallback path (`content.js:785-789`): unchanged. It reads managed storage directly and never transmits anything.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **New module:** `src/background/messages.ts` holds `isFromExtensionPage()`, `validateMessage()` (a typed message union), `toContentPolicy()` and `PRIVILEGED_MESSAGE_TYPES`.
+- **Sender check:** an extension page is a sender whose `id` is ours and whose `url` is `chrome-extension://<id>/…`. Everything else counts as not a page, so `isFromContentScript()` wasn't needed. A missing id or URL fails closed.
+- **Privileged messages:** `SET_LOCAL_OVERRIDES`, `RESET_LOCAL_METRICS` and `GET_DIAGNOSTIC_SNAPSHOT` from a non-page sender get `{ ok:false, error:"forbidden" }`.
+- **Bad messages:** malformed or unknown messages get `bad_message`, and neither response is logged.
+- **Content policy:** `GET_EFFECTIVE_POLICY` from a content script returns only the toggles, `gradeBand` and `isManaged`.
+- **Tests:** U-12a, U-12b, U-12c, U-12e and U-12f pass and were removed from `tests/known-failures.json`. U-12d, U-13 and new U-13b (content-safe keys, full policy for pages, unknown type not logged) pass. The browser suite passes with content scripts on the reduced policy.
 
 **Done when:** a `LOG_DIAGNOSTIC` with `code:"NOPE"` sent from the Options console returns `bad_message` and doesn't add a log entry, and the content script's policy object has no analytics fields.
 
@@ -568,10 +608,14 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] `hideElement()`: drop the `prevDisplay !== "none"` exclusion; `restoreElementVisibility()` already restores the saved value with its priority.
-- [ ] `static-guard.css`: replace the global `[data-rmsg-hidden]` rule with three policy-gated rules.
+- [x] `hideElement()`: drop the `prevDisplay !== "none"` exclusion; `restoreElementVisibility()` already restores the saved value with its priority.
+- [x] `static-guard.css`: replace the global `[data-rmsg-hidden]` rule with three policy-gated rules.
 
-**Done when:** B-16 (an element with inline `display:none` that gets hidden and then unhidden by turning its toggle off is still `display:none`; removing a policy attribute un-hides a marked element even if the marker stays) passes.
+**Done when:** B-16 passes. It checks that an element with inline `display:none`, hidden and then unhidden by turning its toggle off, is still `display:none`. It also checks that a leftover marker with no inline style stops hiding once its category's policy attribute is off. (Corrected 2026-11-21: elements hidden by the engine also carry an inline `display:none !important`. The policy-off path removes that, not the CSS gate.)
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **What changed:** `hideElement()` saves every non-empty original inline `display`, `none` included. The marker rule in `static-guard.css` is now three rules, one per category, each gated by its `html[data-rmsg-hide-*]` attribute.
+- **Tests:** new B-16 (fixture `restore.html`) passes. On the old `dist/` it fails: unhiding revealed an Overview that Google had hidden inline.
 
 **Proposed phase:** 2, with BP-08 (hiding correctness).
 
@@ -592,9 +636,18 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 
 **Recommendation:** **A**, owner to confirm (it changes documented behavior).
 
+**Owner decision 2026-11-21: option A (keep the student's search).**
+
 **To-do:**
-- [ ] Owner decision: A or B.
-- [ ] If A: split rule 111 (with query → `/search` + transform; without → homepage), update U-06's expectations, L-02 and `docs/04`.
+- [x] Owner decision: A or B.
+- [x] If A: split rule 111 (with query → `/search` + transform; without → homepage), update U-06's expectations, L-02 and `docs/04`.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **Rule 111 (priority 50):** matches `/ai` or `/aimode` (optionally followed by a sub-path) with a non-empty `q=`. It changes the path to `/search` and applies the same AI Mode query transform as rule 110: `q` and other params are kept, `udm` becomes 14 or is removed, and the session params are stripped. It also adds `#rm_sg_aimode`.
+- **New rule 112 (priority 45):** keeps the old homepage redirect for queryless or empty-`q` URLs. `ALL_MANAGED_RULE_IDS` now includes 112.
+- **Simulator:** the DNR simulator applies `transform.path`.
+- **Tests:** new U-19 (six URLs, both Web-only settings, ≤2 hops), U-05, U-06 (`/aimode?q=x` → `/search?q=x&udm=14#rm_sg_aimode`), X-02, U-17 and B-03b all pass. B-03b confirms Chromium applies the path and query transform together.
+- **`docs/04`:** the verification step now covers `/aimode?q=…`.
 
 **Done when:** U-19 (`/aimode?q=fractions` → `/search?q=fractions…` with the `#rm_sg_aimode` marker, `/ai` → `/`, ≤2 hops) passes, if A is chosen.
 
@@ -621,7 +674,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 |---|---|---|
 | 0. Setup | **Rebuild `src/` (D1 = B) in three separate commits, in this order** (sequencing clarified 2026-11-20 after CodeRabbit review of PR #1):<br>**0a. Behavior-preserving rebuild (analytics and old name still in).** Split the `dist/` bundles into the modules named in `docs/03` §1 (`shared/defaults, errors, policy, selectors, storage`; `background/service-worker, dnr-rules, analytics`; `content/dom-engine, content`; `ui/popup, options, policy-generator-core`). Add `package.json`, `tsconfig.json`, `scripts/build.mjs` (esbuild → gitignored `build/`) and `scripts/promote.mjs` (`build/` → `dist/`). The Apps Script template stays an inline string in the options module exactly as today: **don't create `templates/apps-script/`**, because analytics is removed in 0b. Keep the original `dist/` as gitignored `baseline-dist/`. **Equivalence gate (0a only):** the rebuilt output must behave identically to `baseline-dist/`, analytics included. Compare code with comments and whitespace stripped where bundling allows. Run every U-test and the Playwright B smoke tests against **both** `baseline-dist/` and `build/`: results must be identical, **failures included**. U-tests that describe not-yet-fixed break points are expected to fail on both and don't block promotion; only a *difference* between the two builds blocks it. Then promote and commit.<br>**0b. Remove analytics (D6).** Separate commit. The equivalence gate doesn't apply to these removed behaviors, which are the only allowed differences from 0a: alarm scheduling and flushing; the `TRIGGER_TEST_FLUSH` message; the 4 analytics policy fields and their validation; `ERR_ANALYTICS_ENDPOINT_INVALID` / `ERR_ANALYTICS_FLUSH_FAILED`; pending-bucket and flush-status telemetry fields; the Options analytics status bar and Test Flush button; the generator's analytics section and Copy Code.gs button; the manifest's `alarms` permission and `script.google.com` / `script.googleusercontent.com` hosts. Every other test result must match 0a. S-03 applies from this commit on.<br>**0c. Rename (D7).** Separate commit; extension strings only (manifest `name`/`short_name`/`default_title`, popup, Options, CSS header). Tests must match 0b.<br>**Workflow for every later change:** edit `src/` → `npm run build` writes to `build/` → run S-, U- and B-tests against `build/` (load it unpacked) → `npm run promote` copies `build/` into `dist/` only when the **promotion rule** holds. `dist/` changes only through promote.<br>**Promotion rule (known failures):** at the end of 0a, record every failing test in `tests/known-failures.json` with the break point and phase that will fix it. Before any promotion, (1) every test assigned to the current phase and every test not on the list must pass, and (2) each listed test must fail exactly as recorded (a *changed* failure blocks promotion just like a new one). When a phase fixes a break point, remove its tests from the list in the same commit. The list must be empty after Phase 4. | Every later fix needs one source of truth and a test harness. Proving equivalence before removing anything means any behavior change in 0b/0c is deliberate and visible. |
 | 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 1`. Still open: M-01, M-02 and M-05 on a managed device (BP-01). | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
-| 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18 and BP-19 (proposed) | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
+| 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 (BP-19 option A, owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 2`. Still open: M-05 (managed device) and L-06/L-07 (live Google). | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 | Touch the same sweep/metrics paths, so do them together. |
 | 4. Longevity | BP-03, BP-04, BP-11 | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
 | 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above | Comment once, after the code is stable. |
@@ -659,8 +712,8 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-03 | Invalid managed values (string `"true"`, out-of-range interval, bad enum) fall back fail-closed and are listed in `invalidFields` | Regression |
 | U-04 | `extraHideSelectors`: accepts valid string arrays; rejects non-arrays, over-long strings and >20 items into `invalidFields`; ignored when unmanaged | BP-04 |
 | U-05 | DNR rules for all 4 combinations of `blockAiModeNavigation` × `forceWebOnlySearch`, plus `masterEnabled:false` → `[]` | Regression |
-| U-06 | Redirect simulation, with each rule's pattern run as a JS RegExp and its transform applied, until no rule matches. `?q=x&udm=50` → `udm=14` or no `udm`; `sourceid=chrome` + `udm=50` → `#rm_sg_omnibox`; `/ai` and `/aimode` → `/`; `?q=x` → `udm=14`; `udm=2` and `tbm=nws` untouched; **every URL settles within 2 hops (no loops)** | Regression, BP-05 |
-| U-07 | `cleanAiModeUrl()` (BP-05 JS copy) returns the same URL as the U-06 simulation for every test URL | BP-05 |
+| U-06 | Redirect simulation, with each rule's pattern run as a JS RegExp and its transform applied, until no rule matches. `?q=x&udm=50` → `udm=14` or no `udm`; `sourceid=chrome` + `udm=50` → `#rm_sg_omnibox`; `/ai` and `/aimode` with no query → `/` (with a query: `/search`, query kept, BP-19); `?q=x` → `udm=14`; `udm=2` and `tbm=nws` untouched; **every URL settles within 2 hops (no loops)** | Regression, BP-05 |
+| U-07 | `cleanAiModeUrl()` (BP-05 JS copy) returns the same URL as the U-06 simulation for every test URL. (2026-11-21: tested through the real content bundle in the vm harness; non-AI-Mode URLs must not redirect. U-07b adds `popstate`/`pageshow`.) | BP-05 |
 | U-08 | ~~Payload v2: allowlisted keys only; `buckets` capped at 14; extra/unknown keys or PII-shaped fields make `assertNoPiiPayload` reject~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-09 | ~~Flush with mock fetch: 3 pending days → exactly 1 POST; on `{status:"ok"}` the sent counts are subtracted, and counts that arrived during the request are kept~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-10 | ~~Flush failure paths (HTTP 500, non-JSON, `{status:"error"}`, timeout) → backoff grows 15m→30m→1h…, capped at 24h; `ERR_ANALYTICS_FLUSH_FAILED` logged~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | Regression |
@@ -672,7 +725,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-16 | ~~Code.gs in `vm` with mock `SpreadsheetApp`/`LockService`: `doPost` appends one row and never calls `getValues()`; token mismatch → `UNAUTHORIZED`; bad payload rejected; `rollup_()` totals match a fixed sample~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-17 | Two overlapping `syncRuntimeState` runs where the older resolves last → the newer policy's DNR rules are installed | BP-17 |
 | U-18 | Two concurrent `SET_LOCAL_OVERRIDES` (different toggles) → both edits stored | BP-17 |
-| U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (only if BP-19 option A is chosen) | BP-19 |
+| U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (option A chosen 2026-11-21) | BP-19 |
 | U-20 | Content script (vm, controlled message timing): an older disabled policy load finishing after a newer enabled one is dropped; the tab stays protected | BP-17 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
@@ -686,7 +739,7 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-03 | Each surface is hidden: Overview, AI Mode tab, homepage button, Dive deeper, Labs, Lens, follow-up; search box visible; ≥5 organic results visible | Regression |
 | B-04 | Organic result linking to `example.com/.../aimode-review` stays visible | BP-08 |
 | B-05 | Overview whose nearest `data-hveid` wrapper contains 1 organic result: only the Overview card hides; `ERR_SAFETY_GUARD_TRIPPED` if the only candidate is the wrapper | BP-08 |
-| B-06 | `history.pushState(…udm=50)` + a DOM mutation → page ends on the clean URL; `aiModeRedirects` +1 exactly | BP-05 |
+| B-06 | `history.pushState(…udm=50)` + a DOM mutation → page ends on the clean URL; `aiModeRedirects` +1 exactly. (B-06b, 2026-11-21: pushState alone, caught by the Navigation API.) | BP-05 |
 | B-07 | Same page reloaded 3× with re-render churn → each category counter +3 exactly | BP-14 |
 | B-08 | A single search produces ≤2 telemetry writes (count via a `chrome.storage.onChanged` logger in the service worker console) | BP-09 |
 | B-09 | Performance profile on the churning mock page: sweep time per second down ≥50% vs. the current `dist` baseline (record the baseline first) | BP-09 |
@@ -705,7 +758,7 @@ Never retry through a CAPTCHA or "unusual traffic" page; record the test as **IN
 | ID | Test | Covers |
 |---|---|---|
 | L-01 | English: "what is photosynthesis" → no Overview, no AI Mode tab, ≥5 organic results | Regression |
-| L-02 | `?q=photosynthesis&udm=50` → clean results, query kept; `/ai` and `/aimode` → homepage | Regression |
+| L-02 | `?q=photosynthesis&udm=50` → clean results, query kept; `/ai` and `/aimode` with no query → homepage; `/aimode?q=photosynthesis` → clean results, query kept (BP-19, 2026-11-21) | Regression, BP-19 |
 | L-03 | Images (`udm=2`) and News (`tbm=nws`) load unmodified with `forceWebOnlySearch` on | Regression |
 | L-04 | `hl=es`: Overview and AI Mode tab hidden (also the moment to collect and confirm the Spanish strings) | BP-03 |
 | L-05 | `hl=fr`: `WARN_UNSUPPORTED_UI_LANGUAGE` appears in IT Diagnostics | BP-03 |

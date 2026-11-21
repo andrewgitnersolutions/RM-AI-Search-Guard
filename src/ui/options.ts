@@ -330,6 +330,7 @@ async function bootOptionsPage() {
   const exportCsvBtn = document.getElementById("btn-export-csv");
   const resetMetricsBtn = document.getElementById("btn-reset-metrics");
   const cancelResetBtn = document.getElementById("btn-cancel-reset");
+  const resetLockedNote = document.getElementById("reset-locked-note");
   const diagActionStatus = document.getElementById("diag-action-status");
   const diagTableBody = document.getElementById("diag-table-body");
   let currentSnapshot: DiagnosticSnapshot | null = null;
@@ -459,6 +460,16 @@ async function bootOptionsPage() {
     for (const badge of lockBadges) {
       badge.hidden = !policy.isManaged;
     }
+    // BP-07: the worker refuses resets when locked; the page says so instead of offering it.
+    if (resetMetricsBtn instanceof HTMLButtonElement) {
+      resetMetricsBtn.disabled = policy.isManaged;
+      if (policy.isManaged) {
+        disarmResetConfirm();
+      }
+    }
+    if (resetLockedNote) {
+      resetLockedNote.hidden = !policy.isManaged;
+    }
     for (const key of FEATURE_TOGGLE_KEYS) {
       const input = toggleInputs[key];
       if (!input) continue;
@@ -585,8 +596,12 @@ async function bootOptionsPage() {
     disarmResetConfirm();
     if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
       try {
-        await chrome.runtime.sendMessage({ type: "RESET_LOCAL_METRICS" });
+        const res = await chrome.runtime.sendMessage({ type: "RESET_LOCAL_METRICS" }) as { ok?: boolean; reason?: string } | null;
         await refreshSnapshot();
+        if (res?.ok === false) {
+          setDiagFeedback("Reset refused: this device is managed by your school.", true);
+          return;
+        }
         setDiagFeedback("Local counters and diagnostic log cleared.");
       } catch {
         setDiagFeedback("Failed to reset local counters.", true);

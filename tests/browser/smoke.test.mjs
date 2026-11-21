@@ -47,7 +47,7 @@ equivalent("B-03", "every AI surface hidden; search box, other tabs and ≥5 org
     return { serp, home, attrs, lifetime: telemetry.lifetimeMetrics, log: telemetry.diagnosticLog.map((e) => e.code) };
   }));
 
-equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counted, /aimode → homepage, plain search → udm=14, Images untouched", (target) =>
+equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counted, /aimode?q= keeps the search, /ai → homepage, plain search → udm=14, Images untouched", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     const finals = {};
@@ -55,6 +55,7 @@ equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counte
       "https://www.google.com/search?q=x&udm=50",
       "https://www.google.com/search?q=x&sourceid=chrome&udm=50",
       "https://www.google.com/aimode?q=x",
+      "https://www.google.com/ai",
       "https://www.google.com/search?q=x",
       "https://www.google.com/search?q=x&udm=2",
     ]) {
@@ -64,10 +65,11 @@ equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counte
     }
     const telemetry = await readTelemetry(b.sw);
     assert.equal(finals["https://www.google.com/search?q=x&udm=50"], "https://www.google.com/search?q=x&udm=14");
-    assert.equal(finals["https://www.google.com/aimode?q=x"], "https://www.google.com/");
+    assert.equal(finals["https://www.google.com/aimode?q=x"], "https://www.google.com/search?q=x&udm=14");
+    assert.equal(finals["https://www.google.com/ai"], "https://www.google.com/");
     assert.equal(finals["https://www.google.com/search?q=x"], "https://www.google.com/search?q=x&udm=14");
     assert.equal(finals["https://www.google.com/search?q=x&udm=2"], "https://www.google.com/search?q=x&udm=2");
-    assert.equal(telemetry.lifetimeMetrics.aiModeRedirects, 3);
+    assert.equal(telemetry.lifetimeMetrics.aiModeRedirects, 4);
     assert.equal(telemetry.lifetimeMetrics.omniboxFallbackRedirects, 1);
     return { finals, requests: b.requests, lifetime: telemetry.lifetimeMetrics, log: telemetry.diagnosticLog.map((e) => e.code) };
   }));
@@ -129,22 +131,120 @@ equivalent("B-05", "Overview inside a data-hveid wrapper with 1 organic result: 
     return vis;
   }), { bp: "BP-08" });
 
+equivalent("B-05b", "Overview container wrapping an organic result stays visible (CSS defers to the guard) and logs ERR_SAFETY_GUARD_TRIPPED; external udm=50 link visible; absolute Google AI Mode link hidden", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=overview-organic&udm=14");
+    await settle(page);
+    const vis = await visibilityById(page);
+    const telemetry = await readTelemetry(b.sw);
+    const codes = telemetry.diagnosticLog.map((e) => e.code);
+    assert.equal(vis["ov-wrap"], true, "Overview wrapper holding an organic result was hidden");
+    assert.equal(vis["ow-r1"], true);
+    assert.equal(vis["ext-udm"], true, "external link with udm=50 in its URL was hidden");
+    assert.equal(vis["abs-aimode"], false, "absolute Google AI Mode link not hidden");
+    assert.equal(vis["rel-q-aimode"], false, "query-only relative AI Mode link (?q=x&udm=50) not hidden");
+    assert.ok(codes.includes("ERR_SAFETY_GUARD_TRIPPED"), "guard refusal not logged");
+    return { vis, codes };
+  }), { bp: "BP-08" });
+
+equivalent("B-16", "unhide restores an original inline display:none; a leftover hide marker stops hiding once its category's policy attribute is off", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=restore&udm=14");
+    await settle(page);
+    const whileHidden = await page.evaluate(() => ({
+      marker: document.getElementById("ov-google-hidden").getAttribute("data-rmsg-hidden"),
+      markerOnlyVisible: document.getElementById("marker-only").checkVisibility(),
+    }));
+    await setOverrides(b, { hideAiOverviews: false });
+    await page.waitForFunction(() => !document.getElementById("ov-google-hidden").hasAttribute("data-rmsg-hidden"));
+    const afterUnhide = await page.evaluate(() => {
+      const el = document.getElementById("ov-google-hidden");
+      return { inlineDisplay: el.style.display, visible: el.checkVisibility() };
+    });
+    // Simulate a marker that outlived its policy: the category attribute is off, marker stays.
+    await setOverrides(b, { hideAiOverviews: true });
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-rmsg-hide-overviews") === "1");
+    const markerAfterReenable = await page.evaluate(() => {
+      const el = document.getElementById("marker-only");
+      el.setAttribute("data-rmsg-hidden", "overview");
+      const hiddenWithAttr = !el.checkVisibility();
+      document.documentElement.removeAttribute("data-rmsg-hide-overviews");
+      return { hiddenWithAttr, visibleWithoutAttr: el.checkVisibility() };
+    });
+    assert.equal(whileHidden.marker, "overview", "Overview was swept");
+    assert.equal(whileHidden.markerOnlyVisible, false, "marker hides while its category is on");
+    assert.equal(afterUnhide.inlineDisplay, "none", "Google's own inline display:none was not restored");
+    assert.equal(afterUnhide.visible, false);
+    assert.equal(markerAfterReenable.hiddenWithAttr, true);
+    assert.equal(markerAfterReenable.visibleWithoutAttr, true, "leftover marker still hides with its category off");
+    return { whileHidden, afterUnhide, markerAfterReenable };
+  }), { bp: "BP-18" });
+
+equivalent("B-05c", "an Overview wrapper hidden while empty is un-hidden when an organic result is inserted later, with ERR_SAFETY_GUARD_TRIPPED", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=overview-organic&udm=14");
+    await settle(page);
+    const before = await page.evaluate(() => document.getElementById("ov-late").checkVisibility());
+    await page.evaluate(() => {
+      const r = document.createElement("div");
+      r.className = "g";
+      r.id = "late-organic";
+      r.innerHTML = '<a href="https://example.com/late"><h3 class="LC20lb">Late organic result</h3></a>';
+      document.getElementById("ov-late").append(r);
+    });
+    await settle(page);
+    const after = await visibilityById(page);
+    const telemetry = await readTelemetry(b.sw);
+    const unHid = telemetry.diagnosticLog.some((e) => e.code === "ERR_SAFETY_GUARD_TRIPPED" && /Un-hid div#ov-late/.test(e.detail));
+    assert.equal(before, false, "empty Overview wrapper should start hidden");
+    assert.equal(after["ov-late"], true, "wrapper still hidden after an organic result arrived");
+    assert.equal(after["late-organic"], true);
+    assert.ok(unHid, "un-hide not logged");
+    return { before, after: { wrapper: after["ov-late"], organic: after["late-organic"] }, unHid };
+  }), { bp: "BP-08" });
+
 equivalent("B-06", "history.pushState(…udm=50) + DOM mutation → clean URL; aiModeRedirects +1 exactly", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     await page.goto("https://www.google.com/search?q=x&udm=14");
     await settle(page);
     const before = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects;
+    // The redirect can start before evaluate() returns (Navigation API), which tears down the
+    // page's execution context: that is the fix working, not a test failure.
     await page.evaluate(() => {
       history.pushState({}, "", "/search?q=x&udm=50");
       document.body.append(document.createElement("div"));
+    }).catch((err) => {
+      if (!/Execution context was destroyed/.test(err.message)) throw err;
     });
+    await page.waitForURL((u) => !u.href.includes("udm=50"), { timeout: 5000 });
     await settle(page);
     const after = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects;
     const url = page.url();
     assert.doesNotMatch(url, /udm=50/);
     assert.equal(after - before, 1);
     return { url, delta: after - before };
+  }), { bp: "BP-05" });
+
+equivalent("B-06b", "history.pushState(…udm=50) with no DOM mutation → clean URL via the Navigation API; aiModeRedirects +1 exactly", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&udm=14");
+    await settle(page);
+    const before = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects;
+    await page.evaluate(() => history.pushState({}, "", "/search?q=x&udm=50")).catch((err) => {
+      if (!/Execution context was destroyed/.test(err.message)) throw err;
+    });
+    await page.waitForURL((u) => !u.href.includes("udm=50"), { timeout: 5000 });
+    await settle(page);
+    const afterPush = page.url();
+    const delta = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects - before;
+    assert.doesNotMatch(afterPush, /udm=50/);
+    assert.equal(delta, 1, "exactly one redirect counted");
+    return { afterPush, delta };
   }), { bp: "BP-05" });
 
 equivalent("B-07", "same page reloaded 3× → each category counter +3 exactly", (target) =>
@@ -204,6 +304,7 @@ async function optionsState(page) {
     staffCardVisible: document.querySelector('article[data-grade-band="Staff"]')?.checkVisibility() ?? null,
     selectedTab: document.querySelector('[role="tab"][aria-selected="true"]')?.id ?? null,
     modeBadge: document.getElementById("policy-mode-badge")?.textContent ?? null,
+    resetDisabled: document.getElementById("btn-reset-metrics")?.disabled ?? null,
   }));
 }
 
@@ -233,6 +334,7 @@ equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only aft
     assert.equal(diagnosticsPanelVisible, true);
     assert.equal(initial.lockBadgesVisible, 0, "Locked badges shown on an unmanaged device");
     assert.equal(initial.cancelResetVisible, false, "Cancel Reset visible before Reset");
+    assert.equal(initial.resetDisabled, false, "Reset available on an unmanaged test install (BP-07)");
     assert.equal(afterFirstReset.cancelResetVisible, true);
     assert.equal(generatorTab.staffCardVisible, false, "Staff card visible before toggle");
     assert.equal(staffAfterToggle.staffCardVisible, true, "Staff card shown after toggle");
@@ -294,7 +396,7 @@ equivalent("B-13c", "Popup: managed view (not unmanaged) when the service worker
     return text;
   }), { bp: "BP-01" });
 
-equivalent("B-13d", "Options: locked banner and disabled switches when the worker reports admin-no-policy, and when it is unreachable", (target) =>
+equivalent("B-13d", "Options: locked banner, disabled switches and disabled Reset when the worker reports admin-no-policy, and when it is unreachable", (target) =>
   withBrowser(target, async (b) => {
     const out = {};
     for (const mode of ["locked", "unreachable"]) {
@@ -304,11 +406,16 @@ equivalent("B-13d", "Options: locked banner and disabled switches when the worke
         badge: document.getElementById("policy-mode-badge")?.textContent ?? null,
         enabledSwitches: [...document.querySelectorAll('input[id^="toggle-"]')].filter((i) => !i.disabled).length,
         gradeBandDisabled: document.getElementById("grade-band-select")?.disabled ?? null,
+        resetDisabled: document.getElementById("btn-reset-metrics")?.disabled ?? null,
+        // The note lives in the (inactive, until-found) Diagnostics tab, so check its own hidden flag.
+        resetNoteShown: document.getElementById("reset-locked-note")?.hidden === false,
       }));
       assert.match(out[mode].title, /No Grade-Band Policy Yet/, `${mode}: banner`);
       assert.equal(out[mode].badge, "Locked", `${mode}: badge`);
       assert.equal(out[mode].enabledSwitches, 0, `${mode}: every switch disabled`);
       assert.equal(out[mode].gradeBandDisabled, true, `${mode}: grade band locked`);
+      assert.equal(out[mode].resetDisabled, true, `${mode}: Reset disabled when locked (BP-07)`);
+      assert.equal(out[mode].resetNoteShown, true, `${mode}: locked-reset note shown`);
       await page.close();
     }
     return out;

@@ -10,13 +10,14 @@
  */
 
 /**
- * Apply a DNR queryTransform and optional fragment to a URL.
+ * Apply a DNR transform (path, queryTransform, fragment) to a URL.
  * @param {URL} url - URL to modify (copied).
  * @param {object} transform - DNR transform.
  * @returns {string} New URL.
  */
 function applyTransform(url, transform) {
   const next = new URL(url.href);
+  if (transform.path !== undefined) next.pathname = transform.path;
   const qt = transform.queryTransform;
   if (qt) {
     for (const key of qt.removeParams ?? []) next.searchParams.delete(key);

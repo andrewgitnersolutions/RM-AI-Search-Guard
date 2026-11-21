@@ -17,7 +17,7 @@ equivalent("U-17", "two overlapping policy syncs, the older resolving last → t
   const newer = sw.fire("onChanged", { masterEnabled: { newValue: true } }, "managed");
   await Promise.all([older, newer]);
   const ids = sw.dynamicRules.map((r) => r.id);
-  assert.deepEqual(ids, [101, 102, 110, 111, 120, 130], "stale disabled sync removed the newer policy's rules");
+  assert.deepEqual(ids, [101, 102, 110, 111, 112, 120, 130], "stale disabled sync removed the newer policy's rules");
   return ids;
 }, { bp: "BP-17" });
 

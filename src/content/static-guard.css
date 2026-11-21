@@ -9,12 +9,60 @@
 
 /* AI Overviews */
 /* FRAGILE(google-dom, last verified NONE, see test L-07): #eKIzJc, AIOverview attrs, aria-label text, .YzCcne, data-mcp=18. */
-html[data-rmsg-hide-overviews="1"] div#eKIzJc:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-overviews="1"] div[data-attrid="AIOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-overviews="1"] div[data-async-type="aiOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-overviews="1"] div[aria-label="AI Overview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-overviews="1"] div.YzCcne[data-mcpr]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+/* BP-08: an Overview container that holds any organic result (a > h3, h3.LC20lb) is left to
+   the JS safety guard, which refuses it, instead of being hidden here. Each selector has its own
+   rule because a rule using :has() must not share a selector list (BP-10). */
+html[data-rmsg-hide-overviews="1"] div#eKIzJc:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-overviews="1"] div[data-attrid="AIOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-overviews="1"] div[data-async-type="aiOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-overviews="1"] div[aria-label="AI Overview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-overviews="1"] div.YzCcne[data-mcpr]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;
@@ -25,10 +73,10 @@ html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#
 }
 
 /* AI Mode UI (Homepage triggers, Search nav tabs, Dive deeper prompts) */
-/* FRAGILE(google-dom, last verified NONE, see test L-07): udm=50 and /aimode hrefs, .olrp5b, .plR5qb, jsname=B6rgad. */
-/* :has() gets a rule of its own (BP-10): one unsupported selector drops its whole selector list,
-   so it must never share a list with the others. Chrome 134+ supports it; this is insurance. */
-html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+/* FRAGILE(google-dom, last verified NONE, see test L-07): udm=50, /aimode and /ai hrefs on Google only (BP-08), .olrp5b, .plR5qb, jsname=B6rgad. */
+/* Nav-tab list items holding an AI Mode link. :has() gets rules of its own (BP-10): one
+   unsupported selector drops its whole selector list. Chrome 134+ supports it; this is insurance. */
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="?"][href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;
@@ -38,8 +86,54 @@ html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href*="udm=50"]):not(
   padding: 0 !important;
 }
 
-html[data-rmsg-hide-aimode="1"] a[href*="udm=50"],
-html[data-rmsg-hide-aimode="1"] a[href*="/aimode"],
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="/search"][href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="https://www.google.com/search"][href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="https://google.com/search"][href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Same Google-only link list as SELECTORS.tier1.aiModeUi.directSelectors: a link to another site
+   whose URL merely contains "udm=50" or "/aimode" is an organic result (BP-08). */
+html[data-rmsg-hide-aimode="1"] a[href^="?"][href*="udm=50"],
+html[data-rmsg-hide-aimode="1"] a[href^="/search"][href*="udm=50"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://www.google.com/search"][href*="udm=50"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://google.com/search"][href*="udm=50"],
+html[data-rmsg-hide-aimode="1"] a[href^="/aimode"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://www.google.com/aimode"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://google.com/aimode"],
+html[data-rmsg-hide-aimode="1"] a[href="/ai"],
+html[data-rmsg-hide-aimode="1"] a[href^="/ai?"],
+html[data-rmsg-hide-aimode="1"] a[href^="/ai/"],
+html[data-rmsg-hide-aimode="1"] a[href="https://www.google.com/ai"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://www.google.com/ai?"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://www.google.com/ai/"],
+html[data-rmsg-hide-aimode="1"] a[href="https://google.com/ai"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://google.com/ai?"],
+html[data-rmsg-hide-aimode="1"] a[href^="https://google.com/ai/"],
 html[data-rmsg-hide-aimode="1"] div.olrp5b:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aimode="1"] button.plR5qb,
 html[data-rmsg-hide-aimode="1"] button[jsname="B6rgad"] {
@@ -68,8 +162,13 @@ html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#c
   padding: 0 !important;
 }
 
-/* Elements explicitly vetted by the Organic Results Safety Guard and hidden by dom-engine.ts */
-[data-rmsg-hidden] {
+/* Elements explicitly vetted by the Organic Results Safety Guard and hidden by dom-engine.ts.
+   Each marker only hides while its category's policy attribute is on (BP-18), so CSS and policy
+   can't disagree if a marker outlives its policy (e.g. on a node Google cloned). dom-engine.ts
+   also sets an inline display:none and undoes it when the policy turns the category off. */
+html[data-rmsg-hide-overviews="1"] [data-rmsg-hidden="overview"],
+html[data-rmsg-hide-aimode="1"] [data-rmsg-hidden="aimode"],
+html[data-rmsg-hide-aux="1"] [data-rmsg-hidden="aux"] {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;

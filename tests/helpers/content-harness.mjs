@@ -6,6 +6,7 @@
  * The DOM stub models only what the policy-load path touches: <html> attributes, an empty
  * document (every query matches nothing), readyState "loading" (so no sweeps run) and no body.
  * Each GET_EFFECTIVE_POLICY call returns a promise the test resolves itself, in any order.
+ * window.location starts at opts.href; location.replace() is recorded in `replaced`, never run.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -14,9 +15,10 @@ import vm from "node:vm";
 /**
  * Load the content script of a target build.
  * @param {{ dir: string }} target - Build folder.
- * @returns {object} { attrs, policyRequests, fireStorageChange, flush }
+ * @param {{ href?: string }} [opts] - href: the page URL (default a plain Web search).
+ * @returns {object} { attrs, policyRequests, replaced, setHref, fireStorageChange, fireWindowEvent, flush }
  */
-export function loadContentScript(target) {
+export function loadContentScript(target, opts = {}) {
   const file = path.join(target.dir, "content/content.js");
   const code = readFileSync(file, "utf8");
   const attrs = new Map();
@@ -39,10 +41,19 @@ export function loadContentScript(target) {
     querySelectorAll: () => [],
     querySelector: () => null,
   };
+  const start = new URL(opts.href ?? "https://www.google.com/search?q=x&udm=14");
+  const replaced = [];
+  const windowListeners = {};
   const window = {
-    location: { pathname: "/search", search: "?q=x", hash: "" },
+    location: {
+      href: start.href,
+      pathname: start.pathname,
+      search: start.search,
+      hash: start.hash,
+      replace: (url) => replaced.push(String(url)),
+    },
     history: { replaceState() {} },
-    addEventListener() {},
+    addEventListener: (name, fn) => (windowListeners[name] ??= []).push(fn),
     requestAnimationFrame() {},
   };
   const chrome = {
@@ -62,7 +73,7 @@ export function loadContentScript(target) {
     observe() {}
     disconnect() {}
   }
-  const ctx = vm.createContext({ window, document, chrome, MutationObserver, console });
+  const ctx = vm.createContext({ window, document, chrome, MutationObserver, console, URL, URLSearchParams });
   new vm.Script(code, { filename: file }).runInContext(ctx);
 
   /** Let pending promise callbacks run. */
@@ -71,7 +82,17 @@ export function loadContentScript(target) {
   return {
     attrs,
     policyRequests,
+    replaced,
     flush,
+    /** Change the page URL without a load, as history.pushState / back-forward would. */
+    setHref(href) {
+      const u = new URL(href);
+      Object.assign(window.location, { href: u.href, pathname: u.pathname, search: u.search, hash: u.hash });
+    },
+    /** Dispatch a window event (e.g. "popstate", "pageshow") to the content script's listeners. */
+    fireWindowEvent(name) {
+      for (const fn of windowListeners[name] ?? []) fn({ type: name });
+    },
     /** Fire chrome.storage.onChanged for the local overrides key. */
     fireStorageChange() {
       for (const fn of storageListeners) void fn({ rmsg_local_overrides: { newValue: {} } }, "local");
