@@ -3,8 +3,8 @@
  * and (optionally) force Web-only results.
  * Runs in: service worker.
  * Must never: touch subresource requests or hosts other than google.com / www.google.com.
- * Shared with: background/service-worker.ts. BP-05 adds a JS copy of these redirects for
- * in-page navigation (shared/ai-mode-url.ts); the two must stay in sync (test U-07).
+ * Shared with: background/service-worker.ts. shared/ai-mode-url.ts mirrors these redirects for
+ * in-page navigation (BP-05); the two must stay in sync (test U-07).
  */
 
 import { enqueueStorageOp } from "../shared/storage";
@@ -24,11 +24,11 @@ export const ACTION_ALLOW = "allow" as chrome.declarativeNetRequest.RuleActionTy
 
 export const RESOURCE_MAIN_FRAME = "main_frame" as chrome.declarativeNetRequest.ResourceType.MAIN_FRAME;
 
-// FRAGILE(google-dom, last verified NONE, see test L-07): udm=14 (Web-only results) and AI Mode session params aep, arv, mstk, csuir.
+// FRAGILE(google-dom, last verified NONE, see tests L-02/L-06): udm=14 (Web-only results) and AI Mode session params aep, arv, mstk, csuir.
 /**
  * Build the query transform used when redirecting out of AI Mode.
  * @param forceWebOnlySearch - true replaces udm with 14; false removes udm.
- * @returns DNR queryTransform that also strips AI Mode session params.
+ * @returns DNR queryTransform that also strips AI Mode session params. Pure; never throws.
  */
 export function createAiModeQueryTransform(forceWebOnlySearch: boolean): QueryTransform {
   if (forceWebOnlySearch) {
@@ -46,11 +46,11 @@ export function createAiModeQueryTransform(forceWebOnlySearch: boolean): QueryTr
 // entries before generic AI Mode 110 (50); /ai and /aimode with a query (111, 50) keep the
 // student's search, the queryless fallback 112 (45) goes to the homepage; allow 120 (40)
 // exempts explicit tabs (udm=/tbm=) from the Web-only rewrite 130 (30).
-// FRAGILE(google-dom, last verified NONE, see test L-07): udm=50 = AI Mode, sourceid=chrome / aep= = omnibox entry, /ai and /aimode paths.
+// FRAGILE(google-dom, last verified NONE, see tests L-02/L-06): udm=50 = AI Mode, sourceid=chrome / aep= = omnibox entry, /ai and /aimode paths.
 /**
  * Build the dynamic DNR rules for a policy.
  * @param policy - Effective policy.
- * @returns Rule list; [] when masterEnabled is false.
+ * @returns Rule list; [] when masterEnabled is false. Pure; never throws.
  */
 export function buildDynamicRules(policy: Toggles): Rule[] {
   if (!policy.masterEnabled) {

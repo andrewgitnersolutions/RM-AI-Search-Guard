@@ -311,6 +311,7 @@
   var SELECTORS = {
     safetyGuard: {
       protectedTags: ["HTML", "BODY", "HEAD", "MAIN"],
+      // FRAGILE(google-dom, last verified NONE, see tests L-01/L-07): Google Search structural landmarks, organic heading selectors, and main search input.
       protectedSelectors: [
         "#main",
         "#cnt",
@@ -323,6 +324,7 @@
         'form[role="search"]',
         "#searchform"
       ],
+      // FRAGILE(google-dom, last verified NONE, see tests L-01/L-07): organic result heading selectors used by the safety guard.
       organicResultSelector: "a > h3, h3.LC20lb",
       // Refuse to hide anything holding this many organic results. AI Overview candidates are held
       // to 1 (BP-08): an Overview card never legitimately contains a real result, so a candidate
@@ -331,6 +333,7 @@
       overviewOrganicResultThreshold: 1,
       // How far findOverviewHeadingContainer may walk up from an "AI Overview" heading (BP-08).
       maxAncestorDepth: 8,
+      // FRAGILE(google-dom, last verified NONE, see tests L-01/L-07): Google Search main query input selector.
       searchInputSelector: 'textarea[name="q"], input[name="q"]'
     },
     // FRAGILE(google-dom, last verified 2026-11-21): Tier 1 semantic attrs, localized en/es labels
@@ -434,6 +437,7 @@
             '[placeholder*="Haz una pregunta" i]:not([name="q"])'
           ]
         },
+        // FRAGILE(google-dom, last verified NONE, see tests L-01/L-07): People Also Ask card wrapper selectors.
         paaCardSelectors: [
           '[jsname="yEVEwb"]',
           '[data-sgrd="true"]',
@@ -441,6 +445,7 @@
           "div.related-question-pair"
         ],
         aiAttributionMarkers: {
+          // FRAGILE(google-dom, last verified NONE, see tests L-01/L-07): "ai overview" confirmed 2026-11-21; "generative ai" and "ai-generated" did not render on test PAA headers and remain as fallbacks.
           en: ["ai overview", "generative ai", "ai-generated"],
           // FRAGILE(google-dom, last verified 2026-11-21): only observed Spanish AI badge/heading verbatim on live Google; "Generative AI" / "AI-generated" did not render on es PAA headers.
           es: ["visión general creada por ia"]

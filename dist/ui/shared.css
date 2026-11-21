@@ -3,6 +3,7 @@
  * Must never: load remote assets (extension CSP is script-src 'self').
  * The reset layer's [hidden] rule (BP-06) makes the hidden attribute win over component
  * display rules everywhere.
+ * Shared with: ui/popup.html, ui/options.html.
  */
 @layer reset, base, components, utilities;
 
@@ -208,7 +209,7 @@
   }
 
   /* =========================================================
-     App Shell (Options Hub & Standalone Policy Generator)
+     App Shell (Options Hub)
      ========================================================= */
   .skip-link {
     position: fixed;

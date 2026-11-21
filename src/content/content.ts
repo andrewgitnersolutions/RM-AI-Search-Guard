@@ -10,8 +10,8 @@
  * only removes the ones it turns off. If no policy can be resolved, they stay on.
  * In-page navigation into AI Mode (history.pushState, no main_frame request) is caught here and
  * sent through the same redirect the DNR rules use (BP-05, shared/ai-mode-url.ts).
- * Shared with: shared/ai-mode-url.ts, shared/defaults.ts, shared/policy.ts, shared/storage.ts,
- * content/dom-engine.ts.
+ * Shared with: shared/ai-mode-url.ts, shared/defaults.ts, shared/errors.ts, shared/policy.ts,
+ * shared/storage.ts, content/dom-engine.ts.
  */
 
 import { cleanAiModeUrl } from "../shared/ai-mode-url";
@@ -61,7 +61,7 @@ async function sendRuntimeMessage(message: RawRecord): Promise<unknown> {
 /**
  * Hash path + query (FNV-1a) into an opaque key so each page is counted once.
  * The key never leaves the content script.
- * @returns "p-<hex>".
+ * @returns "p-<hex>". Pure; never throws.
  */
 function computeOpaquePageKey(): string {
   const input = `${window.location.pathname}${window.location.search}`;
@@ -77,6 +77,7 @@ function computeOpaquePageKey(): string {
 /**
  * If the URL carries a DNR redirect marker, strip it and report one redirect.
  * Only the marker type is sent, never the URL.
+ * @returns Nothing. Swallows history.replaceState errors so redirect telemetry still posts best-effort.
  */
 function handleRedirectHashTelemetry() {
   const redirectSource = parseRedirectHash(window.location.hash);
@@ -176,6 +177,7 @@ function clearPendingMetrics(): void {
 
 /**
  * Cancel any pending throttle timer or animation-frame sweep callback.
+ * @returns Nothing. Safe when no timer or frame is pending.
  */
 function cancelScheduledSweep(): void {
   if (sweepTimer !== null) {
@@ -193,6 +195,7 @@ function cancelScheduledSweep(): void {
 
 /**
  * Queue one sweep on the next animation frame.
+ * @returns Nothing. Assumes window.requestAnimationFrame exists.
  */
 function queueSweepFrame(): void {
   pendingRaf = true;
@@ -206,7 +209,7 @@ function queueSweepFrame(): void {
 
 /**
  * Arm the 10 s fallback flush timer if not already scheduled.
- * No-op outside a DOM window timer environment.
+ * @returns Nothing. No-op outside a DOM window timer environment.
  */
 function scheduleMetricsFlushTimer(): void {
   if (metricsFlushTimer === null && typeof window.setTimeout === "function") {
@@ -221,6 +224,7 @@ function scheduleMetricsFlushTimer(): void {
  * Accumulate positive counter deltas and schedule the fallback 10 s flush timer (BP-09).
  * Batching avoids a storage write on every mutation frame on streaming results pages.
  * @param deltas - Non-negative integer deltas from sweepDom().
+ * @returns Nothing. Ignores non-positive or non-finite entries; never throws.
  */
 function queueMetricDeltas(deltas: Record<string, number>): void {
   let added = false;
@@ -243,6 +247,7 @@ function queueMetricDeltas(deltas: Record<string, number>): void {
  * Re-arms the fallback timer if confirmation fails again while deltas remain queued; drops
  * silently if a live reset changed epochVersion meanwhile (since that reset already cleared deltas).
  * @param versionBeforeRetry - Epoch version captured before awaiting the storage read.
+ * @returns Resolves once retry completes or aborts safely; never throws.
  */
 async function flushAfterEpochRetry(versionBeforeRetry: number): Promise<void> {
   const confirmedEpoch = await ensureMetricsResetEpoch();
@@ -291,6 +296,7 @@ function flushPendingMetrics(allowAsyncRetry = true): void {
 
 /**
  * Stop both MutationObservers and cancel any pending sweep callbacks.
+ * @returns Nothing. Safe when observers are already disconnected.
  */
 function disconnectObservers() {
   if (bodyObserver) {
@@ -380,6 +386,7 @@ function runSweepNow() {
  * Throttle mutation sweeps to at most once per 150 ms while keeping the first/idle sweep on
  * the next animation frame and guaranteeing a trailing sweep after bursts settle (BP-09).
  * @param immediate - Skip throttle cooldown (used when a new policy is applied).
+ * @returns Nothing. No-op when policy is unset or masterEnabled is false.
  */
 function scheduleSweep(immediate = false) {
   if (!currentPolicy || !currentPolicy.masterEnabled) {
@@ -415,6 +422,7 @@ function scheduleSweep(immediate = false) {
 
 /**
  * Observe <body> for added nodes; before <body> exists, watch <html> until it appears.
+ * @returns Nothing. No-op when policy is unset, masterEnabled is false, or documentElement is absent.
  */
 function attachMutationObserver() {
   if (!currentPolicy || !currentPolicy.masterEnabled) {
@@ -451,7 +459,7 @@ function attachMutationObserver() {
  * Compare two normalized selector lists element-by-element for policy diffing.
  * @param prev - Previous selector list (or undefined).
  * @param next - Next selector list (or undefined).
- * @returns true when both lists have identical entries in the same order.
+ * @returns true when both lists have identical entries in the same order. Pure; never throws.
  */
 function sameSelectorList(
   prev: readonly string[] | undefined,
@@ -475,7 +483,7 @@ function sameSelectorList(
  * @param prev - Previously applied policy (null on initial bootstrap).
  * @param next - Newly applied policy.
  * @param category - Protection category to inspect.
- * @returns true when a prior policy existed and that category's selector list changed.
+ * @returns true when a prior policy existed and that category's selector list changed. Pure; never throws.
  */
 function extraSelectorsChanged(
   prev: EffectivePolicy | null,
@@ -491,6 +499,7 @@ function extraSelectorsChanged(
 /**
  * Apply a policy: set attributes, restore disabled or selector-updated categories, and start sweeping.
  * @param policy - Effective policy; masterEnabled false flushes deltas, unhides everything and stops observers.
+ * @returns Nothing. Fails closed on bootstrap because initial attributes stay on until disabled explicitly.
  */
 function applyEffectivePolicy(policy: EffectivePolicy): void {
   const previousPolicy = currentPolicy;
@@ -578,6 +587,7 @@ async function loadAndApplyPolicy(): Promise<EffectivePolicy | null> {
 
 /**
  * Load the policy, apply it, and sweep at once if the DOM is already parsed.
+ * @returns Resolves after applying the initial policy; fails closed via initial attributes if storage/worker fail.
  */
 async function bootstrapContentGuard() {
   const policy = await loadAndApplyPolicy();

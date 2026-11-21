@@ -1,8 +1,8 @@
 /**
  * Diagnostic code catalog (ERR_* / WARN_*) with IT remediation text, plus log-entry helpers.
- * Runs in: service worker and options page.
+ * Runs in: service worker, content script on google.com (getTodayDateBucket only), and options page.
  * Must never: put page text, URLs, queries or identifiers into an entry's detail.
- * Shared with: shared/storage.ts (diagnostic log), background/service-worker.ts, ui/options.ts.
+ * Shared with: shared/storage.ts (diagnostic log), background/messages.ts (ALL_ERROR_CODES), background/service-worker.ts, content/content.ts (getTodayDateBucket), ui/options.ts.
  */
 
 import type { CatalogEntry, DiagnosticEntry, ErrorCode } from "./types";

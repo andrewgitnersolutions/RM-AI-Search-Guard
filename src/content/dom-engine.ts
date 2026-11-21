@@ -43,7 +43,7 @@ export const CONTAINER_ANCESTOR_COMBINED = SELECTORS.tier1.aiOverviews.container
  * so DOM sweeps allocate nothing extra. Every supported non-English locale includes English
  * fallbacks so mixed-language Google markup still matches (BP-03).
  * @param lang - Resolved UI language.
- * @returns Combined direct selectors and lowercase label sets for that language.
+ * @returns Combined direct selectors and lowercase label sets for that language. Pure; never throws.
  */
 function buildLocaleSets(lang: SupportedUiLanguage) {
   const overviewHeadingTexts = new Set(SELECTORS.tier1.aiOverviews.headingTexts.en);
@@ -103,7 +103,7 @@ const AUX_TIER2_COMBINED = SELECTORS.tier2.auxiliaryAi.join(", ");
 /**
  * Collapse whitespace and lowercase text for exact label comparisons.
  * @param text - Raw text (may be null).
- * @returns Normalized text, or "".
+ * @returns Normalized text, or "". Pure; never throws.
  */
 export function normalizeText(text: string | null | undefined): string {
   if (!text) {
@@ -149,7 +149,7 @@ export function safeQueryAll(root: ParentNode, selector: string, errors: PolicyE
 /**
  * Describe an element for diagnostics by tag and id only (no text, no classes).
  * @param el - Element.
- * @returns e.g. "div#rso".
+ * @returns e.g. "div#rso". Pure; never throws.
  */
 export function describeElementSafe(el: Element): string {
   const tag = el.tagName.toLowerCase();
@@ -159,7 +159,7 @@ export function describeElementSafe(el: Element): string {
 /**
  * Read the marker fragment that a DNR redirect appended.
  * @param hash - location.hash.
- * @returns "omnibox", "aimode" or null.
+ * @returns "omnibox", "aimode" or null. Pure; never throws.
  */
 export function parseRedirectHash(hash: string): "omnibox" | "aimode" | null {
   if (hash === "#rm_sg_omnibox") {
@@ -319,6 +319,7 @@ export function applyPolicyAttributes(doc: Document, policy: Toggles): void {
 /**
  * Undo hideElement(): restore the saved inline display and remove marker attributes.
  * @param el - Previously hidden element.
+ * @returns Nothing. Skips inline style restoration if style is absent on the element.
  */
 export function restoreElementVisibility(el: Element): void {
   el.removeAttribute("data-rmsg-hidden");
@@ -339,6 +340,7 @@ export function restoreElementVisibility(el: Element): void {
 /**
  * Restore every element this extension hid (used when masterEnabled turns off).
  * @param doc - Page document.
+ * @returns Nothing. No-op when no elements are marked hidden.
  */
 export function unhideAllElements(doc: Document): void {
   const hiddenElements = doc.querySelectorAll("[data-rmsg-hidden]");
@@ -351,6 +353,7 @@ export function unhideAllElements(doc: Document): void {
  * Restore elements hidden under one category after that toggle turns off.
  * @param doc - Page document.
  * @param category - "overview" | "aimode" | "aux".
+ * @returns Nothing. No-op when no elements are marked under that category.
  */
 export function unhideCategoryElements(doc: Document, category: HideCategory): void {
   const hiddenElements = doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`);
@@ -363,6 +366,7 @@ export function unhideCategoryElements(doc: Document, category: HideCategory): v
  * Hide an element with an important inline display:none, saving its previous inline display.
  * @param el - Vetted candidate.
  * @param category - Category recorded in data-rmsg-hidden.
+ * @returns Nothing. Always sets data-rmsg-hidden; skips inline style if style is absent.
  */
 export function hideElement(el: Element, category: HideCategory): void {
   el.setAttribute("data-rmsg-hidden", category);
@@ -385,7 +389,7 @@ export function hideElement(el: Element, category: HideCategory): void {
 /**
  * Check whether an element or an ancestor is already hidden by this extension.
  * @param el - Element.
- * @returns true if hidden.
+ * @returns true if hidden. Pure DOM check; never throws.
  */
 export function isAlreadyHidden(el: Element): boolean {
   if (el.hasAttribute("data-rmsg-hidden")) {
@@ -399,7 +403,7 @@ export function isAlreadyHidden(el: Element): boolean {
  * Replaces the O(n^2) all-pairs containment check with an O(n log n) document-order sort:
  * in pre-order, any ancestor precedes all of its descendants before the next sibling subtree.
  * @param candidates - Vetted safe candidates.
- * @returns Top-level candidates with nested descendants removed.
+ * @returns Top-level candidates with nested descendants removed. Pure; never throws.
  */
 export function filterTopLevelCandidates(candidates: Element[]): Element[] {
   if (candidates.length <= 1) {
@@ -558,7 +562,8 @@ export function findOverviewHeadingContainer(
  * @param doc - Page document.
  * @param selectors - Optional managed selector array for one category.
  * @param errors - Collector for syntax errors.
- * @returns Matched elements not already hidden by this extension.
+ * @returns Matched elements not already hidden by this extension. Bad selectors are recorded in
+ * errors and skipped without aborting remaining selectors.
  */
 export function collectExtraSelectorCandidates(
   doc: Document,
@@ -593,7 +598,7 @@ export function collectExtraSelectorCandidates(
  * @param guardCache - Optional per-sweep safety-guard cache.
  * @param lang - Resolved UI language ("en" | "es").
  * @param extraSelectors - Optional managed hotfix selectors for overview.
- * @returns Candidate elements (unvetted).
+ * @returns Candidate elements (unvetted). Selector syntax errors are captured in errors so remaining tiers continue.
  */
 export function collectAiOverviewCandidates(
   doc: Document,
@@ -639,7 +644,7 @@ export function collectAiOverviewCandidates(
  * @param el - Matched element.
  * @param doc - Page document.
  * @param guardCache - Optional per-sweep safety-guard cache.
- * @returns Element to hide.
+ * @returns Element to hide; falls back to el if widening would fail isUnsafeToHide().
  */
 export function promoteAiModeTarget(
   el: Element,
@@ -666,7 +671,7 @@ export function promoteAiModeTarget(
  * @param guardCache - Optional per-sweep safety-guard cache.
  * @param lang - Resolved UI language ("en" | "es").
  * @param extraSelectors - Optional managed hotfix selectors for aimode.
- * @returns Candidate elements (unvetted).
+ * @returns Candidate elements (unvetted). Selector syntax errors are captured in errors so remaining tiers continue.
  */
 export function collectAiModeUiCandidates(
   doc: Document,
@@ -731,7 +736,7 @@ export function collectAiModeUiCandidates(
  * Check whether a People Also Ask card is labelled as AI-generated.
  * @param card - Card element.
  * @param lang - Resolved UI language ("en" | "es").
- * @returns true if an aria-label or leaf text exactly matches an attribution marker.
+ * @returns true if an aria-label or leaf text exactly matches an attribution marker. Pure DOM check; never throws.
  */
 export function hasAiAttributionBadge(card: Element, lang: SupportedUiLanguage = "en"): boolean {
   const markers = LOCALE_SETS[lang].aiAttributionMarkers;
@@ -766,7 +771,7 @@ export function hasAiAttributionBadge(card: Element, lang: SupportedUiLanguage =
  * @param errors - Collector for selector errors.
  * @param lang - Resolved UI language ("en" | "es").
  * @param extraSelectors - Optional managed hotfix selectors for aux.
- * @returns Candidate elements (unvetted).
+ * @returns Candidate elements (unvetted). Selector syntax errors are captured in errors so remaining tiers continue.
  */
 export function collectAuxAiCandidates(
   doc: Document,
@@ -808,7 +813,7 @@ export function collectAuxAiCandidates(
  * Uses Element.checkVisibility() (Chrome 105+, below the 134 floor) with a safe fallback for
  * minimal DOM test stubs.
  * @param el - Candidate element.
- * @returns true if connected and visibly rendered.
+ * @returns true if connected and visibly rendered. Fails open to style/offsetParent fallback checks if checkVisibility() throws.
  */
 export function isElementVisible(el: Element): boolean {
   if (!el.isConnected || isAlreadyHidden(el)) {
@@ -842,6 +847,7 @@ export function isElementVisible(el: Element): boolean {
  * @param policy - Effective policy toggles.
  * @param lang - Resolved UI language ("en" | "es").
  * @param errors - Collector for WARN_AI_SURFACE_VISIBLE.
+ * @returns Nothing. Selector errors are captured in errors; fails safe on hidden/stub nodes.
  */
 export function detectVisibleAiSurfaceLeaks(
   doc: Document,
@@ -898,7 +904,7 @@ export function detectVisibleAiSurfaceLeaks(
  * @param policy - Effective policy (plus optional managed extraHideSelectors).
  * @param seenPages - Page-key sets used to count each hidden category once per page (BP-14).
  * @param pageKey - Opaque page key; defaults to location.href (kept local, never sent).
- * @returns { deltas, errors } for the caller to report.
+ * @returns { deltas, errors } for the caller to report (empty when masterEnabled is false).
  */
 export function sweepDom(
   doc: Document,

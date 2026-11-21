@@ -38,7 +38,7 @@ export async function enqueueStorageOp<T>(fn: () => Promise<T>): Promise<T> {
 /**
  * Convert any thrown value into a message string.
  * @param err - Thrown value.
- * @returns err.message for Errors, otherwise String(err).
+ * @returns err.message for Errors, otherwise String(err). Pure; never throws.
  */
 export function formatErrorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -50,7 +50,7 @@ export function formatErrorMessage(err: unknown): string {
 /**
  * Normalize a stored metrics object to non-negative integers.
  * @param raw - Untrusted stored value.
- * @returns Clean metrics; bad or missing fields become 0.
+ * @returns Clean metrics; bad or missing fields default to 0. Pure; never throws.
  */
 export function sanitizeMetrics(raw: unknown): Metrics {
   const metrics = createEmptyMetrics();
@@ -70,7 +70,7 @@ export function sanitizeMetrics(raw: unknown): Metrics {
 /**
  * Normalize the stored diagnostic log.
  * @param raw - Untrusted stored value.
- * @returns Up to MAX_DIAGNOSTIC_LOG_ENTRIES entries with known codes; others are dropped.
+ * @returns Up to MAX_DIAGNOSTIC_LOG_ENTRIES entries with known codes; malformed or unknown entries are dropped. Pure; never throws.
  */
 export function sanitizeDiagnosticLog(raw: unknown): DiagnosticEntry[] {
   if (!Array.isArray(raw)) {
@@ -108,7 +108,7 @@ export function sanitizeDiagnosticLog(raw: unknown): DiagnosticEntry[] {
 /**
  * Normalize raw stored telemetry into a complete telemetry state.
  * @param raw - Untrusted value from chrome.storage.local.
- * @returns A valid state; anything malformed is reset to its initial value.
+ * @returns A valid state; malformed input resets to the initial state. Pure; never throws.
  */
 export function normalizeTelemetryState(raw: unknown): TelemetryState {
   const initial = createInitialTelemetryState();
@@ -126,8 +126,8 @@ export function normalizeTelemetryState(raw: unknown): TelemetryState {
 
 /**
  * Read the whole chrome.storage.managed object.
- * @returns { data, error? }. On failure data is {} and error is set; parsePolicy then
- * treats the device as unmanaged (see BP-01).
+ * @returns { data, error? }. On failure data is {} and error is set; parsePolicy then locks strict
+ * defaults on force-installed or unknown installs and unlocks only normal/development installs (BP-01, fail closed).
  */
 export async function readManagedPolicyRaw(): Promise<{ data: RawRecord; error?: string }> {
   if (typeof chrome === "undefined" || !chrome.storage?.managed) {
@@ -146,7 +146,7 @@ export async function readManagedPolicyRaw(): Promise<{ data: RawRecord; error?:
 
 /**
  * Read local IT test-mode overrides from chrome.storage.local.
- * @returns { data, error? }. data is null when absent, malformed or unreadable.
+ * @returns { data, error? }. data is null when absent, malformed or unreadable; errors are returned in error (never throws).
  */
 export async function readLocalOverrides(): Promise<{ data: RawRecord | null; error?: string }> {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
@@ -232,6 +232,7 @@ export async function readMetricsResetEpoch(): Promise<number> {
  * @param deltas - Partial metrics; non-positive or non-numeric values are ignored.
  * @param batchResetEpoch - Reset generation captured when the batch was queued, if any.
  * @returns Updated state (or current state unchanged when batchResetEpoch predates a reset).
+ * Storage errors propagate to the caller without blocking later queued operations.
  */
 export async function incrementTelemetryMetrics(
   deltas: Partial<Record<string, unknown>>,
@@ -269,7 +270,8 @@ const FORBIDDEN_DATE_MAP_KEYS = new Set(["__proto__", "constructor", "prototype"
 /**
  * Normalize the stored language-to-UTC-date suppression map for WARN_UNSUPPORTED_UI_LANGUAGE.
  * @param raw - Untrusted value from chrome.storage.local.
- * @returns Clean map of sanitized language subtag to YYYY-MM-DD UTC date bucket.
+ * @returns Clean map of sanitized language subtag to YYYY-MM-DD UTC date bucket; drops malformed
+ * entries and prototype-polluting keys. Pure; never throws.
  */
 function sanitizeUnsupportedLangDates(raw: unknown): Record<string, string> {
   const out: Record<string, string> = {};
@@ -318,7 +320,7 @@ async function readUnsupportedLangDates(): Promise<Record<string, string>> {
  * @param existing - Current sanitized map.
  * @param lang - Sanitized language tag detail.
  * @param dateBucket - Current YYYY-MM-DD UTC date bucket.
- * @returns New bounded map with lang mapped to dateBucket.
+ * @returns New bounded map with lang mapped to dateBucket; prunes past-day, invalid, and prototype keys. Pure; never throws.
  */
 function recordUnsupportedLangDate(
   existing: Record<string, string>,
@@ -371,7 +373,7 @@ function recordUnsupportedLangDate(
  * @param code - Catalog code; an unknown code throws (BP-13).
  * @param detail - Detail text (cleaned and capped).
  * @param now - Time used for the date bucket.
- * @returns Updated state.
+ * @returns Updated state. Throws on unknown catalog code or missing/failing storage without blocking the queue.
  */
 export async function recordDiagnosticEntry(code: ErrorCode, detail: string = "", now: Date = /* @__PURE__ */ new Date()): Promise<TelemetryState> {
   return enqueueStorageOp(async () => {
@@ -436,7 +438,7 @@ export async function recordDiagnosticEntry(code: ErrorCode, detail: string = ""
 /**
  * Replace telemetry with a fresh state (counters and log), advance the reset epoch so open tabs
  * discard unflushed pre-reset batches, and clear daily language warning suppression.
- * @returns The fresh state.
+ * @returns The fresh state. Throws if storage is unavailable or read/write fails, leaving the stored epoch intact.
  */
 export async function resetLocalTelemetry(): Promise<TelemetryState> {
   return enqueueStorageOp(async () => {

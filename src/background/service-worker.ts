@@ -4,7 +4,7 @@
  * Runs in: service worker (ephemeral; all state lives in chrome.storage).
  * Must never: make network requests or send page content, queries, URLs or identifiers
  * anywhere. Counters and diagnostics stay in chrome.storage.local on the device.
- * Shared with: background/dnr-rules.ts, shared/*.
+ * Shared with: background/dnr-rules.ts, background/messages.ts, shared/*.
  */
 
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS } from "../shared/defaults";
@@ -39,7 +39,7 @@ async function resolveInstallType(): Promise<InstallType> {
 
 /**
  * Read the extension version from the manifest.
- * @returns Version string, or "1.0.0" outside Chrome.
+ * @returns Version string, or "1.0.0" outside Chrome. Never throws.
  */
 function getExtensionVersion(): string {
   if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
@@ -51,7 +51,7 @@ function getExtensionVersion(): string {
 /**
  * Keep only boolean toggles and a valid gradeBand from an Options override request.
  * @param raw - Untrusted message payload.
- * @returns Clean override object.
+ * @returns Clean override object. Pure; ignores unknown or wrong-typed fields and never throws.
  */
 function sanitizeLocalOverridesInput(raw: RawRecord): RawRecord {
   const clean: Record<string, unknown> = {};
@@ -128,7 +128,8 @@ function syncRuntimeState(options: { recordPolicyDiagnostics: boolean }): Promis
 /**
  * One policy sync: resolve, log diagnostics, install rules. Call only via syncRuntimeState().
  * @param options - recordPolicyDiagnostics: log policy warnings and errors.
- * @returns { policy, activeRuleCount }.
+ * @returns { policy, activeRuleCount }. Storage or diagnostic write failures propagate; DNR rule
+ * failures are caught and logged as ERR_DNR_SYNC_FAILED.
  */
 async function syncRuntimeStateNow(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
   const { policy, errors } = await resolvePolicyFromStorage();

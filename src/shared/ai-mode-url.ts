@@ -11,13 +11,14 @@
 
 import type { Toggles } from "./types";
 
-// FRAGILE(google-dom, last verified NONE, see test L-07): AI Mode session params, same list as createAiModeQueryTransform.
+// FRAGILE(google-dom, last verified NONE, see tests L-02/L-06): AI Mode session params, same list as createAiModeQueryTransform.
 const AI_MODE_SESSION_PARAMS = ["aep", "arv", "mstk", "csuir"];
 
 /**
  * Apply the same query cleanup as createAiModeQueryTransform().
  * @param params - Search params to modify in place.
  * @param forceWebOnlySearch - true sets udm=14; false removes udm.
+ * @returns Nothing; mutates params in place and never throws.
  */
 function applyAiModeQueryTransform(params: URLSearchParams, forceWebOnlySearch: boolean): void {
   for (const key of AI_MODE_SESSION_PARAMS) {
@@ -30,7 +31,7 @@ function applyAiModeQueryTransform(params: URLSearchParams, forceWebOnlySearch: 
   }
 }
 
-// FRAGILE(google-dom, last verified NONE, see test L-07): udm=50 = AI Mode; sourceid=chrome / aep= mark an omnibox entry (rules 101/102).
+// FRAGILE(google-dom, last verified NONE, see tests L-02/L-06): udm=50 = AI Mode; sourceid=chrome / aep= mark an omnibox entry (rules 101/102).
 /**
  * Work out where the DNR AI Mode rules would send a URL.
  * @param href - Current page URL.

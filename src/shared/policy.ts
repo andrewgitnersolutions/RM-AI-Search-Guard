@@ -20,7 +20,7 @@ export interface PolicyDraft extends Partial<Toggles> {
 /**
  * Check that a value is one of VALID_GRADE_BANDS.
  * @param value - Candidate value.
- * @returns true for an allowed band string.
+ * @returns true for an allowed band string. Pure type guard; returns false for non-strings or unknown values, never throws.
  */
 export function isValidGradeBand(value: unknown): value is GradeBand {
   return typeof value === "string" && (VALID_GRADE_BANDS as readonly string[]).includes(value);
@@ -41,7 +41,7 @@ export function isUnlockableInstall(installType: InstallType | undefined): boole
  * Trim CSS Syntax Level 3 whitespace characters (U+0020, U+0009, U+000A, U+000C, U+000D) from
  * the start and end of a selector, preserving U+00A0 and other non-ASCII identifier characters.
  * @param value - Raw selector string.
- * @returns Selector string with CSS whitespace removed from both ends.
+ * @returns Selector string with CSS whitespace removed from both ends. Pure string helper; never throws.
  */
 export function trimCssWhitespace(value: string): string {
   return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
@@ -215,7 +215,8 @@ export function parsePolicy(
  * Wrap a generator config in Admin Console {"key": {"Value": …}} form.
  * Emits extraHideSelectors only when at least one category has a non-empty selector.
  * @param config - Grade band, six feature toggles, and optional hotfix selectors.
- * @returns Policy object ready to paste into the Admin Console.
+ * @returns Policy object ready to paste into the Admin Console. Coerces toggles with Boolean() and
+ * skips non-string or blank extra selectors; never throws.
  */
 export function formatAdminConsolePolicyJson(config: PolicyDraft) {
   const formatted: {
@@ -261,7 +262,7 @@ export function formatAdminConsolePolicyJson(config: PolicyDraft) {
 /**
  * Validate a generator draft before it can be copied or downloaded.
  * @param config - Grade band, six feature toggles, and optional hotfix selectors.
- * @returns { valid, errors } with admin-readable messages.
+ * @returns { valid, errors } with admin-readable messages. Never throws; reports all issues in errors.
  */
 export function validatePolicyDraft(config: PolicyDraft): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
