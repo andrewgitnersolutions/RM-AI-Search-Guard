@@ -10,7 +10,7 @@ A Manifest V3 Chrome extension for K-12 school districts. It hides Google Search
 
 1. `docs/07-BREAKPOINT-AUDIT-LOG.md`: open break points (BP-xx), owner decisions (D-x), execution order, and the test plan (§6). This is the current work plan.
 2. `docs/02-ARCHITECTURE.md` and `docs/03-DEVELOPER-SPEC.md`: intended design. Where they disagree with the code or with docs/07, docs/07 wins.
-3. `docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md`: what admins are told. If you change behavior, update this.
+3. `docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md`, `README.md`, and `PRIVACY.md`: what admins and the public are told. Whenever you change features, permissions, architecture, or admin/student-facing behavior, check and update `README.md` (plus `docs/04` and `PRIVACY.md` if affected) in the same change so public docs never drift from the code.
 
 ## Current state (update this section when it changes)
 
@@ -54,7 +54,7 @@ Apply to every file you touch, in the same change as the code. Comments live in 
 - The test plan is docs/07 §6. Run the static checks (S-xx) and unit tests (U-xx) after every change; run the browser/live/managed tests named in the "Done when" of the break point you're fixing.
 - In Claude Code cloud sessions, run the B tests with `RM_CHROMIUM_PATH=/opt/pw-browsers/chromium` (the pinned Playwright's own browser isn't installed there).
 - Report every test you couldn't run as **NOT RUN**, with the reason. Never mark an unrun test as passed.
-- When you fix a break point, tick its to-dos in docs/07, add a dated line under it saying what changed and which tests passed, and update `docs/04` if admins or students will see different behavior.
+- When you fix a break point or ship an update, tick its to-dos in docs/07, add a dated line under it saying what changed and which tests passed, and check/update `README.md` and `docs/04` (plus `PRIVACY.md` if permissions or data handling changed) if admins, students, or public readers will see different behavior.
 
 ## Repository facts
 
