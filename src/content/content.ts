@@ -125,21 +125,41 @@ const reportedErrorKeys = /* @__PURE__ */ new Set<string>();
 let pendingMetricDeltas: Record<string, number> = {};
 let metricsFlushTimer: ReturnType<typeof window.setTimeout> | null = null;
 let currentResetEpoch: number | null = null;
-let liveResetSeen = false;
+let epochReadPromise: Promise<number | null> | null = null;
+let epochVersion = 0;
 
 /**
- * Load the stored metrics reset epoch once on startup without clobbering any newer epoch
- * already delivered live via storage.onChanged.
+ * Confirm the stored metrics reset epoch from chrome.storage.local without caching 0 on error.
+ * Concurrent calls share the active read; a live reset delivered via storage.onChanged advances
+ * epochVersion so an older read result cannot overwrite it.
+ * @returns Confirmed non-negative epoch, or null when reading fails (caller keeps
+ * currentResetEpoch unset so it retries later or discards on unload rather than guessing 0).
  */
-async function initMetricsResetEpoch(): Promise<void> {
-  const epoch = await readMetricsResetEpoch();
-  if (!liveResetSeen && currentResetEpoch === null) {
-    currentResetEpoch = epoch;
+function ensureMetricsResetEpoch(): Promise<number | null> {
+  if (currentResetEpoch !== null) {
+    return Promise.resolve(currentResetEpoch);
   }
+  if (epochReadPromise !== null) {
+    return epochReadPromise;
+  }
+  const versionAtStart = epochVersion;
+  epochReadPromise = readMetricsResetEpoch()
+    .then((epoch) => {
+      if (epochVersion === versionAtStart && currentResetEpoch === null) {
+        currentResetEpoch = epoch;
+      }
+      return currentResetEpoch;
+    })
+    .catch(() => null)
+    .finally(() => {
+      epochReadPromise = null;
+    });
+  return epochReadPromise;
 }
 
 /**
  * Discard any queued pre-reset metric deltas and cancel the fallback flush timer (PR #6 review).
+ * @returns Nothing. Safe when no timer is active or clearTimeout is absent.
  */
 function clearPendingMetrics(): void {
   if (metricsFlushTimer !== null) {
@@ -206,11 +226,14 @@ function queueMetricDeltas(deltas: Record<string, number>): void {
 }
 
 /**
- * Send any queued counter deltas to the service worker and clear the flush timer.
- * Swaps the pending map synchronously so back-to-back visibilitychange and pagehide events
- * never double-send.
+ * Send any queued counter deltas to the service worker with a confirmed resetEpoch, and clear
+ * the flush timer. Swaps the pending map synchronously so back-to-back visibilitychange and
+ * pagehide events never double-send.
+ * @param allowAsyncRetry - When true (timer/visibilitychange/disable), retry reading the epoch
+ * if unconfirmed; when false (unload/redirect), discard an unconfirmed batch instead of sending
+ * an untagged message that would bypass the worker's stale-batch check.
  */
-function flushPendingMetrics(): void {
+function flushPendingMetrics(allowAsyncRetry = true): void {
   if (metricsFlushTimer !== null) {
     if (typeof window.clearTimeout === "function") {
       window.clearTimeout(metricsFlushTimer);
@@ -220,13 +243,23 @@ function flushPendingMetrics(): void {
   if (Object.keys(pendingMetricDeltas).length === 0) {
     return;
   }
+  if (currentResetEpoch === null) {
+    if (!allowAsyncRetry) {
+      clearPendingMetrics();
+      return;
+    }
+    const versionBeforeRetry = epochVersion;
+    void ensureMetricsResetEpoch().then((confirmedEpoch) => {
+      if (confirmedEpoch === null || epochVersion !== versionBeforeRetry) {
+        return;
+      }
+      flushPendingMetrics(false);
+    });
+    return;
+  }
   const deltas = pendingMetricDeltas;
   pendingMetricDeltas = {};
-  const msg: RawRecord = { type: "INCREMENT_METRICS", deltas };
-  if (currentResetEpoch !== null) {
-    msg.resetEpoch = currentResetEpoch;
-  }
-  void sendRuntimeMessage(msg);
+  void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas, resetEpoch: currentResetEpoch });
 }
 
 /**
@@ -266,7 +299,7 @@ function checkAiModeUrl(): boolean {
     return false;
   }
   aiModeRedirectStarted = true;
-  flushPendingMetrics();
+  flushPendingMetrics(false);
   window.location.replace(clean);
   return true;
 }
@@ -469,7 +502,7 @@ if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
     if (areaName === "local" && STORAGE_KEYS.METRICS_RESET_EPOCH in changes) {
       const nextEpoch = changes[STORAGE_KEYS.METRICS_RESET_EPOCH]?.newValue;
       if (typeof nextEpoch === "number" && Number.isInteger(nextEpoch) && nextEpoch >= 0) {
-        liveResetSeen = true;
+        epochVersion += 1;
         currentResetEpoch = nextEpoch;
         clearPendingMetrics();
       }
@@ -508,12 +541,12 @@ window.addEventListener("pageshow", () => {
 
 // Flush batched per-page metrics before leaving or backgrounding the tab (BP-09).
 window.addEventListener("pagehide", () => {
-  flushPendingMetrics();
+  flushPendingMetrics(false);
 });
 if (typeof document.addEventListener === "function") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
-      flushPendingMetrics();
+      flushPendingMetrics(true);
     }
   });
 }
@@ -529,5 +562,5 @@ if (navigationApi && typeof navigationApi.addEventListener === "function") {
 
 // Start at document_start. CSS hiding is already on (applyFailClosedAttributes); JS sweeps and
 // any un-hiding wait for the policy.
-void initMetricsResetEpoch();
+void ensureMetricsResetEpoch();
 void bootstrapContentGuard();

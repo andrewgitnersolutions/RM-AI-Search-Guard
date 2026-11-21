@@ -393,6 +393,8 @@ export function filterTopLevelCandidates(candidates: Element[]): Element[] {
  * @param errors - Collector; ERR_SAFETY_GUARD_TRIPPED is added once per un-hidden element.
  * @param reportedUnsafe - Elements already reported this sweep.
  * @param guardCache - Optional per-sweep safety-guard cache.
+ * @returns Nothing. Fails safe: query errors inside isUnsafeToHide() are caught so remaining
+ * safety checks still run; DOM query/restore errors on doc propagate.
  */
 export function restoreUnsafeHiddenElements(
   category: HideCategory,
@@ -425,7 +427,8 @@ export function restoreUnsafeHiddenElements(
  * @param errors - Collector; ERR_SAFETY_GUARD_TRIPPED is added once per refused element.
  * @param reportedUnsafe - Elements already reported this sweep.
  * @param guardCache - Optional per-sweep safety-guard cache.
- * @returns Number of elements newly hidden.
+ * @returns Number of elements newly hidden. Fails closed against over-hiding: unsafe candidates
+ * stay visible and are logged once; query errors inside isUnsafeToHide() are caught per check.
  */
 export function processCategoryCandidates(
   candidates: Element[],

@@ -210,16 +210,12 @@
     if (typeof chrome === "undefined" || !chrome.storage?.local) {
       return 0;
     }
-    try {
-      const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
-      const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
-      if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
-        return raw;
-      }
-      return 0;
-    } catch {
-      return 0;
+    const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
+    const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
+    if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
+      return raw;
     }
+    return 0;
   }
 
   // src/shared/selectors.ts
@@ -901,12 +897,25 @@
   var pendingMetricDeltas = {};
   var metricsFlushTimer = null;
   var currentResetEpoch = null;
-  var liveResetSeen = false;
-  async function initMetricsResetEpoch() {
-    const epoch = await readMetricsResetEpoch();
-    if (!liveResetSeen && currentResetEpoch === null) {
-      currentResetEpoch = epoch;
+  var epochReadPromise = null;
+  var epochVersion = 0;
+  function ensureMetricsResetEpoch() {
+    if (currentResetEpoch !== null) {
+      return Promise.resolve(currentResetEpoch);
     }
+    if (epochReadPromise !== null) {
+      return epochReadPromise;
+    }
+    const versionAtStart = epochVersion;
+    epochReadPromise = readMetricsResetEpoch().then((epoch) => {
+      if (epochVersion === versionAtStart && currentResetEpoch === null) {
+        currentResetEpoch = epoch;
+      }
+      return currentResetEpoch;
+    }).catch(() => null).finally(() => {
+      epochReadPromise = null;
+    });
+    return epochReadPromise;
   }
   function clearPendingMetrics() {
     if (metricsFlushTimer !== null) {
@@ -957,7 +966,7 @@
       }, METRICS_FLUSH_INTERVAL_MS);
     }
   }
-  function flushPendingMetrics() {
+  function flushPendingMetrics(allowAsyncRetry = true) {
     if (metricsFlushTimer !== null) {
       if (typeof window.clearTimeout === "function") {
         window.clearTimeout(metricsFlushTimer);
@@ -967,13 +976,23 @@
     if (Object.keys(pendingMetricDeltas).length === 0) {
       return;
     }
+    if (currentResetEpoch === null) {
+      if (!allowAsyncRetry) {
+        clearPendingMetrics();
+        return;
+      }
+      const versionBeforeRetry = epochVersion;
+      void ensureMetricsResetEpoch().then((confirmedEpoch) => {
+        if (confirmedEpoch === null || epochVersion !== versionBeforeRetry) {
+          return;
+        }
+        flushPendingMetrics(false);
+      });
+      return;
+    }
     const deltas = pendingMetricDeltas;
     pendingMetricDeltas = {};
-    const msg = { type: "INCREMENT_METRICS", deltas };
-    if (currentResetEpoch !== null) {
-      msg.resetEpoch = currentResetEpoch;
-    }
-    void sendRuntimeMessage(msg);
+    void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas, resetEpoch: currentResetEpoch });
   }
   function disconnectObservers() {
     if (bodyObserver) {
@@ -996,7 +1015,7 @@
       return false;
     }
     aiModeRedirectStarted = true;
-    flushPendingMetrics();
+    flushPendingMetrics(false);
     window.location.replace(clean);
     return true;
   }
@@ -1147,7 +1166,7 @@
       if (areaName === "local" && STORAGE_KEYS.METRICS_RESET_EPOCH in changes) {
         const nextEpoch = changes[STORAGE_KEYS.METRICS_RESET_EPOCH]?.newValue;
         if (typeof nextEpoch === "number" && Number.isInteger(nextEpoch) && nextEpoch >= 0) {
-          liveResetSeen = true;
+          epochVersion += 1;
           currentResetEpoch = nextEpoch;
           clearPendingMetrics();
         }
@@ -1178,12 +1197,12 @@
     checkAiModeUrl();
   });
   window.addEventListener("pagehide", () => {
-    flushPendingMetrics();
+    flushPendingMetrics(false);
   });
   if (typeof document.addEventListener === "function") {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
-        flushPendingMetrics();
+        flushPendingMetrics(true);
       }
     });
   }
@@ -1193,6 +1212,6 @@
       checkAiModeUrl();
     });
   }
-  void initMetricsResetEpoch();
+  void ensureMetricsResetEpoch();
   void bootstrapContentGuard();
 })();

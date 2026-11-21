@@ -1,4 +1,4 @@
-// U-21, U-22, U-23 (docs/07 §6.2): BP-09 content-script sweep throttling, metric batching, and reset epoch gating.
+// U-21, U-22, U-23, U-23b (docs/07 §6.2): BP-09 content-script sweep throttling, metric batching, and reset epoch gating.
 import assert from "node:assert/strict";
 import { equivalent } from "../helpers/equivalence.mjs";
 import { loadContentScript } from "../helpers/content-harness.mjs";
@@ -271,5 +271,118 @@ equivalent("U-23", "RESET_LOCAL_METRICS discards pending pre-reset batches in op
     tabPostResetMsg: metricsMsgs()[0],
     swEpoch: sw.chrome.storage.local.data.rmsg_metrics_reset_epoch,
     swOverviews: sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden,
+  };
+}, { bp: "BP-09" });
+
+equivalent("U-23b", "delayed or failed epoch reads never emit untagged batches, never cache 0, and failed reset leaves stored epoch intact", async (target) => {
+  const ovEl = makeStubEl({
+    id: "ov-delayed",
+    category: "overview",
+    matchSelector: (sel) => sel.includes('data-attrid="AIOverview"'),
+  });
+  const makeQuery = () => (sel) => {
+    if (sel.includes("data-rmsg-hidden=")) return [];
+    return ovEl.matches(sel) ? [ovEl] : [];
+  };
+
+  // 1. Delayed initial epoch read + pagehide: discard unconfirmed batch instead of sending untagged.
+  let resolveDelayed1;
+  const csUnload = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll: makeQuery(),
+    localGet: () => new Promise((resolve) => { resolveDelayed1 = resolve; }),
+  });
+  await csUnload.flush();
+  csUnload.policyRequests[0]({ ...ENABLED_POLICY });
+  await csUnload.flush();
+  csUnload.flushRaf();
+  csUnload.fireWindowEvent("pagehide");
+  resolveDelayed1({ rmsg_metrics_reset_epoch: 0 });
+  await csUnload.flush();
+  assert.equal(csUnload.messages.filter((m) => m.type === "INCREMENT_METRICS").length, 0, "pagehide while epoch unknown must drop batch");
+
+  // 2. Delayed initial epoch read + visibilitychange: waits for confirmed epoch, then sends tagged batch
+  //    which the worker drops if a reset occurred meanwhile.
+  ovEl.removeAttribute("data-rmsg-hidden");
+  let resolveDelayed2;
+  const csHidden = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll: makeQuery(),
+    localGet: () => new Promise((resolve) => { resolveDelayed2 = resolve; }),
+  });
+  await csHidden.flush();
+  csHidden.policyRequests[0]({ ...ENABLED_POLICY });
+  await csHidden.flush();
+  csHidden.flushRaf();
+  csHidden.setVisibilityState("hidden");
+  csHidden.fireDocumentEvent("visibilitychange");
+  assert.equal(csHidden.messages.filter((m) => m.type === "INCREMENT_METRICS").length, 0, "must wait for confirmed epoch before sending");
+  resolveDelayed2({ rmsg_metrics_reset_epoch: 0 });
+  await csHidden.flush();
+  const delayedBatches = csHidden.messages.filter((m) => m.type === "INCREMENT_METRICS");
+  assert.equal(delayedBatches.length, 1);
+  assert.equal(delayedBatches[0].resetEpoch, 0);
+
+  // 3. Failed startup read: does not cache 0; visibilitychange retry reads real epoch 3.
+  ovEl.removeAttribute("data-rmsg-hidden");
+  let readAttempt = 0;
+  const csRetry = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll: makeQuery(),
+    localGet: async () => {
+      readAttempt += 1;
+      if (readAttempt === 1) throw new Error("transient storage error");
+      return { rmsg_metrics_reset_epoch: 3 };
+    },
+  });
+  await csRetry.flush();
+  csRetry.policyRequests[0]({ ...ENABLED_POLICY });
+  await csRetry.flush();
+  csRetry.flushRaf();
+  csRetry.setVisibilityState("hidden");
+  csRetry.fireDocumentEvent("visibilitychange");
+  await csRetry.flush();
+  const retriedBatches = csRetry.messages.filter((m) => m.type === "INCREMENT_METRICS");
+  assert.equal(retriedBatches.length, 1);
+  assert.equal(retriedBatches[0].resetEpoch, 3, "retry must recover stored epoch 3 instead of caching 0");
+
+  // 4. Failed epoch read during RESET_LOCAL_METRICS leaves epoch 5 intact; retry advances to 6.
+  const OPTIONS_SENDER = { id: "testextensionid", url: "chrome-extension://testextensionid/ui/options.html" };
+  const GOOGLE_TAB_SENDER = { id: "testextensionid", url: "https://www.google.com/search?q=x", tab: { id: 7, url: "https://www.google.com/search?q=x" } };
+  const sw = loadServiceWorker(target, {
+    installType: "development",
+    local: {
+      rmsg_metrics_reset_epoch: 5,
+      rmsg_telemetry: {
+        lifetimeMetrics: { overviewsHidden: 4, aiModeUiHidden: 0, aiModeRedirects: 0, omniboxFallbackRedirects: 0, auxAiHidden: 0 },
+        diagnosticLog: [],
+      },
+    },
+  });
+  const realGet = sw.chrome.storage.local.get;
+  sw.chrome.storage.local.get = async () => {
+    throw new Error("local storage read failed");
+  };
+  const failedReset = await sw.send({ type: "RESET_LOCAL_METRICS" }, OPTIONS_SENDER);
+  assert.equal(failedReset?.ok, false);
+  assert.equal(sw.chrome.storage.local.data.rmsg_metrics_reset_epoch, 5, "failed reset must keep stored epoch 5");
+  assert.equal(sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden, 4);
+
+  sw.chrome.storage.local.get = realGet;
+  await sw.send({ type: "RESET_LOCAL_METRICS" }, OPTIONS_SENDER);
+  assert.equal(sw.chrome.storage.local.data.rmsg_metrics_reset_epoch, 6);
+  assert.equal(sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden, 0);
+
+  // Stale epoch-0 delayed batch arriving after reset is ignored.
+  await sw.send(delayedBatches[0], GOOGLE_TAB_SENDER);
+  assert.equal(sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden, 0);
+
+  return {
+    delayedEpoch: delayedBatches[0].resetEpoch,
+    retriedEpoch: retriedBatches[0].resetEpoch,
+    finalSwEpoch: sw.chrome.storage.local.data.rmsg_metrics_reset_epoch,
   };
 }, { bp: "BP-09" });

@@ -115,6 +115,7 @@ export function loadContentScript(target, opts = {}) {
       managed: { get: async () => ({}) },
       local: {
         get: async (keys) => {
+          if (opts.localGet) return opts.localGet(keys, localData);
           if (keys === null || keys === undefined) return structuredClone(localData);
           const list = typeof keys === "string" ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
           const out = {};

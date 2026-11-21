@@ -357,16 +357,12 @@ async function readMetricsResetEpoch() {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
     return 0;
   }
-  try {
-    const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
-    const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
-    if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
-      return raw;
-    }
-    return 0;
-  } catch {
-    return 0;
+  const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
+  const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
+    return raw;
   }
+  return 0;
 }
 async function incrementTelemetryMetrics(deltas, batchResetEpoch) {
   return enqueueStorageOp(async () => {

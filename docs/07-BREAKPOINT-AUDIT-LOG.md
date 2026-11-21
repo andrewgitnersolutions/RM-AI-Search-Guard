@@ -393,7 +393,7 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 
 **2026-11-21, CodeRabbit review of PR #6:**
 - **Restore unsafe wrappers before collection (`src/content/dom-engine.ts`):** Extracted `restoreUnsafeHiddenElements()` and run it in `sweepDom()` before collecting any category candidates, so restored `[role="listitem"]` wrappers release inner AI Mode buttons and short anchors to be hidden in the same sweep (`B-05d`).
-- **Reset epoch gating (`src/shared/defaults.ts`, `src/shared/storage.ts`, `src/background/messages.ts`, `src/background/service-worker.ts`, `src/content/content.ts`, `src/ui/options.ts`):** `resetLocalTelemetry()` bumps `rmsg_metrics_reset_epoch` in `chrome.storage.local`; open content scripts discard `pendingMetricDeltas` and cancel `metricsFlushTimer` on reset via `storage.onChanged`, and tag `INCREMENT_METRICS` with `resetEpoch` so stale in-flight batches are ignored (`U-23`).
+- **Reset epoch gating (`src/shared/defaults.ts`, `src/shared/storage.ts`, `src/background/messages.ts`, `src/background/service-worker.ts`, `src/content/content.ts`, `src/ui/options.ts`):** `readMetricsResetEpoch()` propagates storage read errors (`0` only when missing/malformed) so `resetLocalTelemetry()` cannot regress a stored epoch on failure and increments `rmsg_metrics_reset_epoch` atomically; open content scripts discard `pendingMetricDeltas` and cancel `metricsFlushTimer` on reset via `storage.onChanged`, confirm the epoch (retrying on transient error without caching `0` and dropping unconfirmed batches on unload rather than sending untagged messages), and tag every `INCREMENT_METRICS` batch with `resetEpoch` so stale pre-reset batches are ignored (`U-23`, `U-23b`).
 
 **Done when:** on a recorded results page, a DevTools Performance profile shows sweep time per second reduced by at least 50% versus baseline, and a single search causes ≤ 2 telemetry writes.
 
@@ -751,7 +751,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-20 | Content script (vm, controlled message timing): an older disabled policy load finishing after a newer enabled one is dropped; the tab stays protected | BP-17 |
 | U-21 | Content script (vm, fake timers): burst mutations throttle to ≥150 ms, first/idle sweep runs on rAF, disabling `masterEnabled` cancels pending timer/rAF | BP-09 |
 | U-22 | Content script (vm, fake timers): metric deltas batch across sweeps, flush once on `visibilitychange` (`hidden`) / `pagehide` (no double-send), and flush on the 10 s timer | BP-09 |
-| U-23 | Content script + service worker (vm): `RESET_LOCAL_METRICS` discards pending pre-reset batches in open tabs and drops stale in-flight `INCREMENT_METRICS` via `resetEpoch` | BP-09 |
+| U-23 | Content script + service worker (vm): `RESET_LOCAL_METRICS` discards pending pre-reset batches in open tabs and drops stale in-flight `INCREMENT_METRICS` via `resetEpoch` (`U-23b`: delayed/failed epoch reads never emit untagged batches, never cache `0`, and failed resets keep the stored epoch intact) | BP-09 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
 

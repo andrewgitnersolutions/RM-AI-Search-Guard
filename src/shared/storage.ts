@@ -211,22 +211,20 @@ export async function writeTelemetryState(state: TelemetryState): Promise<void> 
 /**
  * Read the monotonic reset generation counter from chrome.storage.local.
  * Used to drop stale pre-reset metric batches from open tabs after Reset Local Counters.
- * @returns Non-negative integer epoch; fails safe to 0 if missing, invalid or unreadable.
+ * @returns Non-negative integer epoch (0 when the key is missing, invalid, or outside Chrome).
+ * Storage read failures propagate so resetLocalTelemetry() leaves the stored generation intact
+ * instead of regressing to 1 and content scripts know the epoch is unconfirmed.
  */
 export async function readMetricsResetEpoch(): Promise<number> {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
     return 0;
   }
-  try {
-    const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
-    const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
-    if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
-      return raw;
-    }
-    return 0;
-  } catch {
-    return 0;
+  const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
+  const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
+    return raw;
   }
+  return 0;
 }
 
 /**
