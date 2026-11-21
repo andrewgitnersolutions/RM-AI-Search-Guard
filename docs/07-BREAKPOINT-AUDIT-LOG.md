@@ -324,15 +324,23 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Replace the broad href selectors in **both** `static-guard.css` and `SELECTORS.tier1.aiModeUi.directSelectors` and the extra selector at `content.js:535`.
-- [ ] Remove `"[data-hveid]"` from `containerAncestors`. Add a `maxAncestorDepth` constant (8) to `findOverviewHeadingContainer`.
-- [ ] Make the threshold per category: `overview: 1`, others `3`. Pass the category into `isUnsafeToHide`.
-- [ ] Keep `ERR_SAFETY_GUARD_TRIPPED` reporting as is.
+- [x] Replace the broad href selectors in **both** `static-guard.css` and `SELECTORS.tier1.aiModeUi.directSelectors` and the extra selector at `content.js:535`.
+- [x] Remove `"[data-hveid]"` from `containerAncestors`. Add a `maxAncestorDepth` constant (8) to `findOverviewHeadingContainer`.
+- [x] Make the threshold per category: `overview: 1`, others `3`. Pass the category into `isUnsafeToHide`.
+- [x] Keep `ERR_SAFETY_GUARD_TRIPPED` reporting as is.
 
 **Done when:** a fixture with an organic result linking to `https://example.com/blog/aimode-review` still shows it, and a fixture where the AI Overview's nearest `data-hveid` wrapper also holds one organic result hides only the Overview card.
 
 **Added 2026-11-21 (CodeRabbit review of PR #3, not yet verified):** the `static-guard.css` overview rules hide any matching `div[data-attrid="AIOverview"]` etc. outright, so the CSS path never runs `isUnsafeToHide()`. A matching container that also holds ≥3 organic results is hidden by CSS even though the JS guard would refuse it.
-- [ ] Confirm with a fixture (an `AIOverview` div wrapping 3 organic results). If confirmed, make the CSS path respect the guard (e.g. `:not(:has(a > h3 ~ …))`-style exclusions, or limit CSS to candidates the JS guard has marked) without weakening `isUnsafeToHide`.
+- [x] Confirm with a fixture (an `AIOverview` div wrapping 3 organic results). If confirmed, make the CSS path respect the guard (e.g. `:not(:has(a > h3 ~ …))`-style exclusions, or limit CSS to candidates the JS guard has marked) without weakening `isUnsafeToHide`.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **AI Mode links:** `SELECTORS.tier1.aiModeUi.directSelectors` and `static-guard.css` now share one Google-only list: `/search?…udm=50`, `/aimode…`, `/ai`, `/ai?…` and `/ai/…`, each relative or on `https://www.google.com` / `https://google.com`. The extra host selector in `dom-engine.ts` was folded into the list. The nav-tab `:has()` rule became three single-selector rules, to keep BP-10.
+- **Overview containers:** `[data-hveid]` was removed from `containerAncestors`, and `findOverviewHeadingContainer` stops after 8 levels (`maxAncestorDepth`).
+- **Safety guard:** `isUnsafeToHide(el, doc, category)` refuses an Overview candidate holding ≥1 organic result (`overviewOrganicResultThreshold`); other categories keep 3. This only makes the guard stricter.
+- **CSS gap:** confirmed. The old CSS hid an `AIOverview` container that wrapped an organic result, and B-05b fails on the old `dist/` for exactly that. Each Overview CSS rule now carries `:not(:has(a > h3)):not(:has(h3.LC20lb))`, in one rule per selector, so the JS guard decides and logs `ERR_SAFETY_GUARD_TRIPPED`.
+- **Tests:** B-04, B-05 and new B-05b (wrapped organic result visible with the guard error logged, external `?udm=50` link visible, absolute `https://www.google.com/aimode` link still hidden) pass. B-03 still passes. B-04 and B-05 were removed from `tests/known-failures.json`.
+- **NOT RUN:** L-07 (re-confirming the selectors on live Google).
 
 ---
 

@@ -131,6 +131,22 @@ equivalent("B-05", "Overview inside a data-hveid wrapper with 1 organic result: 
     return vis;
   }), { bp: "BP-08" });
 
+equivalent("B-05b", "Overview container wrapping an organic result stays visible (CSS defers to the guard) and logs ERR_SAFETY_GUARD_TRIPPED; external udm=50 link visible; absolute Google AI Mode link hidden", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=overview-organic&udm=14");
+    await settle(page);
+    const vis = await visibilityById(page);
+    const telemetry = await readTelemetry(b.sw);
+    const codes = telemetry.diagnosticLog.map((e) => e.code);
+    assert.equal(vis["ov-wrap"], true, "Overview wrapper holding an organic result was hidden");
+    assert.equal(vis["ow-r1"], true);
+    assert.equal(vis["ext-udm"], true, "external link with udm=50 in its URL was hidden");
+    assert.equal(vis["abs-aimode"], false, "absolute Google AI Mode link not hidden");
+    assert.ok(codes.includes("ERR_SAFETY_GUARD_TRIPPED"), "guard refusal not logged");
+    return { vis, codes };
+  }), { bp: "BP-08" });
+
 equivalent("B-06", "history.pushState(…udm=50) + DOM mutation → clean URL; aiModeRedirects +1 exactly", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();

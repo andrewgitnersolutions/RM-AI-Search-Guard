@@ -98,13 +98,16 @@ export function parseRedirectHash(hash: string): "omnibox" | "aimode" | null {
 
 /**
  * Organic Results Safety Guard: refuse to hide core search UI or a block of organic results.
- * Protects landmark tags and IDs, the search box, and any element holding 3+ organic results
- * (threshold is BP-08). Don't weaken this (AGENTS.md hard rule).
+ * Protects landmark tags and IDs, the search box, and any element holding 3+ organic results;
+ * AI Overview candidates are refused at 1 organic result (BP-08). Don't weaken this (AGENTS.md
+ * hard rule).
  * @param el - Candidate element.
  * @param doc - Owning document (defaults to el.ownerDocument).
+ * @param category - What the candidate would be hidden as; "overview" uses the stricter threshold.
+ * Omitted, the general threshold applies.
  * @returns true if the element must not be hidden. Query errors are ignored so the remaining checks still run.
  */
-export function isUnsafeToHide(el: Element, doc?: Document | null): boolean {
+export function isUnsafeToHide(el: Element, doc?: Document | null, category?: HideCategory): boolean {
   if (PROTECTED_TAG_SET.has(el.tagName.toUpperCase())) {
     return true;
   }
@@ -138,7 +141,8 @@ export function isUnsafeToHide(el: Element, doc?: Document | null): boolean {
   }
   try {
     const organicResults = el.querySelectorAll(SELECTORS.safetyGuard.organicResultSelector);
-    if (organicResults.length >= SELECTORS.safetyGuard.organicResultThreshold) {
+    const threshold = category === "overview" ? SELECTORS.safetyGuard.overviewOrganicResultThreshold : SELECTORS.safetyGuard.organicResultThreshold;
+    if (organicResults.length >= threshold) {
       return true;
     }
   } catch {
@@ -278,7 +282,7 @@ export function processCategoryCandidates(
     if (isAlreadyHidden(candidate)) {
       continue;
     }
-    if (isUnsafeToHide(candidate, doc)) {
+    if (isUnsafeToHide(candidate, doc, category)) {
       if (!reportedUnsafe.has(candidate)) {
         reportedUnsafe.add(candidate);
         errors.push({
@@ -308,16 +312,19 @@ export function processCategoryCandidates(
  * Walk up from an "AI Overview" heading to its card container.
  * @param headingEl - Matched heading.
  * @param doc - Page document.
- * @returns The nearest container-ancestor match, else the parent if safe, else the heading.
- * Stops at the first unsafe ancestor (see BP-08 for the data-hveid concern).
+ * @returns The nearest container-ancestor match within maxAncestorDepth levels, else the parent
+ * if safe, else the heading. Stops at the first ancestor the overview guard refuses (BP-08), so
+ * the walk never climbs into a wrapper that holds real results.
  */
 export function findOverviewHeadingContainer(headingEl: Element, doc: Document): Element {
   let cursor = headingEl.parentElement;
-  while (cursor) {
+  let depth = 0;
+  while (cursor && depth < SELECTORS.safetyGuard.maxAncestorDepth) {
+    depth += 1;
     if (safeMatches(cursor, CONTAINER_ANCESTOR_COMBINED)) {
       return cursor;
     }
-    if (isUnsafeToHide(cursor, doc)) {
+    if (isUnsafeToHide(cursor, doc, "overview")) {
       if (cursor === headingEl.parentElement) {
         return cursor;
       }
@@ -325,7 +332,7 @@ export function findOverviewHeadingContainer(headingEl: Element, doc: Document):
     }
     cursor = cursor.parentElement;
   }
-  if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc)) {
+  if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc, "overview")) {
     return headingEl.parentElement;
   }
   return headingEl;
@@ -362,12 +369,12 @@ export function collectAiOverviewCandidates(doc: Document, errors: PolicyError[]
  */
 export function promoteAiModeTarget(el: Element, doc: Document): Element {
   const navItem = el.closest(SELECTORS.tier1.aiModeUi.navItemAncestor);
-  if (navItem && !isUnsafeToHide(navItem, doc)) {
+  if (navItem && !isUnsafeToHide(navItem, doc, "aimode")) {
     return navItem;
   }
   if (el.tagName.toUpperCase() === "SPAN") {
     const interactiveAncestor = el.closest('a, button, [role="tab"], [role="button"]');
-    if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc)) {
+    if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc, "aimode")) {
       return interactiveAncestor;
     }
   }
@@ -382,11 +389,8 @@ export function promoteAiModeTarget(el: Element, doc: Document): Element {
  */
 export function collectAiModeUiCandidates(doc: Document, errors: PolicyError[]): Element[] {
   const candidates: Element[] = [];
-  const directSelectors = [
-    ...SELECTORS.tier1.aiModeUi.directSelectors,
-    // FRAGILE(google-dom, last verified NONE, see test L-07): bare google.com host variant of the /ai link selector.
-    'a[href^="https://google.com/ai"]'
-  ];
+  // The bare google.com host variants now live in the registry (BP-08).
+  const directSelectors = SELECTORS.tier1.aiModeUi.directSelectors;
   for (const selector of directSelectors) {
     for (const el of safeQueryAll(doc, selector, errors)) {
       candidates.push(promoteAiModeTarget(el, doc));
