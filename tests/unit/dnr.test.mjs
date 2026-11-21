@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { simulate } from "../helpers/dnr-sim.mjs";
+import { loadContentScript } from "../helpers/content-harness.mjs";
 import { equivalent, plain } from "../helpers/equivalence.mjs";
 import { loadServiceWorker } from "../helpers/sw-harness.mjs";
 
@@ -90,12 +91,63 @@ equivalent("U-19", "BP-19: /ai and /aimode with a query keep the search on /sear
   return out;
 }, { bp: "BP-19" });
 
-equivalent("U-07", "cleanAiModeUrl() (BP-05 JS copy) matches the DNR simulation for every test URL", (target) => {
+const AI_MODE_RULE_IDS = new Set([101, 102, 110, 111, 112]);
+const U07_URLS = [
+  ...URLS,
+  "https://www.google.com/aimode?q=fractions",
+  "https://www.google.com/aimode/session?hl=en&q=photosynthesis",
+  "https://www.google.com/aimode?hl=en",
+  "https://www.google.com/search?q=x&udm=50#frag",
+  "https://example.com/search?q=x&udm=50",
+];
+
+// Runs the real content bundle (vm harness) at each URL: the in-page redirect it starts must be
+// exactly where DNR would send a full page load, and it must leave non-AI-Mode URLs alone.
+equivalent("U-07", "content script (BP-05 JS copy): in-page redirect target equals the DNR simulation for every AI Mode URL; no redirect otherwise", async (target) => {
   const sw = loadServiceWorker(target);
-  assert.equal(typeof sw.ctx.cleanAiModeUrl, "function", "cleanAiModeUrl is not implemented");
-  const rules = rulesFor(sw, true, true);
-  for (const u of URLS) assert.equal(sw.ctx.cleanAiModeUrl(u, { ...BASE, blockAiModeNavigation: true, forceWebOnlySearch: true }), simulate(rules, u).url);
-  return true;
+  const out = {};
+  for (const [label, force] of [["force", true], ["noForce", false]]) {
+    const rules = rulesFor(sw, true, force);
+    const policy = { ...BASE, blockAiModeNavigation: true, forceWebOnlySearch: force, isManaged: false };
+    out[label] = {};
+    for (const u of U07_URLS) {
+      const sim = new URL(u).hostname.endsWith("google.com") ? simulate(rules, u) : { ruleIds: [] };
+      const expected = AI_MODE_RULE_IDS.has(sim.ruleIds[0]) ? sim.url : null;
+      const cs = loadContentScript(target, { href: u });
+      await cs.flush();
+      cs.policyRequests[0]?.({ ...policy });
+      await cs.flush();
+      const actual = cs.replaced[0] ?? null;
+      out[label][u] = actual;
+      assert.equal(actual, expected, `${label}: ${u}`);
+      assert.ok(cs.replaced.length <= 1, `${label}: ${u} redirected more than once`);
+    }
+  }
+  // Policy that doesn't block AI Mode: never redirect.
+  const off = loadContentScript(target, { href: URLS[0] });
+  await off.flush();
+  off.policyRequests[0]?.({ ...BASE, blockAiModeNavigation: false, forceWebOnlySearch: true, isManaged: false });
+  await off.flush();
+  off.fireWindowEvent("popstate");
+  assert.deepEqual(off.replaced, [], "redirected although blockAiModeNavigation is off");
+  return out;
+}, { bp: "BP-05" });
+
+equivalent("U-07b", "content script: popstate and pageshow into an AI Mode URL each start exactly one clean redirect", async (target) => {
+  const out = {};
+  for (const event of ["popstate", "pageshow"]) {
+    const cs = loadContentScript(target, { href: "https://www.google.com/search?q=x&udm=14" });
+    await cs.flush();
+    cs.policyRequests[0]?.({ ...BASE, blockAiModeNavigation: true, forceWebOnlySearch: true, isManaged: false });
+    await cs.flush();
+    assert.deepEqual(cs.replaced, [], `${event}: redirected a normal search`);
+    cs.setHref("https://www.google.com/search?q=x&udm=50");
+    cs.fireWindowEvent(event);
+    cs.fireWindowEvent(event);
+    out[event] = [...cs.replaced];
+    assert.deepEqual(out[event], ["https://www.google.com/search?q=x&udm=14#rm_sg_aimode"], `${event}: one clean redirect`);
+  }
+  return out;
 }, { bp: "BP-05" });
 
 test("X-04 DNR simulator: regexFilter is case-insensitive by default; isUrlFilterCaseSensitive:true is honored", () => {

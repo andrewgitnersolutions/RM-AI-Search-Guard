@@ -11,11 +11,6 @@
       "phase": 2,
       "message": "AssertionError: Expected values to be strictly equal:\n\nfalse !== true\n"
     },
-    "B-06": {
-      "bp": "BP-05",
-      "phase": 2,
-      "message": "AssertionError: The input was expected to not match the regular expression /udm=50/. Input:\n\n'https://www.google.com/search?q=x&udm=50'\n"
-    },
     "B-07": {
       "bp": "BP-14",
       "phase": 3,
@@ -30,11 +25,6 @@
       "bp": "BP-04",
       "phase": 4,
       "message": "AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- [\n-   'div.test-ai'\n- ]\n"
-    },
-    "U-07": {
-      "bp": "BP-05",
-      "phase": 2,
-      "message": "AssertionError: cleanAiModeUrl is not implemented\n+ actual - expected\n\n+ 'undefined'\n- 'function'\n"
     },
     "U-12a": {
       "bp": "BP-13",

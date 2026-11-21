@@ -224,9 +224,20 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Add `cleanAiModeUrl(url, policy)` (pure function) in the content script, mirroring `createAiModeQueryTransform` and rule 111 (`/ai`, `/aimode` → `https://www.google.com/`). Add a comment that it must match `buildDynamicRules`.
-- [ ] Track `lastHref`. In `runSweepNow`, on `popstate`, and on `pageshow`: if `blockAiModeNavigation && masterEnabled` and the URL is an AI Mode URL → `location.replace(clean + "#rm_sg_aimode")`, which reuses the existing telemetry path.
-- [ ] If `window.navigation` exists, add a `navigate` listener doing the same check before commit (verify it fires in the isolated world; drop it if not).
+- [x] Add `cleanAiModeUrl(url, policy)` (pure function) in the content script, mirroring `createAiModeQueryTransform` and rule 111 (`/ai`, `/aimode` → `https://www.google.com/`). Add a comment that it must match `buildDynamicRules`.
+- [x] Track `lastHref`. In `runSweepNow`, on `popstate`, and on `pageshow`: if `blockAiModeNavigation && masterEnabled` and the URL is an AI Mode URL → `location.replace(clean + "#rm_sg_aimode")`, which reuses the existing telemetry path.
+- [x] If `window.navigation` exists, add a `navigate` listener doing the same check before commit (verify it fires in the isolated world; drop it if not).
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **New module:** `src/shared/ai-mode-url.ts` `cleanAiModeUrl()` mirrors DNR rules 101, 102, 110, 111 and 112, including BP-19's keep-the-search rule. It returns the exact URL DNR would produce, with the `#rm_sg_omnibox` or `#rm_sg_aimode` marker, or null.
+- **When the content script checks:** before each sweep, after each applied policy, on `popstate` and `pageshow`, and on the Navigation API's `navigatesuccess`. It uses `navigatesuccess` rather than `navigate` because it runs after the URL commits. B-06b confirms it fires in the isolated world.
+- **Redirect:** one `location.replace()` per page, guarded by a flag instead of `lastHref`.
+- **Tests:**
+  - U-07 now runs the real content bundle in the vm harness for 15 URLs × both Web-only settings. It checks the redirect target equals the DNR simulation for AI Mode URLs and that nothing else redirects, including when `blockAiModeNavigation` is off.
+  - New U-07b covers `popstate` and `pageshow`.
+  - B-06 (pushState + DOM mutation) and new B-06b (pushState only) each count exactly one redirect.
+  - U-07 and U-07b fail on the old `dist/`. U-07 and B-06 were removed from `tests/known-failures.json`.
+- **NOT RUN:** L-06 on live Google.
 
 **Done when:** on a fixture page, `history.pushState({}, "", "/search?q=x&udm=50")` followed by a DOM mutation ends on `udm=14` (or no `udm`) and increments `aiModeRedirects` once.
 
@@ -669,7 +680,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-04 | `extraHideSelectors`: accepts valid string arrays; rejects non-arrays, over-long strings and >20 items into `invalidFields`; ignored when unmanaged | BP-04 |
 | U-05 | DNR rules for all 4 combinations of `blockAiModeNavigation` × `forceWebOnlySearch`, plus `masterEnabled:false` → `[]` | Regression |
 | U-06 | Redirect simulation, with each rule's pattern run as a JS RegExp and its transform applied, until no rule matches. `?q=x&udm=50` → `udm=14` or no `udm`; `sourceid=chrome` + `udm=50` → `#rm_sg_omnibox`; `/ai` and `/aimode` with no query → `/` (with a query: `/search`, query kept, BP-19); `?q=x` → `udm=14`; `udm=2` and `tbm=nws` untouched; **every URL settles within 2 hops (no loops)** | Regression, BP-05 |
-| U-07 | `cleanAiModeUrl()` (BP-05 JS copy) returns the same URL as the U-06 simulation for every test URL | BP-05 |
+| U-07 | `cleanAiModeUrl()` (BP-05 JS copy) returns the same URL as the U-06 simulation for every test URL. (2026-11-21: tested through the real content bundle in the vm harness; non-AI-Mode URLs must not redirect. U-07b adds `popstate`/`pageshow`.) | BP-05 |
 | U-08 | ~~Payload v2: allowlisted keys only; `buckets` capped at 14; extra/unknown keys or PII-shaped fields make `assertNoPiiPayload` reject~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-09 | ~~Flush with mock fetch: 3 pending days → exactly 1 POST; on `{status:"ok"}` the sent counts are subtracted, and counts that arrived during the request are kept~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-10 | ~~Flush failure paths (HTTP 500, non-JSON, `{status:"error"}`, timeout) → backoff grows 15m→30m→1h…, capped at 24h; `ERR_ANALYTICS_FLUSH_FAILED` logged~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | Regression |
@@ -695,7 +706,7 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-03 | Each surface is hidden: Overview, AI Mode tab, homepage button, Dive deeper, Labs, Lens, follow-up; search box visible; ≥5 organic results visible | Regression |
 | B-04 | Organic result linking to `example.com/.../aimode-review` stays visible | BP-08 |
 | B-05 | Overview whose nearest `data-hveid` wrapper contains 1 organic result: only the Overview card hides; `ERR_SAFETY_GUARD_TRIPPED` if the only candidate is the wrapper | BP-08 |
-| B-06 | `history.pushState(…udm=50)` + a DOM mutation → page ends on the clean URL; `aiModeRedirects` +1 exactly | BP-05 |
+| B-06 | `history.pushState(…udm=50)` + a DOM mutation → page ends on the clean URL; `aiModeRedirects` +1 exactly. (B-06b, 2026-11-21: pushState alone, caught by the Navigation API.) | BP-05 |
 | B-07 | Same page reloaded 3× with re-render churn → each category counter +3 exactly | BP-14 |
 | B-08 | A single search produces ≤2 telemetry writes (count via a `chrome.storage.onChanged` logger in the service worker console) | BP-09 |
 | B-09 | Performance profile on the churning mock page: sweep time per second down ≥50% vs. the current `dist` baseline (record the baseline first) | BP-09 |

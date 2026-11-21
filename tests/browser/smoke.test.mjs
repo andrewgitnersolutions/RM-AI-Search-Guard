@@ -137,16 +137,39 @@ equivalent("B-06", "history.pushState(…udm=50) + DOM mutation → clean URL; a
     await page.goto("https://www.google.com/search?q=x&udm=14");
     await settle(page);
     const before = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects;
+    // The redirect can start before evaluate() returns (Navigation API), which tears down the
+    // page's execution context: that is the fix working, not a test failure.
     await page.evaluate(() => {
       history.pushState({}, "", "/search?q=x&udm=50");
       document.body.append(document.createElement("div"));
+    }).catch((err) => {
+      if (!/Execution context was destroyed/.test(err.message)) throw err;
     });
+    await page.waitForURL((u) => !u.href.includes("udm=50"), { timeout: 5000 });
     await settle(page);
     const after = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects;
     const url = page.url();
     assert.doesNotMatch(url, /udm=50/);
     assert.equal(after - before, 1);
     return { url, delta: after - before };
+  }), { bp: "BP-05" });
+
+equivalent("B-06b", "history.pushState(…udm=50) with no DOM mutation → clean URL via the Navigation API; aiModeRedirects +1 exactly", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&udm=14");
+    await settle(page);
+    const before = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects;
+    await page.evaluate(() => history.pushState({}, "", "/search?q=x&udm=50")).catch((err) => {
+      if (!/Execution context was destroyed/.test(err.message)) throw err;
+    });
+    await page.waitForURL((u) => !u.href.includes("udm=50"), { timeout: 5000 });
+    await settle(page);
+    const afterPush = page.url();
+    const delta = (await readTelemetry(b.sw)).lifetimeMetrics.aiModeRedirects - before;
+    assert.doesNotMatch(afterPush, /udm=50/);
+    assert.equal(delta, 1, "exactly one redirect counted");
+    return { afterPush, delta };
   }), { bp: "BP-05" });
 
 equivalent("B-07", "same page reloaded 3× → each category counter +3 exactly", (target) =>

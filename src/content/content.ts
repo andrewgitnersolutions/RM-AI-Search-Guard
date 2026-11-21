@@ -7,9 +7,13 @@
  * Fails closed (BP-02): all three hide attributes are set synchronously before anything else
  * runs, so static-guard.css hides AI surfaces from the first paint; the resolved policy then
  * only removes the ones it turns off. If no policy can be resolved, they stay on.
- * Shared with: shared/defaults.ts, shared/policy.ts, shared/storage.ts, content/dom-engine.ts.
+ * In-page navigation into AI Mode (history.pushState, no main_frame request) is caught here and
+ * sent through the same redirect the DNR rules use (BP-05, shared/ai-mode-url.ts).
+ * Shared with: shared/ai-mode-url.ts, shared/defaults.ts, shared/policy.ts, shared/storage.ts,
+ * content/dom-engine.ts.
  */
 
+import { cleanAiModeUrl } from "../shared/ai-mode-url";
 import { STORAGE_KEYS } from "../shared/defaults";
 import { parsePolicy } from "../shared/policy";
 import { readLocalOverrides, readManagedPolicyRaw } from "../shared/storage";
@@ -118,11 +122,42 @@ function disconnectObservers() {
 }
 
 /**
+ * Set once this page has started a redirect out of AI Mode, so repeated sweeps or events
+ * don't queue a second navigation while the first is loading.
+ */
+let aiModeRedirectStarted = false;
+
+/**
+ * If the URL changed into AI Mode without a page load, replace it with the clean URL the DNR
+ * rules would have produced (BP-05). The marker in the new URL's fragment makes the next page
+ * count exactly one redirect through the existing hash telemetry.
+ * @returns true if a redirect was started. Does nothing until the policy is known or when it
+ * doesn't block AI Mode; a full page load is still covered by DNR either way.
+ */
+function checkAiModeUrl(): boolean {
+  if (aiModeRedirectStarted || !currentPolicy) {
+    return false;
+  }
+  const clean = cleanAiModeUrl(window.location.href, currentPolicy);
+  if (clean === null) {
+    return false;
+  }
+  aiModeRedirectStarted = true;
+  window.location.replace(clean);
+  return true;
+}
+
+/**
  * Sweep immediately and report aggregate deltas and deduped diagnostics.
- * No-op when there is no policy yet or masterEnabled is false.
+ * No-op when there is no policy yet or masterEnabled is false; skipped when the URL check
+ * starts an AI Mode redirect instead.
  */
 function runSweepNow() {
   if (!currentPolicy || !currentPolicy.masterEnabled) {
+    return;
+  }
+  // Google's in-page switch to AI Mode always mutates the DOM, so every sweep re-checks the URL.
+  if (checkAiModeUrl()) {
     return;
   }
   const pageKey = computeOpaquePageKey();
@@ -261,6 +296,9 @@ async function loadAndApplyPolicy(): Promise<EffectivePolicy | null> {
     return null;
   }
   applyEffectivePolicy(policy);
+  // Catches a pushState into AI Mode that happened before the policy arrived, and backs up
+  // DNR if its rules failed to install (BP-05).
+  checkAiModeUrl();
   return policy;
 }
 
@@ -299,6 +337,24 @@ window.addEventListener("load", () => {
 window.addEventListener("hashchange", () => {
   handleRedirectHashTelemetry();
 });
+
+// Back/forward into an AI Mode entry, and bfcache restores, change the URL without a fresh
+// main_frame request either.
+window.addEventListener("popstate", () => {
+  checkAiModeUrl();
+});
+window.addEventListener("pageshow", () => {
+  checkAiModeUrl();
+});
+
+// Navigation API (Chrome 102+): fires after same-document navigations such as pushState, so
+// AI Mode is caught even before the next DOM mutation. Feature-detected; sweeps cover the rest.
+const navigationApi = (window as unknown as { navigation?: EventTarget }).navigation;
+if (navigationApi && typeof navigationApi.addEventListener === "function") {
+  navigationApi.addEventListener("navigatesuccess", () => {
+    checkAiModeUrl();
+  });
+}
 
 // Start at document_start. CSS hiding is already on (applyFailClosedAttributes); JS sweeps and
 // any un-hiding wait for the policy.
