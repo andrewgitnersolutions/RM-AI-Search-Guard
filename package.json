@@ -1,6 +1,6 @@
 {
   "name": "raisemark-ai-search-controls",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "RaiseMark Chrome extension (MV3): source, build and tests.",
   "license": "MIT",

@@ -48,9 +48,9 @@ be empty after Phase 4.
 - Reach real Google or any other host. `tests/helpers/browser.mjs` fulfills every google.com
   request from `tests/browser/fixtures/` and aborts all other web requests. The fixtures are
   hand-written to match the selectors; they are not copies of live Google pages.
-- Use real network for analytics. The service-worker harness (`tests/helpers/sw-harness.mjs`)
-  injects `fetch` per test.
+- Make external network requests. District analytics were removed in Phase 0b (D6), and
+  `tests/helpers/sw-harness.mjs` rejects any unexpected `fetch` call ("network disabled in tests").
 
 ## Not automated (report as NOT RUN)
 
-B-13 on a real managed profile (B-13b–d cover the locked and worker-unreachable views by stubbing the worker's answer; B-10 stubs `chrome.storage.managed.get` in the service worker), all L (live Google, extension loaded), M (managed device) and O (Chrome-version) tests. B-09 was measured with a CDP CPU profile comparison on `tests/browser/fixtures/churn.html` against the Phase 2 `dist/` baseline.
+`O-01` (Chrome 134 API/CSS floor check) and `R-01`/`R-02` (§4 comment-only audit) were verified in Phase 5. Remaining manual / unautomated checks: `B-13` on a real managed profile (B-13b–d cover the locked and worker-unreachable views by stubbing the worker's answer; B-10 stubs `chrome.storage.managed.get` in the service worker), all `L-01`–`L-07` (live Google with extension loaded), `M-01`–`M-05` (managed device/OU), and `O-02` (install on Chrome 134). `B-09` was measured with a CDP CPU profile comparison on `tests/browser/fixtures/churn.html` against the Phase 2 `dist/` baseline.

@@ -18,7 +18,8 @@ A Manifest V3 Chrome extension for K-12 school districts. It hides Google Search
 - **Phase 1 is done** (BP-01, BP-02, BP-06, BP-10, BP-17; PR #4, 2026-11-21).
 - **Phase 2 is done** (BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 option A; PR #5, 2026-11-21).
 - **Phase 3 is done** (BP-09, BP-14; BP-12 removed by D6; 2026-11-21).
-- **Phase 4 is done** (BP-03, BP-04; BP-11 removed by D6; 2026-11-21). `tests/known-failures.json` has `currentPhase: 4` and empty `failures`. Still open: `M-01`–`M-05` on a managed device (the owner has none yet), `L-04`/`L-05` with the extension loaded on live Google (live strings & Tier 2 selectors were verified read-only without the extension loaded), and `L-06`. **Next: Phase 5** (docs/07 §5: §4 re-commenting check `R-01`/`R-02`, BP-16, final doc pass).
+- **Phase 4 is done** (BP-03, BP-04; BP-11 removed by D6; PR #7, 2026-11-21).
+- **Phase 5 is done** (§4 re-comment audit `R-01`/`R-02`, `O-01` Chrome 134 API floor check, `BP-10` supported versions doc, `BP-15` `v1.0.1` bump without rebuilding/uploading store zip, `BP-16` non-covered surfaces doc, and final doc pass; 2026-11-21). `tests/known-failures.json` has `currentPhase: 5` and empty `failures`. Still open (manual): `M-01`–`M-05` on a managed device (the owner has none yet), `L-01`–`L-07` with the extension loaded on live Google (live strings & Tier 2 selectors were verified read-only without the extension loaded), and `O-02` on Chrome 134.
 - **`src/` is the source of truth and `dist/` is build output.** Never hand-edit `dist/`; change `src/` and rebuild. TypeScript runs with `strict: true`; `npm run typecheck` must pass.
 - **Workflow (2026-11-20):** edit `src/` → `npm run build` (writes to the gitignored `build/`) → run the S/U/B tests against `build/` → `npm run promote` copies `build/` to `dist/`. Never write to `dist/` any other way.
 - Open owner decisions: see the decisions table in docs/07 §2. Don't act on an unresolved decision; use its stated default only if the owner said to.
@@ -50,11 +51,14 @@ Apply to every file you touch, in the same change as the code. Comments live in 
 6. **Keep comments true.** If your change makes a comment wrong, fix it in the same change. A stale comment is a bug.
 7. A comment-only change must not change behavior. Verify by comparing the code with comments and whitespace stripped (test R-01).
 
+Note (2026-11-21): esbuild keeps `//` comments inside object literals (such as `SELECTORS` in `src/shared/selectors.ts`) in unminified `dist/` bundles, so `R-01` compares compiled bundles with comments and whitespace stripped rather than raw bytes.
+
 ## Testing
 
 - Test tools (D8, 2026-11-20): `node --test` runs the S and U tests; Playwright runs the B tests against `build/` with mock Google pages via route interception, never real Google. L and M tests are manual.
 - The test plan is docs/07 §6. Run the static checks (S-xx) and unit tests (U-xx) after every change; run the browser/live/managed tests named in the "Done when" of the break point you're fixing.
 - In Claude Code cloud sessions, run the B tests with `RM_CHROMIUM_PATH=/opt/pw-browsers/chromium` (the pinned Playwright's own browser isn't installed there).
+- On local macOS machines where Playwright's pinned `chromium-1255` is missing, pass `RM_CHROMIUM_PATH` pointing at an existing Chrome for Testing / Chromium ≥134 executable (e.g. under `~/Library/Caches/ms-playwright/chromium-1200/`), or install Playwright's pinned browser with `npx playwright install chromium`.
 - Report every test you couldn't run as **NOT RUN**, with the reason. Never mark an unrun test as passed.
 - When you fix a break point or ship an update, tick its to-dos in docs/07, add a dated line under it saying what changed and which tests passed, and check/update `README.md` and `docs/04` (plus `PRIVACY.md` if permissions or data handling changed) if admins, students, or public readers will see different behavior.
 

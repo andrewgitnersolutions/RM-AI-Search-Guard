@@ -11,9 +11,9 @@
 Because Chrome separates **native browser chrome** (Omnibox address bar & New Tab Page) from **web page content** (`google.com`), complete protection pairs two quick per-OU controls in Google Admin Console:
 
 1. **Native Chrome Policy (`AIModeSettings = 1`)** → Removes Chrome's native Omnibox & New Tab Page AI Mode buttons *(Chrome / ChromeOS 138+)*.
-2. **RaiseMark Extension + Grade-Band JSON Policy** → Suppresses AI Overviews, hides Google homepage/search AI Mode buttons & tabs, silently redirects `?udm=50` and `google.com/ai` (including Omnibox fallback clicks on older Chromebooks), and optionally enforces classic `udm=14` Web-only search.
+2. **RaiseMark Extension + Grade-Band JSON Policy** → Suppresses AI Overviews, hides Google homepage/search AI Mode buttons & tabs, silently redirects `?udm=50` and `google.com/ai` / `google.com/aimode` (preserving the student's search query on `/aimode?q=…` and catching in-page single-page-app switches into AI Mode, as well as Omnibox fallback clicks on older Chromebooks), and optionally enforces classic `udm=14` Web-only search.
 
-> **Browser Requirement:** The extension requires **Chrome / ChromeOS 134 or later** (`minimum_chrome_version: "134"`). On older devices Chrome will not install it at all. Typically these are Chromebooks past their Auto Update Expiration, or devices pinned to an old version with a target-version policy. Those devices get **no** extension protection. Full two-layer protection (Step 1 + Step 2) needs **138 or later**, because the native AI Mode setting only exists from 138.
+> **Supported Chrome Versions:** The extension requires **Chrome / ChromeOS 134 or later** (`minimum_chrome_version: "134"`). On older devices Chrome will not install it at all. Typically these are Chromebooks past their Auto Update Expiration, or devices pinned to an old version with a target-version policy. Those devices get **no** extension protection. Full two-layer protection (Step 1 + Step 2) needs **138 or later**, because the native AI Mode setting only exists from 138. All browser APIs and CSS features used in the extension are well below the 134 floor (`chrome.storage` Promises: 95; `declarativeNetRequestWithHostAccess`: 96; `@layer` and `chrome.runtime.sendMessage` Promises: 99; `hidden="until-found"`, `beforematch`, and the Navigation API: 102; `:has()`, container queries, and `Element.checkVisibility()`: 105; `:user-invalid`: 119).
 
 > **Fail-Safe Notice:** If you force-install RaiseMark *before* pasting a Policy JSON—or accidentally paste invalid JSON—the extension automatically enters **Strict Maximum Lockdown** (all 6 protections ON) until valid JSON is saved. Students can't change anything in this state: the Options page shows **"Managed by Your School (No Grade-Band Policy Yet)"** with every switch disabled, and the toolbar popup shows "Managed by your school".
 >
@@ -159,10 +159,27 @@ Each Chromebook still keeps its own aggregate counters (AI Overviews hidden, AI 
 | `WARN_OMNIBOX_POLICY_MISSING` | Student clicked Chrome's native Omnibox/NTP AI button; extension blocked it, but button is still visible. | Enable `AIModeSettings = 1` in Step 1 for this OU (requires ChromeOS/Chrome 138+). |
 | `WARN_NO_MANAGED_POLICY` | Extension is running on Strict Maximum Lockdown defaults because Admin Console JSON wasn't pushed yet. | Paste valid JSON in **Policy for extensions** and run `chrome://policy` → Reload policies. |
 | `ERR_POLICY_INVALID` | Syntax/type error in Admin Console JSON (e.g., missing `{"Value": ...}` wrapper or string `"true"` instead of boolean `true`). | Re-generate JSON via the **Admin Policy Generator** tab and re-save. |
+| `ERR_DNR_SYNC_FAILED` | Chrome rejected a `declarativeNetRequest` dynamic redirect rule update. | Reload the extension or verify Chrome / ChromeOS is 134+. If persistent, copy diagnostic JSON and email RaiseMark Support (`info@raisemarkai.com`). |
 | `ERR_SELECTOR_SYNTAX` | A bundled or custom `extraHideSelectors` CSS selector failed browser syntax validation. | Check any custom selectors pushed in `extraHideSelectors` (or update the extension); valid selectors continue running. |
 | `ERR_SAFETY_GUARD_TRIPPED` | Google changed Search DOM structure; safety guard protected organic results. | Check Chrome Web Store for a selector update or report diagnostic JSON to RaiseMark Support (`info@raisemarkai.com`). |
+| `ERR_STORAGE_FAILURE` | Extension storage (`chrome.storage.local` or `chrome.storage.managed`) read/write failed. | Check Chrome profile disk quota or reload the browser/profile. |
 | `WARN_AI_SURFACE_VISIBLE` | A visible AI heading or AI Mode button remained unhidden after a sweep (`detail` shows category only). | Check for an extension update, or push temporary hotfix CSS selectors via managed `extraHideSelectors`. |
 | `WARN_UNSUPPORTED_UI_LANGUAGE` | Google Search rendered in a UI language outside English and Spanish (`detail` shows primary subtag). | Structural selectors and AI Mode URL redirects remain active; label-based fallbacks cover English and Spanish only. |
+
+---
+
+## What This Extension Does Not Cover
+
+By design, several surfaces and browser modes sit outside a Chrome extension's sandbox or this project's least-privilege scope. Pair the companion Google Admin Console settings below for complete student-OU coverage:
+
+| Gap / Surface | Why the Extension Doesn't Cover It | Recommended Admin Console Companion Setting |
+| :--- | :--- | :--- |
+| **Incognito windows** | Force-installed extensions are disabled in Incognito windows by default unless allowed, and Incognito bypasses normal profile history. | Set **`IncognitoModeAvailability`** = **`1`** (*Disallow incognito mode*) under **Devices → Chrome → Settings → Users & browsers** for student OUs. |
+| **Guest mode sessions** | Extensions do not run inside ChromeOS Guest sessions or desktop Chrome Guest profiles. | Disable Guest mode on **ChromeOS / Chromebooks** via **`DeviceGuestModeEnabled`** = **`false`** (**Devices → Chrome → Settings → Device settings**), and on **managed desktop Chrome (Windows, macOS, Linux)** via **`BrowserGuestModeEnabled`** = **`false`** (**Devices → Chrome → Settings → Users & browsers**). |
+| **Other browsers, unmanaged profiles, & personal devices** | Manifest V3 policies apply only to managed Chrome / ChromeOS profiles where the extension is force-installed. | Enforce managed sign-in / browser management on district-owned devices; non-managed browsers (Safari, Firefox, Edge) and personal profiles are out of reach. |
+| **Non-`google.com` country Google domains (`google.co.uk`, `google.ca`, etc.)** | Excluded intentionally (`docs/01 §3.2`) to keep extension `host_permissions` strictly scoped to `https://www.google.com/*` and `https://google.com/*`. | Not covered by this extension; districts outside `google.com` must evaluate domain coverage before rollout. |
+| **Gemini web app (`gemini.google.com`) & Gemini in Chrome** | Standalone Gemini web chat and Chrome's built-in Gemini browser integrations are separate from Google Search. | Set **Generative AI → Gemini app → Service status** to **Off** for the target OU, which controls **`gemini.google.com`**. Disable **Gemini in Chrome** via Chrome Enterprise policy **`GeminiSettings`** = **`1`** (*Do not allow Gemini integrations* under **Devices → Chrome → Settings → Users & browsers → Generative AI**; unset GenAI policies inherit from **`GenAiDefaultSettings`**). |
+| **Chrome Omnibox & New Tab Page native AI Mode button** | Native browser UI cannot be modified by extension content scripts or CSS. | Pair with **`AIModeSettings`** = **`1`** (Chrome/ChromeOS 138+) in Step 1 above. On Chrome 134–137 or if `AIModeSettings` is omitted, clicks still hit the extension's DNR redirect and log `WARN_OMNIBOX_POLICY_MISSING`. |
 
 ---
 

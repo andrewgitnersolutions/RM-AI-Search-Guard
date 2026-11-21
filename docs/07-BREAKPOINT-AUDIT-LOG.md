@@ -439,7 +439,8 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 - **What changed:** the `div[role="listitem"]:has(a[href*="udm=50"])` selector has its own rule in `static-guard.css`, with the same declarations and a comment saying why.
 - **Audit:** the newest selector features in `static-guard.css` and `shared.css` are `:has()` (Chrome 105), `:is()` and `:where()` (88) and the `[attr i]` flag (49). All are below the 134 minimum. `shared.css`'s only `:has()` (`.toggle-row:has(.rm-switch:disabled)`) is alone in its rule. Nothing else needed a comment.
 - **Tests:** S-05b passes and was removed from `tests/known-failures.json`. B-03 still passes (the AI Mode tab is hidden).
-- [ ] Add a "Supported Chrome versions" line to `docs/04` (agent must look up which version shipped `:has()` and `hidden="until-found"` rather than guess).
+- [x] Add a "Supported Chrome versions" line to `docs/04` (agent must look up which version shipped `:has()` and `hidden="until-found"` rather than guess).
+- **2026-11-21 (Phase 5):** Added the "Supported Chrome Versions" notice to `docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md` with MDN/Chrome-verified minimum versions (`chrome.storage` Promises: 95; `declarativeNetRequestWithHostAccess`: 96; `@layer` and `chrome.runtime.sendMessage` Promises: 99; `hidden="until-found"`, `beforematch`, and Navigation API: 102; `:has()`, `@container`, and `Element.checkVisibility()`: 105; `:user-invalid`: 119 — all ≤ `minimum_chrome_version: "134"`).
 
 **Done when:** in a browser with `:has()` disabled or unsupported, `button.plR5qb` and `a[href*="udm=50"]` are still hidden by CSS alone.
 
@@ -571,11 +572,13 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** ~~A~~ **B, per owner decision D1 (2026-11-20).** The A to-dos below are superseded by the Phase 0 rebuild in §5. Keep only the syntax check, the version bump and the "no store upload" rule.
 
 **To-do (superseded by D1 = B except where noted):**
-- [ ] Wrap every duplicated block (constants, `parsePolicy`, storage readers, error catalog, Code.gs allowlists) in `<shared:NAME>` markers in each file.
-- [ ] Add `scripts/check-shared-sync.mjs` and a short `scripts/README.md` on how to run it.
-- [ ] Add `scripts/syntax-check.mjs` that runs each `dist` JS file through Node's syntax check (copy ES-module files to `.mjs` in a temp dir first; `service-worker.js`, `popup.js` and `options.js` are modules, `content.js` is a classic script).
-- [ ] Bump `manifest.json` `version` to `1.0.1` when all BPs land. **Don't** rebuild or upload the store zip without the owner's OK.
-- [ ] (D3) `git init` only after the owner approves.
+- [ ] ~~Wrap every duplicated block (constants, `parsePolicy`, storage readers, error catalog, Code.gs allowlists) in `<shared:NAME>` markers in each file.~~ Superseded by D1 = B (`src/` + esbuild).
+- [ ] ~~Add `scripts/check-shared-sync.mjs` and a short `scripts/README.md` on how to run it.~~ Superseded by D1 = B (`src/` + esbuild).
+- [x] Add `scripts/syntax-check.mjs` that runs each `dist` JS file through Node's syntax check (implemented as `S-01` in `tests/static/static.test.mjs`, checking both `build/` and `dist/`).
+- [x] Bump `manifest.json` `version` to `1.0.1` when all BPs land. **Don't** rebuild or upload the store zip without the owner's OK.
+- [x] (D3) `git init` only after the owner approves. (Done 2026-11-20.)
+
+**2026-11-21 (Phase 5):** Bumped extension version to `1.0.1` across `src/manifest.json`, `package.json`, `package-lock.json`, `src/ui/options.html`, `src/background/service-worker.ts`, `src/ui/options.ts`, `tests/helpers/sw-harness.mjs`, and promoted `build/` → `dist/` (`S-01`–`S-07`, all `U-xx`, and 52 `B-xx` browser tests passed). Left `local-cws/release/*.zip` unbuilt and uploaded nothing to Chrome Web Store.
 
 **Done when:** both scripts exit 0 on the fixed tree, and deliberately editing one copy of `parsePolicy` makes the sync check fail with the file name.
 
@@ -591,7 +594,9 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 - Chrome's own address-bar AI Mode button → `AIModeSettings` (already documented).
 
 **To-do:**
-- [ ] Add a "What this extension does not cover" section to `docs/04` with the companion settings above. No code changes.
+- [x] Add a "What this extension does not cover" section to `docs/04` with the companion settings above. No code changes.
+
+**2026-11-21 (Phase 5):** Added `## What This Extension Does Not Cover` to `docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md` covering Incognito (`IncognitoModeAvailability = 1`), ChromeOS Guest mode (`DeviceGuestModeEnabled = false`) and desktop Chrome Guest mode (`BrowserGuestModeEnabled = false`), non-managed browsers/profiles/devices, non-`google.com` country TLDs, Gemini (`gemini.google.com` via `Generative AI → Gemini app → Service status` + `GeminiSettings = 1` / `GenAiDefaultSettings`), and Chrome's native Omnibox/NTP AI Mode button (`AIModeSettings = 1` on Chrome 138+).
 
 ---
 
@@ -720,7 +725,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 | 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 (BP-19 option A, owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 2`. Still open: M-05 (managed device) and L-06/L-07 (live Google). | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 (N/A per D6). **Done 2026-11-21**: BP-09 and BP-14 fixed; BP-12 N/A per D6; `tests/known-failures.json` has `currentPhase: 3`. | Touch the same sweep/metrics paths, so do them together. |
 | 4. Longevity | BP-03, BP-04, BP-11 (N/A per D6). **Done 2026-11-21**: BP-03 and BP-04 fixed; BP-11 N/A per D6; `tests/known-failures.json` has `currentPhase: 4` and empty `failures`. Still open: `L-04`/`L-05` with extension loaded on live Google and `M-*` on a managed device. | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
-| 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above | Comment once, after the code is stable. |
+| 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above. **Done 2026-11-21**: §4 comment-only audit (`R-01`/`R-02` verified), `O-01` Chrome 134 API/CSS floor check, `BP-10` supported versions doc, `BP-15` `v1.0.1` bump (no zip rebuild/upload), `BP-16` non-covered surfaces doc, and final doc pass (`README.md`, `PRIVACY.md`, `docs/01`–`05`, `tests/README.md`, local `local-cws/` store drafts). `tests/known-failures.json` has `currentPhase: 5` and empty `failures`. Still open (manual): `L-01`–`L-07` with extension loaded, `M-01`–`M-05` on a managed device, and `O-02` on Chrome 134. | Comment once, after the code is stable. |
 
 **Verification for every phase:** load `dist/` unpacked in Chrome, run each BP's "Done when" check, run `scripts/check-shared-sync.mjs` and `scripts/syntax-check.mjs`. Managed-policy checks (BP-01, BP-07, BP-04) need a real managed profile or Chromebook in a test OU; the agent must report which checks it could not run, not mark them passed.
 
@@ -831,12 +836,12 @@ Never retry through a CAPTCHA or "unusual traffic" page; record the test as **IN
 
 | ID | Test | Covers |
 |---|---|---|
-| O-01 | API floor check: every browser API and CSS feature the code uses is available in Chrome 134 (agent checks each against Chrome's docs or MDN compatibility tables; anything newer must be feature-detected or the minimum raised with owner approval) | D4 |
+| O-01 | API floor check: every browser API and CSS feature the code uses is available in Chrome 134 (agent checks each against Chrome's docs or MDN compatibility tables; anything newer must be feature-detected or the minimum raised with owner approval) — **Verified 2026-11-21 (Phase 5):** newest CSS feature `:user-invalid` (119), `checkVisibility()` / `:has()` / `@container` (105), `hidden="until-found"` / `beforematch` / Navigation API (102), `@layer` / `runtime.sendMessage` Promises (99), `declarativeNetRequestWithHostAccess` (96), `chrome.storage` Promises (95); all ≤ 134 | D4 |
 | O-02 | Install on Chrome 134 (or the oldest available build ≥134): the extension loads with no service worker errors and B-03 passes | D4 |
 
 ### 6.7 Re-comment safety check (Auto)
 
 | ID | Test | Covers |
 |---|---|---|
-| R-01 | Strip all comments and whitespace from each file before and after the §4 re-comment pass; the remaining code must be identical (only comments changed) | §4 |
-| R-02 | S-01 to S-06 and all U-tests still pass after re-commenting | §4 |
+| R-01 | Strip all comments and whitespace from each file before and after the §4 re-comment pass; the remaining code must be identical (only comments changed) — **Verified 2026-11-21 (Phase 5)** across all `src/` files and `build/` vs `main:dist/` | §4 |
+| R-02 | S-01 to S-06 and all U-tests still pass after re-commenting — **Verified 2026-11-21 (Phase 5)** | §4 |

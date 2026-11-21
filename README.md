@@ -11,11 +11,11 @@
 **RaiseMark: AI Search Controls for K-12** is a Manifest V3 Chrome extension and Google Admin Console deployment kit that restores granular, grade-level control over Google Search AI features (`AI Overviews`, `AI Mode` web/search buttons & tabs, direct `udm=50` / `google.com/ai` navigations, optional `udm=14` classic Web-only search, and auxiliary AI/Labs/Lens surfaces) across K–2, 3–5, 6–8, and 9–12 Organizational Units (OUs) and Groups.
 
 ### Core Design Pillars
-* **Hybrid Defense-in-Depth for Omnibox & Search:** Pairs Chrome's native `AIModeSettings = 1` enterprise policy (removes Omnibox & New Tab Page AI Mode buttons cleanly on Chrome/ChromeOS 138+) with network-level `declarativeNetRequest` silent redirects and zero-flash `document_start` DOM hiding—plus automatic `WARN_OMNIBOX_POLICY_MISSING` detection if an OU misses the native Chrome policy.
-* **Strict Fail-Closed Defaults:** Ships with all 6 protections enabled by default (`masterEnabled`, `hideAiOverviews`, `hideAiModeUi`, `blockAiModeNavigation`, `forceWebOnlySearch`, `hideAuxiliaryAiFeatures`) until an admin explicitly loosens toggles per grade-band OU.
+* **Hybrid Defense-in-Depth for Omnibox & Search:** Pairs Chrome's native `AIModeSettings = 1` enterprise policy (removes Omnibox & New Tab Page AI Mode buttons cleanly on Chrome/ChromeOS 138+) with network-level `declarativeNetRequest` silent redirects (keeping the student's search query on `/aimode?q=…` and catching in-page single-page-app switches into AI Mode) and zero-flash `document_start` fail-closed DOM hiding—plus automatic `WARN_OMNIBOX_POLICY_MISSING` detection if an OU misses the native Chrome policy.
+* **Strict Fail-Closed Defaults & Managed Lock:** Ships with all 6 protections enabled by default (`masterEnabled`, `hideAiOverviews`, `hideAiModeUi`, `blockAiModeNavigation`, `forceWebOnlySearch`, `hideAuxiliaryAiFeatures`). Force-installed devices stay strictly locked even before an OU policy JSON is pushed (`admin-no-policy`), local counter resets are blocked on managed devices, and minimum browser support is **Chrome / ChromeOS 134+** (full two-layer coverage on **138+**).
 * **Zero PII & Absolute Least Privilege:** Strictly scoped to `https://www.google.com/*` and `https://google.com/*` with only `storage` and `declarativeNetRequestWithHostAccess` permissions. Zero external network requests, zero analytics servers, and zero `tabs`, `webRequest`, `webNavigation`, `identity`, `history`, or `<all_urls>` permissions.
 * **Zero Hosting Cost Forever:** Runs 100% locally in Chrome with no backend servers, subscriptions, or external telemetry dependencies.
-* **Zero District Maintenance Burden:** Multi-tier English + Spanish (`en*` / `es*`) semantic/ARIA/URL selector engine bundled inside the extension, with optional Admin Console `extraHideSelectors` hotfix overrides, visible-surface leak & unsupported-language diagnostics (`WARN_AI_SURFACE_VISIBLE`, `WARN_UNSUPPORTED_UI_LANGUAGE`), and automated static, unit, and Playwright browser test suites (`npm test`).
+* **Zero District Maintenance Burden:** Multi-tier English + Spanish (`en*` / `es*`) semantic/ARIA/URL selector engine bundled inside the extension, with optional Admin Console `extraHideSelectors` hotfix overrides, visible-surface leak & unsupported-language diagnostics (`WARN_AI_SURFACE_VISIBLE`, `WARN_UNSUPPORTED_UI_LANGUAGE`), and automated static, unit, and Playwright browser test suites (`npm test` and `npm run test:browser`).
 
 ---
 
@@ -28,7 +28,7 @@
 | **3** | [`docs/03-DEVELOPER-SPEC.md`](docs/03-DEVELOPER-SPEC.md) | Implementation spec: directory tree, `manifest.json`, `schema.json`, TypeScript types, DNR rules, multi-tier selector engine, error catalog, UI specs, and build/test scripts. |
 | **4** | [`docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md`](docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md) | Step-by-step Google Admin Console deployment guide (`AIModeSettings`, force-install, K–2 / 3–5 / 6–8 / 9–12 policy JSON presets, troubleshooting). |
 | **5** | [`docs/05-PHASE2-WATCHDOG-OPS-SPEC.md`](docs/05-PHASE2-WATCHDOG-OPS-SPEC.md) | Automated Canary & DOM maintenance workflow specification. |
-| **6** | [`docs/07-BREAKPOINT-AUDIT-LOG.md`](docs/07-BREAKPOINT-AUDIT-LOG.md) | Active engineering roadmap, breakpoint audit log (`BP-01`–`BP-20`), owner decisions, and verification test matrix. |
+| **6** | [`docs/07-BREAKPOINT-AUDIT-LOG.md`](docs/07-BREAKPOINT-AUDIT-LOG.md) | Active engineering roadmap, breakpoint audit log (`BP-01`–`BP-19`), owner decisions, and verification test matrix. |
 | **7** | [`PRIVACY.md`](PRIVACY.md) | K-12 Privacy Policy (zero PII, 100% local-only processing, zero external network transmissions). |
 | **8** | [`LICENSE`](LICENSE) | MIT License. |
 

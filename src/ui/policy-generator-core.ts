@@ -50,7 +50,7 @@ export let mountInstanceCounter = 0;
 
 /**
  * Copy the recommended presets into editable per-band state.
- * @returns Map of band → { toggles }.
+ * @returns Map of band → { toggles }. Pure; never throws.
  */
 export function createDefaultBandStates(): Record<PresetBand, Toggles> {
   return {
@@ -64,7 +64,7 @@ export function createDefaultBandStates(): Record<PresetBand, Toggles> {
 
 /**
  * Create empty per-band raw textarea strings for extraHideSelectors.
- * @returns Map of band -> { overview, aimode, aux } initialized to "".
+ * @returns Map of band -> { overview, aimode, aux } initialized to "". Pure; never throws.
  */
 export function createDefaultExtraRawStates(): Record<PresetBand, Record<ExtraSelectorCategory, string>> {
   return {
@@ -82,6 +82,7 @@ export function createDefaultExtraRawStates(): Record<PresetBand, Record<ExtraSe
  * detached DocumentFragment probe when DOM APIs exist.
  * @param raw - Raw textarea string.
  * @returns Trimmed non-empty selector list and optional validation error message.
+ * Fails safe: invalid CSS selector syntax is caught and returned in error without throwing.
  */
 export function parseExtraSelectorsInput(raw: string): { selectors: string[]; error: string | null } {
   const selectors = raw
@@ -123,7 +124,7 @@ export function parseExtraSelectorsInput(raw: string): { selectors: string[]; er
  * @param gradeBand - Band label.
  * @param toggles - Feature toggles.
  * @param extraHideSelectors - Optional per-category custom selectors (omitted when empty).
- * @returns Pretty-printed JSON string.
+ * @returns Pretty-printed JSON string. Pure; never throws.
  */
 export function buildBandAdminJsonString(
   gradeBand: string,
@@ -141,7 +142,7 @@ export function buildBandAdminJsonString(
 /**
  * Copy text with the Clipboard API, falling back to execCommand.
  * @param text - Text to copy.
- * @returns true if copied.
+ * @returns true if copied; returns false on failure or outside DOM.
  */
 export async function copyTextToClipboard(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
@@ -176,6 +177,7 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
  * @param filename - Suggested file name.
  * @param content - File contents.
  * @param mimeType - MIME type.
+ * @returns Nothing. No-op outside a DOM/URL environment.
  */
 export function triggerFileDownload(filename: string, content: string, mimeType: string = "application/json"): void {
   if (typeof document === "undefined" || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
@@ -200,6 +202,7 @@ export function triggerFileDownload(filename: string, content: string, mimeType:
  * @param input - Form control.
  * @param errorId - Error element ID.
  * @param shown - Whether the error is visible.
+ * @returns Nothing; updates or removes aria-describedby and never throws.
  */
 export function syncFieldErrorLink(input: Element, errorId: string, shown: boolean): void {
   const existing = (input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((id) => id.length > 0 && id !== errorId);
@@ -529,6 +532,11 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
       aux: parseExtraSelectorsInput(extraRawStates[band].aux).selectors
     };
   }
+  /**
+   * Sync toggle inputs, AIModeSettings reminder visibility, and live JSON preview for one band card.
+   * @param band - Grade band card to update.
+   * @returns Nothing; never throws.
+   */
   function renderBandCard(band: PresetBand): void {
     const refs = cardRefs[band];
     const toggles = bandStates[band];
@@ -542,6 +550,10 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
     refs.reminder.hidden = !showAiModeReminder;
     refs.codeEl.textContent = buildBandAdminJsonString(band, toggles, getBandExtraSelectors(band));
   }
+  /**
+   * Re-render every grade-band card in ALL_BANDS.
+   * @returns Nothing; never throws.
+   */
   function renderAllBands() {
     for (const band of ALL_BANDS) {
       renderBandCard(band);

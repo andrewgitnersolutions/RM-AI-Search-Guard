@@ -44,7 +44,7 @@ const ERROR_CODE_SET = new Set<string>(ALL_ERROR_CODES);
 /**
  * Whether a value is a plain object (not null, not an array).
  * @param value - Untrusted value.
- * @returns true for a plain object.
+ * @returns true for a plain object. Pure; never throws.
  */
 function isPlainObject(value: unknown): value is RawRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -102,7 +102,7 @@ export function validateMessage(message: unknown): message is RuntimeMessage {
  * Reduce the effective policy to what a content script needs.
  * @param policy - Full effective policy.
  * @returns The six toggles, gradeBand, isManaged and cloned extraHideSelectors. Source,
- * invalidFields and evaluatedAt stay in the worker and on extension pages.
+ * invalidFields and evaluatedAt stay in the worker and on extension pages. Pure; never throws.
  */
 export function toContentPolicy(policy: EffectivePolicy): ContentPolicy {
   return {

@@ -85,7 +85,7 @@ export function loadServiceWorker(target, opts = {}) {
   const chrome = {
     runtime: {
       id: "testextensionid",
-      getManifest: () => ({ version: opts.version ?? "1.0.0" }),
+      getManifest: () => ({ version: opts.version ?? "1.0.1" }),
       onInstalled: events.onInstalled,
       onStartup: events.onStartup,
       onMessage: events.onMessage,

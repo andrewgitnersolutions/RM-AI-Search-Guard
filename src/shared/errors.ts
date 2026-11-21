@@ -1,8 +1,8 @@
 /**
  * Diagnostic code catalog (ERR_* / WARN_*) with IT remediation text, plus log-entry helpers.
- * Runs in: service worker and options page.
+ * Runs in: service worker, content script on google.com (getTodayDateBucket only), and options page.
  * Must never: put page text, URLs, queries or identifiers into an entry's detail.
- * Shared with: shared/storage.ts (diagnostic log), background/service-worker.ts, ui/options.ts.
+ * Shared with: shared/storage.ts (diagnostic log), background/messages.ts (ALL_ERROR_CODES), background/service-worker.ts, content/content.ts (getTodayDateBucket), ui/options.ts.
  */
 
 import type { CatalogEntry, DiagnosticEntry, ErrorCode } from "./types";
@@ -30,7 +30,7 @@ export const ERROR_CATALOG = {
     code: "ERR_DNR_SYNC_FAILED",
     severity: "error",
     title: "Dynamic Redirect Rule Sync Failed",
-    remediationTemplate: "Chrome rejected a dynamic redirect rule update ({detail}). Reload the extension or verify Chrome version is 120+. If persistent, copy diagnostics and report to RaiseMark Support."
+    remediationTemplate: "Chrome rejected a dynamic redirect rule update ({detail}). Reload the extension or verify Chrome version is 134+. If persistent, copy diagnostics and report to RaiseMark Support."
   },
   ERR_SELECTOR_SYNTAX: {
     code: "ERR_SELECTOR_SYNTAX",

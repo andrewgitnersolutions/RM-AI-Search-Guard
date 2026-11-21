@@ -19,7 +19,7 @@ const RESET_CONFIRM_WINDOW_MS = 1e4;
 /**
  * Sort diagnostics: errors first, then newest, then highest count, then code.
  * @param entries - Diagnostic entries.
- * @returns New sorted array.
+ * @returns New sorted array. Pure; never throws.
  */
 function sortDiagnosticEntries(entries: DiagnosticEntry[]): DiagnosticEntry[] {
   return [...entries].sort((a, b) => {
@@ -39,7 +39,7 @@ function sortDiagnosticEntries(entries: DiagnosticEntry[]): DiagnosticEntry[] {
 /**
  * Build the IT diagnostic JSON report (policy toggles, counts, catalog entries; no PII).
  * @param snapshot - Diagnostic snapshot.
- * @returns Report object.
+ * @returns Report object. Pure; never throws.
  */
 function buildZeroPiiDiagnosticBundle(snapshot: DiagnosticSnapshot) {
   const { policy, telemetry } = snapshot;
@@ -75,7 +75,7 @@ function buildZeroPiiDiagnosticBundle(snapshot: DiagnosticSnapshot) {
 /**
  * Escape one CSV cell per RFC 4180.
  * @param value - Cell value.
- * @returns Escaped cell text.
+ * @returns Escaped cell text. Pure; never throws.
  */
 function escapeCsvCell(value: unknown): string {
   const str = String(value);
@@ -88,7 +88,7 @@ function escapeCsvCell(value: unknown): string {
 /**
  * Export the lifetime counters as CSV (aggregate counts only).
  * @param snapshot - Diagnostic snapshot.
- * @returns CSV text.
+ * @returns CSV text. Pure; never throws.
  */
 function buildMetricsCsv(snapshot: DiagnosticSnapshot): string {
   // Header names stay stable for existing spreadsheets; OverviewsHidden, AiModeUiHidden and
@@ -123,7 +123,7 @@ function buildMetricsCsv(snapshot: DiagnosticSnapshot): string {
 /**
  * Copy text with the Clipboard API, falling back to execCommand.
  * @param text - Text to copy.
- * @returns true if copied.
+ * @returns true if copied; returns false if both Clipboard API and execCommand fail.
  */
 async function copyText(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
@@ -155,6 +155,7 @@ async function copyText(text: string): Promise<boolean> {
  * @param filename - Suggested file name.
  * @param content - File contents.
  * @param mimeType - MIME type.
+ * @returns Nothing; revokes Blob URL after 1 s.
  */
 function downloadFile(filename: string, content: string, mimeType: string): void {
   const blob = new Blob([content], { type: mimeType });
@@ -173,7 +174,8 @@ function downloadFile(filename: string, content: string, mimeType: string): void
 
 /**
  * Get the diagnostic snapshot from the service worker, or build one from storage if it doesn't answer.
- * @returns Snapshot; activeRuleCount is 0 in the fallback.
+ * @returns Snapshot; activeRuleCount is 0 in the fallback. Fails closed: fallback omits
+ * installType, so missing managed keys lock.
  */
 async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
@@ -213,7 +215,7 @@ async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
   // No install type here (only the worker reads it), so with no managed keys this locks: if the
   // worker is unreachable the page shows the locked view, never interactive test mode (BP-01).
   const parsed = parsePolicy(managedRaw, localRaw);
-  const version = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest().version : "1.0.0";
+  const version = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest().version : "1.0.1";
   return {
     policy: parsed.policy,
     telemetry,
@@ -226,6 +228,7 @@ async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
 /**
  * Wire the WAI-ARIA tabs pattern: arrow/Home/End keys, and hidden="until-found" panels so Ctrl+F still finds text.
  * @param onTabActivated - Optional callback invoked with the newly activated panel's id.
+ * @returns Nothing. No-op if tablist or matching tabpanels are missing/mismatched.
  */
 function setupAccessibleTabs(onTabActivated?: (panelId: string) => void) {
   const tablist = document.querySelector('[role="tablist"]');
@@ -235,6 +238,12 @@ function setupAccessibleTabs(onTabActivated?: (panelId: string) => void) {
   if (tabs.length === 0 || tabs.length !== panels.length) {
     return;
   }
+  /**
+   * Select one tab by index, reveal its panel, and optionally move focus.
+   * @param index - Tab index (wrapped modulo tab count).
+   * @param moveFocus - Whether to move keyboard focus to the activated tab.
+   * @returns Nothing; never throws.
+   */
   function activateTab(index: number, moveFocus: boolean): void {
     const safeIndex = (index % tabs.length + tabs.length) % tabs.length;
     for (let i = 0; i < tabs.length; i += 1) {
@@ -288,6 +297,7 @@ function setupAccessibleTabs(onTabActivated?: (panelId: string) => void) {
 /**
  * Wire the Options hub: status view, local test toggles, diagnostics, exports, generator
  * and live storage listeners. Controls are disabled when policy is managed.
+ * @returns Resolves after initial snapshot render; no-op outside the Options DOM.
  */
 async function bootOptionsPage() {
   if (typeof document === "undefined") {
@@ -355,18 +365,34 @@ async function bootOptionsPage() {
   let currentSnapshot: DiagnosticSnapshot | null = null;
   let resetArmed = false;
   let resetArmTimer: number | null = null;
+  /**
+   * Display and announce a status feedback message under Protection Controls.
+   * @param message - Status message text.
+   * @param isError - Whether to apply error styling.
+   * @returns Nothing. No-op when the feedback element is absent.
+   */
   function setStatusFeedback(message: string, isError = false) {
     if (!statusSaveFeedback) return;
     statusSaveFeedback.textContent = message;
     statusSaveFeedback.classList.toggle("status-line-error", isError);
     announce(message);
   }
+  /**
+   * Display and announce a feedback message under Diagnostic Tools.
+   * @param message - Diagnostic status text.
+   * @param isError - Whether to apply error styling.
+   * @returns Nothing. No-op when the status element is absent.
+   */
   function setDiagFeedback(message: string, isError = false) {
     if (!diagActionStatus) return;
     diagActionStatus.textContent = message;
     diagActionStatus.classList.toggle("status-line-error", isError);
     announce(message);
   }
+  /**
+   * Reset the two-step Reset Local Counters confirmation button and timer.
+   * @returns Nothing; safe when not armed.
+   */
   function disarmResetConfirm() {
     resetArmed = false;
     if (resetArmTimer !== null) {
@@ -382,6 +408,11 @@ async function bootOptionsPage() {
       cancelResetBtn.hidden = true;
     }
   }
+  /**
+   * Populate the Actionable Errors & Warnings table from sorted diagnostic entries.
+   * @param entries - Diagnostic log entries.
+   * @returns Nothing. No-op when table body is absent; renders empty state if empty.
+   */
   function renderDiagnosticTable(entries: DiagnosticEntry[]): void {
     if (!diagTableBody) return;
     diagTableBody.replaceChildren();
@@ -423,6 +454,11 @@ async function bootOptionsPage() {
       diagTableBody.append(tr);
     }
   }
+  /**
+   * Render policy banner, lock state, local metric counters, and diagnostic table.
+   * @param snapshot - Diagnostic snapshot to display.
+   * @returns Nothing. Safely skips any absent DOM nodes.
+   */
   function renderSnapshot(snapshot: DiagnosticSnapshot): void {
     currentSnapshot = snapshot;
     const { policy, telemetry } = snapshot;
@@ -525,6 +561,10 @@ async function bootOptionsPage() {
   // Newest refresh wins (BP-17): storage events can start refreshes that overlap, and an older
   // snapshot finishing last would otherwise replace the controls, counters and currentSnapshot.
   let snapshotGeneration = 0;
+  /**
+   * Fetch the latest diagnostic snapshot and render it unless a newer refresh started meanwhile.
+   * @returns Resolves after render or stale-result drop; fetchDiagnosticSnapshot() fails closed on fallback.
+   */
   async function refreshSnapshot(): Promise<void> {
     diagnosticsStale = false;
     const generation = ++snapshotGeneration;
@@ -535,6 +575,11 @@ async function bootOptionsPage() {
     renderSnapshot(snapshot);
   }
   refreshSnapshotRef = refreshSnapshot;
+  /**
+   * Persist one local IT test-mode override through the service worker when unlocked.
+   * @param partial - Sanitized toggle or gradeBand patch.
+   * @returns Resolves after refreshing UI state; refuses locally if managed and reports worker errors.
+   */
   async function persistLocalOverride(partial: RawRecord): Promise<void> {
     if (currentSnapshot?.policy.isManaged) {
       setStatusFeedback("Policy is locked by Google Admin Console and cannot be changed locally.", true);

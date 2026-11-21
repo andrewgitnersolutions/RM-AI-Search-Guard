@@ -15,7 +15,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 /**
  * Build the 18×18 shield icon with DOM APIs (no innerHTML).
  * @param className - Class for the <svg>.
- * @returns SVG element.
+ * @returns SVG element. Pure DOM builder; never throws.
  */
 function createShieldIcon(className: string): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
@@ -38,9 +38,9 @@ function createShieldIcon(className: string): SVGSVGElement {
 }
 
 /**
- * Count enabled protections, excluding the master switch.
+ * Count enabled toggles in FEATURE_TOGGLE_KEYS (master switch plus the five feature toggles).
  * @param policy - Effective policy.
- * @returns Number of the five feature toggles that are on.
+ * @returns 0 when masterEnabled is false, otherwise 1–6. Pure; never throws.
  */
 function countActiveProtections(policy: EffectivePolicy): number {
   if (!policy.masterEnabled) {
@@ -56,7 +56,8 @@ function countActiveProtections(policy: EffectivePolicy): number {
 }
 
 /**
- * Open the Options hub, falling back to a new tab if openOptionsPage fails.
+ * Open the Options hub via chrome.runtime.openOptionsPage().
+ * @returns Resolves when opened; no-op outside Chrome. API rejections propagate to the caller.
  */
 async function openOptionsPageSafe() {
   if (typeof chrome !== "undefined" && chrome.runtime?.openOptionsPage) {
@@ -69,6 +70,7 @@ async function openOptionsPageSafe() {
  * @param root - Mount element.
  * @param policy - Effective policy.
  * @param onOpenOptions - Click handler for the Options link.
+ * @returns Nothing. Replaces children without innerHTML; never throws for valid root.
  */
 function renderPopup(root: HTMLElement, policy: EffectivePolicy, onOpenOptions?: () => void): void {
   root.replaceChildren();
@@ -136,6 +138,7 @@ async function resolvePopupPolicy(): Promise<EffectivePolicy> {
 
 /**
  * Resolve the policy and render the popup into #popup-root.
+ * @returns Resolves after render; no-op when #popup-root or chrome is unavailable.
  */
 async function bootPopup() {
   if (typeof document === "undefined" || typeof chrome === "undefined") {
