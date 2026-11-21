@@ -250,8 +250,14 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Add the rule in `@layer reset`.
-- [ ] Re-check every element that uses `hidden`: the 6 lock badges, Test Flush, Cancel Reset, field errors, the Staff card, the AIModeSettings reminders and the tab panels (must still switch, and Ctrl+F `beforematch` must still work).
+- [x] Add the rule in `@layer reset`.
+- [x] Re-check every element that uses `hidden`: the 6 lock badges, Test Flush, Cancel Reset, field errors, the Staff card, the AIModeSettings reminders and the tab panels (must still switch, and Ctrl+F `beforematch` must still work).
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **What changed:** `[hidden]:not([hidden="until-found"]) { display: none !important; }` is in `@layer reset`. As the first layer, its `!important` outranks every later layer.
+- **Elements checked:** Test Flush no longer exists (D6). The policy generator has no field-error elements today (`syncFieldErrorLink` is unused).
+- **Tests:** S-05a and B-12 pass, and both were removed from `tests/known-failures.json`. B-12 now also checks that the Staff card appears after "Show Staff OU Preset", that the K-2 AIModeSettings reminder shows, and that an inactive `until-found` tab panel keeps a non-`none` display, so it stays findable.
+- **NOT RUN:** actually pressing Ctrl+F to trigger `beforematch` can't be automated in Playwright; it's a manual check.
 
 **Done when:** the unmanaged Options page shows no "Locked" badges, Cancel Reset only appears after the first Reset click, Test Flush only appears when analytics is enabled, the Staff card only shows after clicking "Show Staff OU Preset", and tab switching still works.
 

@@ -208,7 +208,7 @@ async function optionsState(page) {
 }
 
 // The Test Flush half of B-12 went away with analytics (D6).
-equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only after first Reset; Staff card only after toggle; tabs switch", (target) =>
+equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only after first Reset; Staff card only after toggle; reminders follow their band; tabs switch and stay findable", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     await page.goto(`chrome-extension://${b.extensionId}/ui/options.html`);
@@ -221,13 +221,23 @@ equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only aft
     const afterFirstReset = await optionsState(page);
     await page.click("#tab-generator");
     const generatorTab = await optionsState(page);
-    const record = { initial, diagnosticsTab, diagnosticsPanelVisible, afterFirstReset, generatorTab };
+    const reminders = await page.evaluate(() => ({
+      k2: document.querySelector('[data-aimode-reminder="K-2"]')?.checkVisibility() ?? null,
+    }));
+    // Inactive until-found panels must stay in layout (not display:none) so Ctrl+F can find them.
+    const inactivePanelDisplay = await page.evaluate(() => getComputedStyle(document.getElementById("panel-status")).display);
+    await page.getByRole("button", { name: "Show Staff OU Preset" }).click();
+    const staffAfterToggle = await optionsState(page);
+    const record = { initial, diagnosticsTab, diagnosticsPanelVisible, afterFirstReset, generatorTab, reminders, inactivePanelDisplay, staffAfterToggle };
     assert.equal(diagnosticsTab.selectedTab, "tab-diagnostics");
     assert.equal(diagnosticsPanelVisible, true);
     assert.equal(initial.lockBadgesVisible, 0, "Locked badges shown on an unmanaged device");
     assert.equal(initial.cancelResetVisible, false, "Cancel Reset visible before Reset");
     assert.equal(afterFirstReset.cancelResetVisible, true);
     assert.equal(generatorTab.staffCardVisible, false, "Staff card visible before toggle");
+    assert.equal(staffAfterToggle.staffCardVisible, true, "Staff card shown after toggle");
+    assert.equal(reminders.k2, true, "K-2 AIModeSettings reminder shown");
+    assert.notEqual(inactivePanelDisplay, "none", "inactive tab panel must stay findable (hidden=until-found)");
     return record;
   }), { bp: "BP-06" });
 
