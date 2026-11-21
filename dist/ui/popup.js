@@ -41,6 +41,9 @@ function isValidGradeBand(value) {
 function isUnlockableInstall(installType) {
   return installType === "normal" || installType === "development";
 }
+function trimCssWhitespace(value) {
+  return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+}
 function parseExtraHideSelectors(raw) {
   const value = createEmptyExtraHideSelectors();
   if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
@@ -68,7 +71,7 @@ function parseExtraHideSelectors(raw) {
         valid = false;
         continue;
       }
-      const trimmed = item.trim();
+      const trimmed = trimCssWhitespace(item);
       if (trimmed.length === 0) {
         valid = false;
         continue;

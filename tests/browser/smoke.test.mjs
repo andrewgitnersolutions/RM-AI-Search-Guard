@@ -728,21 +728,51 @@ equivalent("B-17", "Spanish Google SERP (es-419 and es-US): hides Spanish AI Ove
     for (const id of esKeep) assert.equal(vis419[id], true, `es-419: ${id} should stay visible`);
 
     // Also verify lang="es-US" (what live Google served for ?hl=es).
-    const esUsHtml = readFileSync(path.join(ROOT, "tests/browser/fixtures/serp-es.html"), "utf8").replace('lang="es-419"', 'lang="es-US"');
+    const esUsHtml = readFileSync(path.join(ROOT, "tests/browser/fixtures/serp-es.html"), "utf8").replace('<html lang="es-419">', '<html lang="es-US">');
+    assert.ok(esUsHtml.includes('<html lang="es-US">'), "es-US html root replacement must match");
     await page.route(/^https:\/\/(www\.)?google\.com\/search\?q=fotosintesis-us/, (route) =>
       route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: esUsHtml }),
     );
     await page.goto("https://www.google.com/search?q=fotosintesis-us&udm=14");
     await settle(page);
+    const docLang = await page.evaluate(() => document.documentElement.lang);
+    assert.equal(docLang, "es-US", "B-17 second navigation must load with lang=es-US");
     const visUs = await visibilityById(page);
     for (const id of esSurfaces) assert.equal(visUs[id], false, `es-US: ${id} should be hidden`);
     for (const id of esKeep) assert.equal(visUs[id], true, `es-US: ${id} should stay visible`);
+
+    // Verify static CSS and JS guard keep elements visible when they hold textarea[name="q"] (PR #7 review).
+    await page.evaluate(() => {
+      const rcnt = document.getElementById("rcnt") || document.body;
+      const plate = document.createElement("div");
+      plate.id = "protected-plate";
+      plate.setAttribute("data-xid", "aim-mars-input-plate");
+      const q1 = document.createElement("textarea");
+      q1.name = "q";
+      q1.value = "x";
+      plate.append(q1);
+      const ov = document.createElement("div");
+      ov.id = "protected-es-ov";
+      ov.setAttribute("aria-label", "Visión general creada por IA");
+      const q2 = document.createElement("textarea");
+      q2.name = "q";
+      q2.value = "x";
+      ov.append(q2);
+      rcnt.append(plate, ov);
+    });
+    await settle(page);
+    const protectedVis = await page.evaluate(() => ({
+      plate: document.getElementById("protected-plate")?.checkVisibility() ?? false,
+      esOv: document.getElementById("protected-es-ov")?.checkVisibility() ?? false,
+    }));
+    assert.equal(protectedVis.plate, true, "plate containing textarea[name=q] must remain visible");
+    assert.equal(protectedVis.esOv, true, "Spanish overview containing textarea[name=q] must remain visible");
 
     const telemetry = await readTelemetry(b.sw);
     const codes = telemetry.diagnosticLog.map((e) => e.code);
     assert.ok(!codes.includes("WARN_UNSUPPORTED_UI_LANGUAGE"), "Spanish must not emit WARN_UNSUPPORTED_UI_LANGUAGE");
     assert.ok(!codes.includes("WARN_AI_SURFACE_VISIBLE"), "hidden Spanish surfaces must not emit WARN_AI_SURFACE_VISIBLE");
-    return { vis419, visUs, codes };
+    return { vis419, docLang, visUs, protectedVis, codes };
   }), { bp: "BP-03" });
 
 equivalent("B-18", "Unsupported UI language (hl=fr): structural hiding still works and WARN_UNSUPPORTED_UI_LANGUAGE logs once per day", (target) =>

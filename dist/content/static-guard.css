@@ -52,8 +52,8 @@ html[data-rmsg-hide-overviews="1"] div[aria-label="AI Overview"]:not(#main):not(
   padding: 0 !important;
 }
 
-/* FRAGILE(google-dom, last verified 2026-11-21): Spanish heading label from live Google (?hl=es / ?hl=es-419). Standalone rule for BP-10 (:has() guard). */
-html[data-rmsg-hide-overviews="1"]:lang(es) div[aria-label="Visión general creada por IA"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+/* FRAGILE(google-dom, last verified 2026-11-21): Spanish heading label from live Google (?hl=es / ?hl=es-419). Standalone rule for BP-10 (:has() guard) and protected-descendant exclusion (PR #7 review). */
+html[data-rmsg-hide-overviews="1"]:lang(es) div[aria-label="Visión general creada por IA"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;
@@ -163,11 +163,39 @@ html[data-rmsg-hide-aux="1"] a[href*="labs.google.com"],
 html[data-rmsg-hide-aux="1"] [aria-label*="Search Labs" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [aria-label*="Search by image" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [data-base-lens-url]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-aux="1"] [data-xid="aim-mars-input-plate"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-aux="1"] [aria-label*="Ask anything" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Búsqueda por imagen" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Haz una pregunta" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Búsqueda por imagen" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* FRAGILE(google-dom, last verified 2026-11-21): Standalone :has()-guarded rules (BP-10 / PR #7 review) so containers holding core search inputs or organic results are never hidden by static CSS. */
+html[data-rmsg-hide-aux="1"] [data-xid="aim-mars-input-plate"]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aux="1"] [aria-label*="Ask anything" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Haz una pregunta" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;

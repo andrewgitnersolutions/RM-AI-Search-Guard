@@ -89,7 +89,8 @@ var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
   LAST_POLICY: "rmsg_last_policy",
-  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
+  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch",
+  UNSUPPORTED_LANG_DATES: "rmsg_unsupported_lang_dates"
 };
 var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
 var MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
@@ -129,6 +130,9 @@ function isValidGradeBand(value) {
 function isUnlockableInstall(installType) {
   return installType === "normal" || installType === "development";
 }
+function trimCssWhitespace(value) {
+  return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+}
 function parseExtraHideSelectors(raw) {
   const value = createEmptyExtraHideSelectors();
   if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
@@ -156,7 +160,7 @@ function parseExtraHideSelectors(raw) {
         valid = false;
         continue;
       }
-      const trimmed = item.trim();
+      const trimmed = trimCssWhitespace(item);
       if (trimmed.length === 0) {
         valid = false;
         continue;
@@ -278,7 +282,7 @@ function formatAdminConsolePolicyJson(config) {
       if (!Array.isArray(rawList)) {
         continue;
       }
-      const cleaned = rawList.filter((item) => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0);
+      const cleaned = rawList.filter((item) => typeof item === "string").map((item) => trimCssWhitespace(item)).filter((item) => item.length > 0);
       if (cleaned.length > 0) {
         extraValue[category] = cleaned;
       }
@@ -315,7 +319,7 @@ function validatePolicyDraft(config) {
             errors.push(`extraHideSelectors.${category} must contain strings only.`);
             break;
           }
-          if (item.trim().length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+          if (trimCssWhitespace(item).length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
             errors.push(`extraHideSelectors.${category} exceeds ${MAX_EXTRA_SELECTOR_LENGTH} characters per selector.`);
             break;
           }
@@ -362,7 +366,7 @@ function createDefaultExtraRawStates() {
   };
 }
 function parseExtraSelectorsInput(raw) {
-  const selectors = raw.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const selectors = raw.split(/\r?\n/).map((line) => trimCssWhitespace(line)).filter((line) => line.length > 0);
   if (selectors.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
     return {
       selectors,
@@ -1378,7 +1382,7 @@ async function bootOptionsPage() {
       if (areaName === "local") {
         const changedKeys = Object.keys(changes);
         const isTelemetryOnly = changedKeys.length > 0 && changedKeys.every(
-          (key) => key === STORAGE_KEYS.TELEMETRY || key === STORAGE_KEYS.METRICS_RESET_EPOCH
+          (key) => key === STORAGE_KEYS.TELEMETRY || key === STORAGE_KEYS.METRICS_RESET_EPOCH || key === STORAGE_KEYS.UNSUPPORTED_LANG_DATES
         );
         const diagnosticsVisible = diagnosticsPanel !== null && !diagnosticsPanel.hasAttribute("hidden");
         if (isTelemetryOnly && !diagnosticsVisible) {
@@ -1404,6 +1408,7 @@ export {
   buildMetricsCsv,
   buildZeroPiiDiagnosticBundle,
   formatAdminConsolePolicyJson,
+  parseExtraSelectorsInput,
   sortDiagnosticEntries,
   validatePolicyDraft
 };

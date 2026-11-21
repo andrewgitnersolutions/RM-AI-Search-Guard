@@ -151,5 +151,21 @@ equivalent("U-04b", "extraHideSelectors: partial objects, unknown keys, bounds (
   const filledJson = optionsMod.formatAdminConsolePolicyJson({ ...baseDraft, extraHideSelectors: { overview: [" div.test-ai "], aimode: [], aux: [] } });
   assert.deepEqual(filledJson.extraHideSelectors, { Value: { overview: ["div.test-ai"] } });
 
-  return { partial: partial.policy.extraHideSelectors, emptyKeys: Object.keys(emptyJson), filledExtra: filledJson.extraHideSelectors };
+  const nbspPolicy = parse(sw, { extraHideSelectors: { overview: [" \t.ai\u00a0\r\f ", " \t div.a \f\r\n", "\u00a0"] } }, null);
+  assert.deepEqual(nbspPolicy.policy.invalidFields, []);
+  assert.deepEqual(nbspPolicy.policy.extraHideSelectors.overview, [".ai\u00a0", "div.a", "\u00a0"]);
+  const cssWsOnly = parse(sw, { extraHideSelectors: { overview: [" \t\f\r\n "] } }, null);
+  assert.ok(cssWsOnly.policy.invalidFields.includes("extraHideSelectors"));
+  assert.deepEqual(cssWsOnly.policy.extraHideSelectors.overview, []);
+
+  const nbspJson = optionsMod.formatAdminConsolePolicyJson({
+    ...baseDraft,
+    extraHideSelectors: { overview: [" \t.ai\u00a0\r\f ", " \t\f "], aimode: ["\t div.b \n"], aux: [] },
+  });
+  assert.deepEqual(nbspJson.extraHideSelectors, { Value: { overview: [".ai\u00a0"], aimode: ["div.b"] } });
+  const parsedInput = optionsMod.parseExtraSelectorsInput(" \t.ai\u00a0\r\f \n \t\f \n  div.ok \r\n");
+  assert.equal(parsedInput.error, null);
+  assert.deepEqual(parsedInput.selectors, [".ai\u00a0", "div.ok"]);
+
+  return { partial: partial.policy.extraHideSelectors, emptyKeys: Object.keys(emptyJson), filledExtra: filledJson.extraHideSelectors, nbspSelectors: nbspPolicy.policy.extraHideSelectors.overview };
 }, { bp: "BP-04" });

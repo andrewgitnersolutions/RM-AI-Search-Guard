@@ -38,6 +38,16 @@ export function isUnlockableInstall(installType: InstallType | undefined): boole
 }
 
 /**
+ * Trim CSS Syntax Level 3 whitespace characters (U+0020, U+0009, U+000A, U+000C, U+000D) from
+ * the start and end of a selector, preserving U+00A0 and other non-ASCII identifier characters.
+ * @param value - Raw selector string.
+ * @returns Selector string with CSS whitespace removed from both ends.
+ */
+export function trimCssWhitespace(value: string): string {
+  return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+}
+
+/**
  * Validate and normalize managed extraHideSelectors (BP-04).
  * Rejects non-objects, unknown category keys, arrays exceeding 20 items, non-strings,
  * blank strings, and selectors exceeding 300 characters.
@@ -73,7 +83,7 @@ export function parseExtraHideSelectors(raw: unknown): { value: ExtraHideSelecto
         valid = false;
         continue;
       }
-      const trimmed = item.trim();
+      const trimmed = trimCssWhitespace(item);
       if (trimmed.length === 0) {
         valid = false;
         continue;
@@ -235,7 +245,7 @@ export function formatAdminConsolePolicyJson(config: PolicyDraft) {
       }
       const cleaned = rawList
         .filter((item): item is string => typeof item === "string")
-        .map((item) => item.trim())
+        .map((item) => trimCssWhitespace(item))
         .filter((item) => item.length > 0);
       if (cleaned.length > 0) {
         extraValue[category] = cleaned;
@@ -279,7 +289,7 @@ export function validatePolicyDraft(config: PolicyDraft): { valid: boolean; erro
             errors.push(`extraHideSelectors.${category} must contain strings only.`);
             break;
           }
-          if (item.trim().length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+          if (trimCssWhitespace(item).length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
             errors.push(`extraHideSelectors.${category} exceeds ${MAX_EXTRA_SELECTOR_LENGTH} characters per selector.`);
             break;
           }

@@ -101,6 +101,7 @@ equivalent("U-24", "WARN_UNSUPPORTED_UI_LANGUAGE ignores en/es variants and blan
   const sw = loadServiceWorker(target, { installType: "development" });
   const day1 = new sw.ctx.Date("2026-11-21T10:00:00.000Z");
   const day2 = new sw.ctx.Date("2026-11-22T10:00:00.000Z");
+  const day3 = new sw.ctx.Date("2026-11-23T10:00:00.000Z");
   await sw.ctx.recordDiagnosticEntry("WARN_UNSUPPORTED_UI_LANGUAGE", "fr", day1);
   await sw.ctx.recordDiagnosticEntry("WARN_UNSUPPORTED_UI_LANGUAGE", "fr", day1);
   await sw.ctx.recordDiagnosticEntry("WARN_UNSUPPORTED_UI_LANGUAGE", "de", day1);
@@ -111,14 +112,53 @@ equivalent("U-24", "WARN_UNSUPPORTED_UI_LANGUAGE ignores en/es variants and blan
   const deEntry = log.find((e) => e.code === "WARN_UNSUPPORTED_UI_LANGUAGE" && e.detail === "de");
   assert.equal(frEntry.count, 2, "two UTC days should yield count 2, ignoring same-day duplicate");
   assert.equal(deEntry.count, 1);
+  const swCounts = { fr: frEntry.count, de: deEntry.count };
 
-  return { tabWarnings: langLogs(), swCounts: { fr: frEntry.count, de: deEntry.count } };
+  // Evicting "fr" from the 50-entry diagnosticLog on day2 must NOT allow re-logging "fr" on day2.
+  for (let i = 0; i < 50; i += 1) {
+    await sw.ctx.recordDiagnosticEntry("ERR_SELECTOR_SYNTAX", `sel-${i}`, day2);
+  }
+  assert.equal(
+    sw.chrome.storage.local.data.rmsg_telemetry.diagnosticLog.some((e) => e.code === "WARN_UNSUPPORTED_UI_LANGUAGE" && e.detail === "fr"),
+    false,
+    "setup: 50 distinct entries should evict fr from diagnosticLog",
+  );
+  await sw.ctx.recordDiagnosticEntry("WARN_UNSUPPORTED_UI_LANGUAGE", "fr", day2);
+  assert.equal(
+    sw.chrome.storage.local.data.rmsg_telemetry.diagnosticLog.some((e) => e.code === "WARN_UNSUPPORTED_UI_LANGUAGE" && e.detail === "fr"),
+    false,
+    "evicted fr must stay suppressed for the remainder of day2",
+  );
+
+  // Advancing to day3 allows logging again.
+  await sw.ctx.recordDiagnosticEntry("WARN_UNSUPPORTED_UI_LANGUAGE", "fr", day3);
+  const day3Entry = plain(sw.chrome.storage.local.data.rmsg_telemetry.diagnosticLog).find((e) => e.code === "WARN_UNSUPPORTED_UI_LANGUAGE" && e.detail === "fr");
+  assert.equal(day3Entry.count, 1);
+  assert.equal(day3Entry.lastSeenDate, "2026-11-23");
+
+  // Intentional reset clears independent language suppression so day3 can log again.
+  await sw.ctx.resetLocalTelemetry();
+  await sw.ctx.recordDiagnosticEntry("WARN_UNSUPPORTED_UI_LANGUAGE", "fr", day3);
+  const postResetEntry = plain(sw.chrome.storage.local.data.rmsg_telemetry.diagnosticLog).find((e) => e.code === "WARN_UNSUPPORTED_UI_LANGUAGE" && e.detail === "fr");
+  assert.equal(postResetEntry.count, 1);
+
+  return { tabWarnings: langLogs(), swCounts, postResetCount: postResetEntry.count };
 }, { bp: "BP-03" });
 
-equivalent("U-25", "extraHideSelectors hides valid matches, isolates syntax errors, enforces safety guard, and leak detector reports visible AI labels once per page", async (target) => {
+equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, restores withdrawn selectors preserving display, enforces safety guard, and leak detector reports visible AI labels once per page", async (target) => {
   const validExtra = makeStubEl({
     id: "valid-extra",
     matchSelector: (sel) => sel === "div.valid-extra",
+  });
+  validExtra.style.setProperty("display", "inline-flex", "important");
+  const nbspExtra = makeStubEl({
+    id: "nbsp-extra",
+    matchSelector: (sel) => sel === ".ai\u00a0",
+  });
+  const builtInOv = makeStubEl({
+    id: "built-in-ov",
+    attrs: { "data-attrid": "AIOverview" },
+    matchSelector: (sel) => sel.split(",").map((s) => s.trim()).includes('[data-attrid="AIOverview"]'),
   });
   const unsafeExtra = makeStubEl({
     id: "rso",
@@ -137,7 +177,7 @@ equivalent("U-25", "extraHideSelectors hides valid matches, isolates syntax erro
     matchSelector: (sel) => sel.includes("button"),
   });
   // Keep leakedHeading/leakedAiModeBtn out of built-in tier matching by only matching leakDetector & specific selectors.
-  let activeElements = [validExtra, unsafeExtra];
+  let activeElements = [validExtra, nbspExtra, builtInOv, unsafeExtra];
   const cs = loadContentScript(target, {
     fakeTimers: true,
     body: { tagName: "BODY" },
@@ -159,7 +199,7 @@ equivalent("U-25", "extraHideSelectors hides valid matches, isolates syntax erro
     ...ENABLED_POLICY,
     isManaged: true,
     extraHideSelectors: {
-      overview: ["div[invalid!!", "div.valid-extra", "#rso"],
+      overview: ["div[invalid!!", "div.valid-extra", " \t.ai\u00a0\r\f ", "#rso"],
       aimode: [],
       aux: [],
     },
@@ -168,11 +208,40 @@ equivalent("U-25", "extraHideSelectors hides valid matches, isolates syntax erro
   cs.flushRaf();
 
   assert.equal(validExtra.getAttribute("data-rmsg-hidden"), "overview", "valid extra selector must still match despite earlier invalid one");
+  assert.equal(nbspExtra.getAttribute("data-rmsg-hidden"), "overview", "selector trailing U+00A0 must be preserved when matching");
+  assert.equal(builtInOv.getAttribute("data-rmsg-hidden"), "overview", "built-in Overview must be hidden");
   assert.equal(unsafeExtra.getAttribute("data-rmsg-hidden"), null, "safety guard must refuse #rso even from extraHideSelectors");
 
   const diagCodes = () => cs.messages.filter((m) => m.type === "LOG_DIAGNOSTIC").map((m) => [m.code, m.detail]);
   assert.ok(diagCodes().some(([c]) => c === "ERR_SELECTOR_SYNTAX"), "ERR_SELECTOR_SYNTAX logged");
   assert.ok(diagCodes().some(([c]) => c === "ERR_SAFETY_GUARD_TRIPPED"), "ERR_SAFETY_GUARD_TRIPPED logged");
+
+  // Flush the initial batched metric delta so we can verify withdrawing extras emits no duplicate delta.
+  cs.advanceTime(11_000);
+  const metricMsgsBeforeRollback = cs.messages.filter((m) => m.type === "INCREMENT_METRICS").length;
+  assert.equal(metricMsgsBeforeRollback, 1);
+
+  // Removing extraHideSelectors via storage change restores previously hidden extra elements
+  // (preserving prior inline display) while built-in selectors stay hidden.
+  cs.fireStorageChange();
+  await cs.flush();
+  cs.policyRequests[1]({
+    ...ENABLED_POLICY,
+    isManaged: true,
+    extraHideSelectors: { overview: [], aimode: [], aux: [] },
+  });
+  await cs.flush();
+  assert.equal(validExtra.getAttribute("data-rmsg-hidden"), null, "withdrawn extra selector element must be restored");
+  assert.equal(validExtra.style.getPropertyValue("display"), "inline-flex", "restored element preserves prior inline display");
+  assert.equal(validExtra.style.getPropertyPriority("display"), "important", "restored element preserves display priority");
+  assert.equal(nbspExtra.getAttribute("data-rmsg-hidden"), null, "withdrawn U+00A0 selector element must be restored");
+  assert.equal(builtInOv.getAttribute("data-rmsg-hidden"), "overview", "built-in Overview stays hidden after rollback sweep");
+  cs.advanceTime(11_000);
+  assert.equal(
+    cs.messages.filter((m) => m.type === "INCREMENT_METRICS").length,
+    metricMsgsBeforeRollback,
+    "re-hiding built-in Overview on the same page must not double-count overviewsHidden",
+  );
 
   // Leak detector: visible Spanish AI Overview heading + AI Mode button under lang="es-419".
   // Make normal heading collection skip it (simulate Google structural change) by matching only leakDetector's combined string.

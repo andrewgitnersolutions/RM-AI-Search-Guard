@@ -75,7 +75,8 @@
     LOCAL_OVERRIDES: "rmsg_local_overrides",
     TELEMETRY: "rmsg_telemetry",
     LAST_POLICY: "rmsg_last_policy",
-    METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
+    METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch",
+    UNSUPPORTED_LANG_DATES: "rmsg_unsupported_lang_dates"
   };
   var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
   var MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
@@ -99,6 +100,9 @@
   }
   function isUnlockableInstall(installType) {
     return installType === "normal" || installType === "development";
+  }
+  function trimCssWhitespace(value) {
+    return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
   }
   function parseExtraHideSelectors(raw) {
     const value = createEmptyExtraHideSelectors();
@@ -127,7 +131,7 @@
           valid = false;
           continue;
         }
-        const trimmed = item.trim();
+        const trimmed = trimCssWhitespace(item);
         if (trimmed.length === 0) {
           valid = false;
           continue;
@@ -820,7 +824,7 @@
       if (typeof selector !== "string") {
         continue;
       }
-      const trimmed = selector.trim();
+      const trimmed = trimCssWhitespace(selector);
       if (!trimmed) {
         continue;
       }
@@ -1429,7 +1433,27 @@
       rootObserver.observe(document.documentElement, { childList: true });
     }
   }
+  function sameSelectorList(prev, next) {
+    const a = prev ?? [];
+    const b = next ?? [];
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  function extraSelectorsChanged(prev, next, category) {
+    if (prev === null) {
+      return false;
+    }
+    return !sameSelectorList(prev.extraHideSelectors?.[category], next.extraHideSelectors?.[category]);
+  }
   function applyEffectivePolicy(policy) {
+    const previousPolicy = currentPolicy;
     currentPolicy = policy;
     applyPolicyAttributes(document, policy);
     if (!policy.masterEnabled) {
@@ -1438,17 +1462,24 @@
       unhideAllElements(document);
       return;
     }
-    if (!policy.hideAiOverviews) {
+    const overviewExtraChanged = extraSelectorsChanged(previousPolicy, policy, "overview");
+    const aimodeExtraChanged = extraSelectorsChanged(previousPolicy, policy, "aimode");
+    const auxExtraChanged = extraSelectorsChanged(previousPolicy, policy, "aux");
+    if (!policy.hideAiOverviews || overviewExtraChanged) {
       unhideCategoryElements(document, "overview");
     }
-    if (!policy.hideAiModeUi) {
+    if (!policy.hideAiModeUi || aimodeExtraChanged) {
       unhideCategoryElements(document, "aimode");
     }
-    if (!policy.hideAuxiliaryAiFeatures) {
+    if (!policy.hideAuxiliaryAiFeatures || auxExtraChanged) {
       unhideCategoryElements(document, "aux");
     }
     attachMutationObserver();
-    scheduleSweep(true);
+    if ((overviewExtraChanged || aimodeExtraChanged || auxExtraChanged) && document.body) {
+      runSweepNow();
+    } else {
+      scheduleSweep(true);
+    }
   }
   async function loadEffectivePolicy() {
     const fromSw = await sendRuntimeMessage({

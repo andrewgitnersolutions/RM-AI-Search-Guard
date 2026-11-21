@@ -4,9 +4,10 @@
  * Runs in: content script on google.com (isolated world).
  * Must never: read or report page text beyond fixed label comparisons, or hide core search UI.
  * Don't weaken isUnsafeToHide (AGENTS.md hard rule).
- * Shared with: shared/selectors.ts, content/content.ts.
+ * Shared with: shared/policy.ts, shared/selectors.ts, content/content.ts.
  */
 
+import { trimCssWhitespace } from "../shared/policy";
 import { SELECTORS, resolveUiLanguage } from "../shared/selectors";
 import type { SupportedUiLanguage } from "../shared/selectors";
 import type { ExtraHideSelectors, PolicyError, Toggles } from "../shared/types";
@@ -572,7 +573,7 @@ export function collectExtraSelectorCandidates(
     if (typeof selector !== "string") {
       continue;
     }
-    const trimmed = selector.trim();
+    const trimmed = trimCssWhitespace(selector);
     if (!trimmed) {
       continue;
     }

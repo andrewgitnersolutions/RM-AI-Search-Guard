@@ -7,7 +7,7 @@
  */
 
 import { EXTRA_SELECTOR_CATEGORIES, FEATURE_TOGGLE_KEYS, GRADE_BAND_PRESETS, MAX_EXTRA_SELECTORS_PER_CATEGORY, MAX_EXTRA_SELECTOR_LENGTH } from "../shared/defaults";
-import { formatAdminConsolePolicyJson, validatePolicyDraft } from "../shared/policy";
+import { formatAdminConsolePolicyJson, trimCssWhitespace, validatePolicyDraft } from "../shared/policy";
 import type { ExtraSelectorCategory, GradeBand, ToggleKey, Toggles } from "../shared/types";
 
 /** A grade band that has a generator card (every band but "Unassigned"). */
@@ -86,7 +86,7 @@ export function createDefaultExtraRawStates(): Record<PresetBand, Record<ExtraSe
 export function parseExtraSelectorsInput(raw: string): { selectors: string[]; error: string | null } {
   const selectors = raw
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => trimCssWhitespace(line))
     .filter((line) => line.length > 0);
   if (selectors.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
     return {

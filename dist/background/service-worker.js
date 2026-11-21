@@ -34,7 +34,8 @@ var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
   LAST_POLICY: "rmsg_last_policy",
-  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
+  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch",
+  UNSUPPORTED_LANG_DATES: "rmsg_unsupported_lang_dates"
 };
 var MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
 var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
@@ -162,6 +163,9 @@ function isValidGradeBand(value) {
 function isUnlockableInstall(installType) {
   return installType === "normal" || installType === "development";
 }
+function trimCssWhitespace(value) {
+  return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+}
 function parseExtraHideSelectors(raw) {
   const value = createEmptyExtraHideSelectors();
   if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
@@ -189,7 +193,7 @@ function parseExtraHideSelectors(raw) {
         valid = false;
         continue;
       }
-      const trimmed = item.trim();
+      const trimmed = trimCssWhitespace(item);
       if (trimmed.length === 0) {
         valid = false;
         continue;
@@ -463,6 +467,77 @@ async function incrementTelemetryMetrics(deltas, batchResetEpoch) {
     return state;
   });
 }
+var MAX_UNSUPPORTED_LANG_DATES = 200;
+var FORBIDDEN_DATE_MAP_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+function sanitizeUnsupportedLangDates(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return out;
+  }
+  let count = 0;
+  for (const [key, val] of Object.entries(raw)) {
+    if (count >= MAX_UNSUPPORTED_LANG_DATES) {
+      break;
+    }
+    if (key.length > 0 && key.length <= 240 && !FORBIDDEN_DATE_MAP_KEYS.has(key) && typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      Object.defineProperty(out, key, {
+        value: val,
+        enumerable: true,
+        writable: true,
+        configurable: true
+      });
+      count += 1;
+    }
+  }
+  return out;
+}
+async function readUnsupportedLangDates() {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) {
+    return {};
+  }
+  const result = await chrome.storage.local.get(STORAGE_KEYS.UNSUPPORTED_LANG_DATES);
+  return sanitizeUnsupportedLangDates(result?.[STORAGE_KEYS.UNSUPPORTED_LANG_DATES]);
+}
+function recordUnsupportedLangDate(existing, lang, dateBucket) {
+  const next = {};
+  if (!lang || lang.length > 240 || FORBIDDEN_DATE_MAP_KEYS.has(lang)) {
+    for (const [k, v] of Object.entries(existing)) {
+      if (v >= dateBucket) {
+        Object.defineProperty(next, k, {
+          value: v,
+          enumerable: true,
+          writable: true,
+          configurable: true
+        });
+      }
+    }
+    return next;
+  }
+  const kept = [];
+  for (const [k, v] of Object.entries(existing)) {
+    if (k !== lang && v >= dateBucket && !FORBIDDEN_DATE_MAP_KEYS.has(k)) {
+      kept.push([k, v]);
+    }
+  }
+  while (kept.length >= MAX_UNSUPPORTED_LANG_DATES) {
+    kept.shift();
+  }
+  for (const [k, v] of kept) {
+    Object.defineProperty(next, k, {
+      value: v,
+      enumerable: true,
+      writable: true,
+      configurable: true
+    });
+  }
+  Object.defineProperty(next, lang, {
+    value: dateBucket,
+    enumerable: true,
+    writable: true,
+    configurable: true
+  });
+  return next;
+}
 async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ new Date()) {
   return enqueueStorageOp(async () => {
     const state = await readTelemetryState();
@@ -471,8 +546,20 @@ async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ ne
     const existingIndex = state.diagnosticLog.findIndex(
       (entry) => entry.code === code && entry.detail === cleanDetail
     );
-    if (code === "WARN_UNSUPPORTED_UI_LANGUAGE" && existingIndex >= 0 && state.diagnosticLog[existingIndex].lastSeenDate === dateBucket) {
-      return state;
+    let nextLangDates = null;
+    if (code === "WARN_UNSUPPORTED_UI_LANGUAGE") {
+      const langDates = await readUnsupportedLangDates();
+      if (Object.prototype.hasOwnProperty.call(langDates, cleanDetail) && langDates[cleanDetail] === dateBucket) {
+        return state;
+      }
+      if (existingIndex >= 0 && state.diagnosticLog[existingIndex].lastSeenDate === dateBucket) {
+        if (typeof chrome !== "undefined" && chrome.storage?.local) {
+          const backfilled = recordUnsupportedLangDate(langDates, cleanDetail, dateBucket);
+          await chrome.storage.local.set({ [STORAGE_KEYS.UNSUPPORTED_LANG_DATES]: backfilled });
+        }
+        return state;
+      }
+      nextLangDates = recordUnsupportedLangDate(langDates, cleanDetail, dateBucket);
     }
     if (existingIndex >= 0) {
       const existing = state.diagnosticLog[existingIndex];
@@ -492,7 +579,17 @@ async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ ne
       }
       state.diagnosticLog.push(newEntry);
     }
-    await writeTelemetryState(state);
+    if (nextLangDates !== null) {
+      if (typeof chrome === "undefined" || !chrome.storage?.local) {
+        throw new Error("chrome.storage.local is unavailable");
+      }
+      await chrome.storage.local.set({
+        [STORAGE_KEYS.TELEMETRY]: state,
+        [STORAGE_KEYS.UNSUPPORTED_LANG_DATES]: nextLangDates
+      });
+    } else {
+      await writeTelemetryState(state);
+    }
     return state;
   });
 }
@@ -505,7 +602,8 @@ async function resetLocalTelemetry() {
     const nextEpoch = await readMetricsResetEpoch() + 1;
     await chrome.storage.local.set({
       [STORAGE_KEYS.TELEMETRY]: fresh,
-      [STORAGE_KEYS.METRICS_RESET_EPOCH]: nextEpoch
+      [STORAGE_KEYS.METRICS_RESET_EPOCH]: nextEpoch,
+      [STORAGE_KEYS.UNSUPPORTED_LANG_DATES]: {}
     });
     return fresh;
   });
