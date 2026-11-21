@@ -229,6 +229,7 @@ async function optionsState(page) {
     staffCardVisible: document.querySelector('article[data-grade-band="Staff"]')?.checkVisibility() ?? null,
     selectedTab: document.querySelector('[role="tab"][aria-selected="true"]')?.id ?? null,
     modeBadge: document.getElementById("policy-mode-badge")?.textContent ?? null,
+    resetDisabled: document.getElementById("btn-reset-metrics")?.disabled ?? null,
   }));
 }
 
@@ -258,6 +259,7 @@ equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only aft
     assert.equal(diagnosticsPanelVisible, true);
     assert.equal(initial.lockBadgesVisible, 0, "Locked badges shown on an unmanaged device");
     assert.equal(initial.cancelResetVisible, false, "Cancel Reset visible before Reset");
+    assert.equal(initial.resetDisabled, false, "Reset available on an unmanaged test install (BP-07)");
     assert.equal(afterFirstReset.cancelResetVisible, true);
     assert.equal(generatorTab.staffCardVisible, false, "Staff card visible before toggle");
     assert.equal(staffAfterToggle.staffCardVisible, true, "Staff card shown after toggle");
@@ -319,7 +321,7 @@ equivalent("B-13c", "Popup: managed view (not unmanaged) when the service worker
     return text;
   }), { bp: "BP-01" });
 
-equivalent("B-13d", "Options: locked banner and disabled switches when the worker reports admin-no-policy, and when it is unreachable", (target) =>
+equivalent("B-13d", "Options: locked banner, disabled switches and disabled Reset when the worker reports admin-no-policy, and when it is unreachable", (target) =>
   withBrowser(target, async (b) => {
     const out = {};
     for (const mode of ["locked", "unreachable"]) {
@@ -329,11 +331,15 @@ equivalent("B-13d", "Options: locked banner and disabled switches when the worke
         badge: document.getElementById("policy-mode-badge")?.textContent ?? null,
         enabledSwitches: [...document.querySelectorAll('input[id^="toggle-"]')].filter((i) => !i.disabled).length,
         gradeBandDisabled: document.getElementById("grade-band-select")?.disabled ?? null,
+        resetDisabled: document.getElementById("btn-reset-metrics")?.disabled ?? null,
+        resetNoteVisible: document.getElementById("reset-locked-note")?.checkVisibility() ?? null,
       }));
       assert.match(out[mode].title, /No Grade-Band Policy Yet/, `${mode}: banner`);
       assert.equal(out[mode].badge, "Locked", `${mode}: badge`);
       assert.equal(out[mode].enabledSwitches, 0, `${mode}: every switch disabled`);
       assert.equal(out[mode].gradeBandDisabled, true, `${mode}: grade band locked`);
+      assert.equal(out[mode].resetDisabled, true, `${mode}: Reset disabled when locked (BP-07)`);
+      assert.equal(out[mode].resetNoteVisible, true, `${mode}: locked-reset note shown`);
       await page.close();
     }
     return out;

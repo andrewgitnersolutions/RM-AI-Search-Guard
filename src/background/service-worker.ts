@@ -221,6 +221,12 @@ async function handleRuntimeMessage(message: unknown, sender: chrome.runtime.Mes
       return updatedPolicy;
     }
     case "RESET_LOCAL_METRICS": {
+      // BP-07: on a locked device a student could otherwise wipe the record that AI Mode was
+      // attempted. Same lock rule as SET_LOCAL_OVERRIDES; IT test installs can still reset.
+      const { policy, installType } = await resolvePolicyFromStorage();
+      if (policy.isManaged || !isUnlockableInstall(installType)) {
+        return { ok: false, reason: "locked" };
+      }
       return await resetLocalTelemetry();
     }
   }

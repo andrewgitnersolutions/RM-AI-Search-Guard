@@ -290,10 +290,17 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.** Enforce in the **service worker**, not only the UI.
 
 **To-do:**
-- [ ] Service worker: refuse `RESET_LOCAL_METRICS` when locked. Return `{ ok:false, reason:"locked" }`.
+- [x] Service worker: refuse `RESET_LOCAL_METRICS` when locked. Return `{ ok:false, reason:"locked" }`.
 - [ ] ~~Service worker: store `lastManualFlushAtMs` in telemetry state and refuse `TRIGGER_TEST_FLUSH` within 15 minutes, returning the time remaining.~~ Removed by D6: Test Flush no longer exists.
-- [ ] Options: disable Reset with explanatory text when locked; show the rate-limit message.
-- [ ] Keep Reset fully available in unmanaged/development mode.
+- [x] Options: disable Reset with explanatory text when locked; show the rate-limit message.
+- [x] Keep Reset fully available in unmanaged/development mode.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **Service worker:** refuses `RESET_LOCAL_METRICS` with `{ ok:false, reason:"locked" }` under the same lock rule as `SET_LOCAL_OVERRIDES`: managed or `admin-no-policy`, or an install type other than normal or development. BP-13 already refuses it from google.com tabs.
+- **Options:** when the policy is locked, Options disables Reset, disarms a pending confirm and shows "Counters can't be reset on a device managed by your school". If the worker still refuses, it reports that. The rate-limit message no longer applies, since Test Flush is gone (D6).
+- **Tests:** U-14a passes and was removed from `tests/known-failures.json`. U-14b (development and normal can reset), B-12 (Reset enabled when unmanaged) and B-13d (Reset disabled and the note shown when locked or the worker is unreachable) pass.
+- **`docs/04`:** the verification step mentions it.
+- **NOT RUN:** M-05 (managed device).
 
 **Done when:** on a locked device, Reset is disabled and a console-sent `RESET_LOCAL_METRICS` is refused, and a second Test Flush within 15 minutes is refused with a clear message.
 

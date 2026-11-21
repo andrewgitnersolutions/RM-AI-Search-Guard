@@ -25,11 +25,6 @@
       "bp": "BP-04",
       "phase": 4,
       "message": "AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- [\n-   'div.test-ai'\n- ]\n"
-    },
-    "U-14a": {
-      "bp": "BP-07",
-      "phase": 2,
-      "message": "AssertionError: reset must be refused when locked\n+ actual - expected\n\n+ undefined\n- false\n"
     }
   }
 }
