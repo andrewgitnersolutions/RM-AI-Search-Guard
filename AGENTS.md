@@ -58,7 +58,7 @@ Note (2026-11-21): esbuild keeps `//` comments inside object literals (such as `
 - Test tools (D8, 2026-11-20): `node --test` runs the S and U tests; Playwright runs the B tests against `build/` with mock Google pages via route interception, never real Google. L and M tests are manual.
 - The test plan is docs/07 §6. Run the static checks (S-xx) and unit tests (U-xx) after every change; run the browser/live/managed tests named in the "Done when" of the break point you're fixing.
 - In Claude Code cloud sessions, run the B tests with `RM_CHROMIUM_PATH=/opt/pw-browsers/chromium` (the pinned Playwright's own browser isn't installed there).
-- On local macOS machines where Playwright's pinned `chromium-1255` is missing, pass `RM_CHROMIUM_PATH` pointing at Chrome for Testing in `~/Library/Caches/ms-playwright/chromium-1200/`.
+- On local macOS machines where Playwright's pinned `chromium-1255` is missing, pass `RM_CHROMIUM_PATH` pointing at an existing Chrome for Testing / Chromium ≥134 executable (e.g. under `~/Library/Caches/ms-playwright/chromium-1200/`), or install Playwright's pinned browser with `npx playwright install chromium`.
 - Report every test you couldn't run as **NOT RUN**, with the reason. Never mark an unrun test as passed.
 - When you fix a break point or ship an update, tick its to-dos in docs/07, add a dated line under it saying what changed and which tests passed, and check/update `README.md` and `docs/04` (plus `PRIVACY.md` if permissions or data handling changed) if admins, students, or public readers will see different behavior.
 
