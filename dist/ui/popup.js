@@ -23,17 +23,15 @@ var FEATURE_TOGGLE_KEYS = [
   "forceWebOnlySearch",
   "hideAuxiliaryAiFeatures"
 ];
-var STORAGE_KEYS = {
-  LOCAL_OVERRIDES: "rmsg_local_overrides",
-  TELEMETRY: "rmsg_telemetry",
-  LAST_POLICY: "rmsg_last_policy"
-};
 
 // src/shared/policy.ts
 function isValidGradeBand(value) {
   return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
 }
-function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
+function isUnlockableInstall(installType) {
+  return installType === "normal" || installType === "development";
+}
+function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
   const evaluatedAt = now.toISOString();
   const errors = [];
   const hasManagedKeys = managedRaw !== null && managedRaw !== void 0 && typeof managedRaw === "object" && !Array.isArray(managedRaw) && Object.keys(managedRaw).length > 0;
@@ -43,6 +41,17 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
       detail: "chrome.storage.managed returned no policy keys"
     });
     const toggles2 = { ...STRICT_LOCKDOWN_TOGGLES };
+    if (!isUnlockableInstall(installType)) {
+      const policy3 = {
+        ...toggles2,
+        gradeBand: "Unassigned",
+        source: "admin-no-policy",
+        isManaged: true,
+        invalidFields: [],
+        evaluatedAt
+      };
+      return { policy: policy3, errors };
+    }
     let gradeBand2 = "Unassigned";
     let appliedLocalOverride = false;
     if (localRaw !== null && localRaw !== void 0 && typeof localRaw === "object") {
@@ -186,15 +195,6 @@ function renderPopup(root, policy, onOpenOptions) {
   root.append(wrapper);
 }
 async function resolvePopupPolicy() {
-  if (typeof chrome !== "undefined" && chrome.storage?.managed?.get) {
-    try {
-      const managedRaw = await chrome.storage.managed.get(null);
-      if (managedRaw && typeof managedRaw === "object" && Object.keys(managedRaw).length > 0) {
-        return parsePolicy(managedRaw, null).policy;
-      }
-    } catch {
-    }
-  }
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
     try {
       const response = await chrome.runtime.sendMessage({
@@ -203,14 +203,6 @@ async function resolvePopupPolicy() {
       if (response && typeof response.isManaged === "boolean") {
         return response;
       }
-    } catch {
-    }
-  }
-  if (typeof chrome !== "undefined" && chrome.storage?.local?.get) {
-    try {
-      const localResult = await chrome.storage.local.get(STORAGE_KEYS.LOCAL_OVERRIDES);
-      const localRaw = localResult[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null;
-      return parsePolicy(null, localRaw).policy;
     } catch {
     }
   }

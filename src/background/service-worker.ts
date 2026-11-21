@@ -9,10 +9,32 @@
 
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS } from "../shared/defaults";
 import { getTodayDateBucket } from "../shared/errors";
-import { parsePolicy } from "../shared/policy";
-import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, writeLocalOverrides } from "../shared/storage";
+import { isUnlockableInstall, parsePolicy } from "../shared/policy";
+import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, mergeLocalOverrides } from "../shared/storage";
 import { syncDynamicRules } from "./dnr-rules";
-import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, RawRecord } from "../shared/types";
+import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, InstallType, RawRecord } from "../shared/types";
+
+/**
+ * Learn how the extension was installed (BP-01). chrome.management.getSelf() needs no
+ * "management" permission (verified 2026-11-21 in Chromium 153 with this manifest). It is
+ * read on every policy resolve rather than cached: docs/03 allows no mutable module-level
+ * state in the service worker, and the call is cheap.
+ * @returns The install type, or "unknown" if the API is missing or throws. "unknown" locks
+ * (fail closed): a force-installed student device must never fall into local test mode.
+ */
+async function resolveInstallType(): Promise<InstallType> {
+  if (typeof chrome === "undefined" || typeof chrome.management?.getSelf !== "function") {
+    return "unknown";
+  }
+  try {
+    const self = await chrome.management.getSelf();
+    if (typeof self?.installType === "string") {
+      return self.installType as InstallType;
+    }
+  } catch {
+  }
+  return "unknown";
+}
 
 /**
  * Read the extension version from the manifest.
@@ -60,14 +82,16 @@ async function getActiveDynamicRuleCount(): Promise<number> {
 }
 
 /**
- * Read managed and local storage, log read failures, and parse the policy.
- * @returns parsePolicy result. Storage read errors are logged as ERR_STORAGE_FAILURE and
- * parsing continues with empty data.
+ * Read managed and local storage plus the install type, log read failures, and parse the policy.
+ * @returns parsePolicy result and the install type. Storage read errors are logged as
+ * ERR_STORAGE_FAILURE and parsing continues with empty data; on a force-installed device that
+ * means locked strict defaults, never test mode (BP-01).
  */
 async function resolvePolicyFromStorage() {
-  const [managedRes, localRes] = await Promise.all([
+  const [managedRes, localRes, installType] = await Promise.all([
     readManagedPolicyRaw(),
-    readLocalOverrides()
+    readLocalOverrides(),
+    resolveInstallType()
   ]);
   if (managedRes.error) {
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `managed read: ${managedRes.error}`);
@@ -75,15 +99,37 @@ async function resolvePolicyFromStorage() {
   if (localRes.error) {
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `local read: ${localRes.error}`);
   }
-  return parsePolicy(managedRes.data, localRes.data);
+  return { ...parsePolicy(managedRes.data, localRes.data, new Date(), installType), installType };
 }
 
 /**
- * Bring DNR rules in line with the current policy.
- * @param options - recordPolicyDiagnostics: log policy warnings and errors.
- * @returns { policy, activeRuleCount }. DNR failures are logged as ERR_DNR_SYNC_FAILED, not thrown.
+ * Tail of the chain that runs whole policy syncs one at a time (BP-17). It is separate from the
+ * storage queue on purpose: a sync enqueues storage operations itself, so running it inside
+ * that queue would deadlock. Like storageQueueTail it only orders work within one worker wake;
+ * it holds no policy or user state, so docs/03's no-module-state rule isn't broken.
  */
-async function syncRuntimeState(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
+let syncChainTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Bring DNR rules in line with the current policy. Each call runs after the previous one has
+ * finished resolving *and* installing (BP-17): only serializing the DNR update let an older
+ * sync, still waiting on its diagnostics, install stale rules after a newer policy's rules.
+ * @param options - recordPolicyDiagnostics: log policy warnings and errors.
+ * @returns { policy, activeRuleCount }. DNR failures are logged as ERR_DNR_SYNC_FAILED, not
+ * thrown. A rejection reaches the caller but never blocks later syncs.
+ */
+function syncRuntimeState(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
+  const run = syncChainTail.then(() => syncRuntimeStateNow(options));
+  syncChainTail = run.catch(() => {});
+  return run;
+}
+
+/**
+ * One policy sync: resolve, log diagnostics, install rules. Call only via syncRuntimeState().
+ * @param options - recordPolicyDiagnostics: log policy warnings and errors.
+ * @returns { policy, activeRuleCount }.
+ */
+async function syncRuntimeStateNow(options: { recordPolicyDiagnostics: boolean }): Promise<{ policy: EffectivePolicy; activeRuleCount: number }> {
   const { policy, errors } = await resolvePolicyFromStorage();
   if (options.recordPolicyDiagnostics) {
     for (const err of errors) {
@@ -150,16 +196,14 @@ async function handleRuntimeMessage(message: RawRecord): Promise<unknown> {
       return snapshot;
     }
     case "SET_LOCAL_OVERRIDES": {
-      const { policy: currentPolicy } = await resolvePolicyFromStorage();
-      if (currentPolicy.isManaged) {
+      const { policy: currentPolicy, installType } = await resolvePolicyFromStorage();
+      // Locked devices get the unchanged policy back and nothing is written. The install-type
+      // check repeats parsePolicy's decision on purpose: overrides must never be stored on a
+      // force-installed device, even if a later change to parsePolicy got the lock wrong.
+      if (currentPolicy.isManaged || !isUnlockableInstall(installType)) {
         return currentPolicy;
       }
-      const existingLocalRes = await readLocalOverrides();
-      const merged = {
-        ...existingLocalRes.data ?? {},
-        ...sanitizeLocalOverridesInput(message.toggles as RawRecord)
-      };
-      await writeLocalOverrides(merged);
+      await mergeLocalOverrides(sanitizeLocalOverridesInput(message.toggles as RawRecord));
       const { policy: updatedPolicy } = await syncRuntimeState({
         recordPolicyDiagnostics: false
       });

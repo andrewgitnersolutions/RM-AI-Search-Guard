@@ -35,7 +35,10 @@
   function isValidGradeBand(value) {
     return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
   }
-  function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
+  function isUnlockableInstall(installType) {
+    return installType === "normal" || installType === "development";
+  }
+  function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
     const evaluatedAt = now.toISOString();
     const errors = [];
     const hasManagedKeys = managedRaw !== null && managedRaw !== void 0 && typeof managedRaw === "object" && !Array.isArray(managedRaw) && Object.keys(managedRaw).length > 0;
@@ -45,6 +48,17 @@
         detail: "chrome.storage.managed returned no policy keys"
       });
       const toggles2 = { ...STRICT_LOCKDOWN_TOGGLES };
+      if (!isUnlockableInstall(installType)) {
+        const policy3 = {
+          ...toggles2,
+          gradeBand: "Unassigned",
+          source: "admin-no-policy",
+          isManaged: true,
+          invalidFields: [],
+          evaluatedAt
+        };
+        return { policy: policy3, errors };
+      }
       let gradeBand2 = "Unassigned";
       let appliedLocalOverride = false;
       if (localRaw !== null && localRaw !== void 0 && typeof localRaw === "object") {
@@ -584,6 +598,16 @@
   }
 
   // src/content/content.ts
+  function applyFailClosedAttributes() {
+    const root = document.documentElement;
+    if (!root) {
+      return;
+    }
+    root.setAttribute("data-rmsg-hide-overviews", "1");
+    root.setAttribute("data-rmsg-hide-aimode", "1");
+    root.setAttribute("data-rmsg-hide-aux", "1");
+  }
+  applyFailClosedAttributes();
   async function sendRuntimeMessage(message) {
     if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
       return null;
@@ -728,20 +752,32 @@
       readManagedPolicyRaw(),
       readLocalOverrides()
     ]);
+    const storageError = managedRes.error ?? localRes.error;
+    if (storageError) {
+      void sendRuntimeMessage({ type: "LOG_DIAGNOSTIC", code: "ERR_STORAGE_FAILURE", detail: `content fallback: ${storageError}` });
+    }
     return parsePolicy(managedRes.data, localRes.data).policy;
   }
-  async function bootstrapContentGuard() {
+  var policyLoadSeq = 0;
+  async function loadAndApplyPolicy() {
+    const seq = ++policyLoadSeq;
     const policy = await loadEffectivePolicy();
+    if (seq !== policyLoadSeq) {
+      return null;
+    }
     applyEffectivePolicy(policy);
-    if (policy.masterEnabled && document.readyState !== "loading") {
+    return policy;
+  }
+  async function bootstrapContentGuard() {
+    const policy = await loadAndApplyPolicy();
+    if (policy?.masterEnabled && document.readyState !== "loading") {
       runSweepNow();
     }
   }
   if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener(async (changes, areaName) => {
       if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
-        const policy = await loadEffectivePolicy();
-        applyEffectivePolicy(policy);
+        await loadAndApplyPolicy();
       }
     });
   }

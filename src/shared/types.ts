@@ -30,8 +30,17 @@ export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
 /** Catalog entry for one diagnostic code. */
 export type CatalogEntry = (typeof ERROR_CATALOG)[ErrorCode];
 
-/** Where the effective policy came from. */
-export type PolicySource = "defaults" | "local-unmanaged" | "managed" | "managed-degraded";
+/**
+ * Where the effective policy came from. "admin-no-policy": force-installed (or install type
+ * unknown) with no managed keys, so strict defaults are locked (BP-01).
+ */
+export type PolicySource = "defaults" | "local-unmanaged" | "managed" | "managed-degraded" | "admin-no-policy";
+
+/**
+ * How the extension was installed: chrome.management ExtensionInfo.installType, or "unknown"
+ * when it couldn't be read. Only "normal" and "development" unlock local test mode.
+ */
+export type InstallType = `${chrome.management.ExtensionInstallType}` | "unknown";
 
 /** The effective policy every bundle acts on. */
 export interface EffectivePolicy extends Toggles {

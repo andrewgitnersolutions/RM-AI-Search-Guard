@@ -1,7 +1,8 @@
 // B tests (docs/07 §6.3): the built extension in Chromium against mock Google pages served by
 // route interception (tests/helpers/browser.mjs). No request reaches real Google.
-// Not automated here: B-09 (performance profile), B-10 (needs managed policy), the managed and
-// worker-unreachable halves of B-13, and BP-09's churning-page half of B-08 — reported NOT RUN.
+// Not automated here: B-09 (performance profile), B-10 (needs managed policy), B-13 on a real
+// managed profile (B-13b–d stub the worker's answer instead), and BP-09's churning-page half of
+// B-08 — reported NOT RUN.
 import assert from "node:assert/strict";
 import { equivalent } from "../helpers/equivalence.mjs";
 import { launchWithExtension, readTelemetry, settle, visibilityById } from "../helpers/browser.mjs";
@@ -91,14 +92,20 @@ equivalent("B-02", "local policy hideAiOverviews:false → Overview visible afte
     return { noOverviewHiding, masterOff };
   }));
 
-equivalent("B-01", "html[data-rmsg-hide-*] attributes are set before any page script runs (no flash)", (target) =>
+equivalent("B-01", "html[data-rmsg-hide-*] attributes are set before any page script runs; with 6× CPU throttle the Overview is already hidden when parsed (no flash)", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
+    const cdp = await b.context.newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
     await page.goto("https://www.google.com/search?q=x&udm=14");
     await settle(page);
     const atParse = await page.evaluate(() => window.__attrAtParse);
+    const allAtParse = await page.evaluate(() => window.__attrsAtParse);
     assert.equal(atParse, "1");
-    return atParse;
+    assert.deepEqual(allAtParse, ["1", "1", "1"], "all three hide attributes set before page scripts");
+    const ovVisibleAtParse = await page.evaluate(() => window.__ovVisibleAtParse);
+    assert.equal(ovVisibleAtParse, false, "AI Overview visible at the moment it was parsed (flash)");
+    return { allAtParse, ovVisibleAtParse };
   }), { bp: "BP-02" });
 
 equivalent("B-04", "organic result linking to example.com/blog/aimode-review stays visible", (target) =>
@@ -201,7 +208,7 @@ async function optionsState(page) {
 }
 
 // The Test Flush half of B-12 went away with analytics (D6).
-equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only after first Reset; Staff card only after toggle; tabs switch", (target) =>
+equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only after first Reset; Staff card only after toggle; reminders follow their band; tabs switch and stay findable", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     await page.goto(`chrome-extension://${b.extensionId}/ui/options.html`);
@@ -214,13 +221,23 @@ equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only aft
     const afterFirstReset = await optionsState(page);
     await page.click("#tab-generator");
     const generatorTab = await optionsState(page);
-    const record = { initial, diagnosticsTab, diagnosticsPanelVisible, afterFirstReset, generatorTab };
+    const reminders = await page.evaluate(() => ({
+      k2: document.querySelector('[data-aimode-reminder="K-2"]')?.checkVisibility() ?? null,
+    }));
+    // Inactive until-found panels must stay in layout (not display:none) so Ctrl+F can find them.
+    const inactivePanelDisplay = await page.evaluate(() => getComputedStyle(document.getElementById("panel-status")).display);
+    await page.getByRole("button", { name: "Show Staff OU Preset" }).click();
+    const staffAfterToggle = await optionsState(page);
+    const record = { initial, diagnosticsTab, diagnosticsPanelVisible, afterFirstReset, generatorTab, reminders, inactivePanelDisplay, staffAfterToggle };
     assert.equal(diagnosticsTab.selectedTab, "tab-diagnostics");
     assert.equal(diagnosticsPanelVisible, true);
     assert.equal(initial.lockBadgesVisible, 0, "Locked badges shown on an unmanaged device");
     assert.equal(initial.cancelResetVisible, false, "Cancel Reset visible before Reset");
     assert.equal(afterFirstReset.cancelResetVisible, true);
     assert.equal(generatorTab.staffCardVisible, false, "Staff card visible before toggle");
+    assert.equal(staffAfterToggle.staffCardVisible, true, "Staff card shown after toggle");
+    assert.equal(reminders.k2, true, "K-2 AIModeSettings reminder shown");
+    assert.notEqual(inactivePanelDisplay, "none", "inactive tab panel must stay findable (hidden=until-found)");
     return record;
   }), { bp: "BP-06" });
 
@@ -234,6 +251,95 @@ equivalent("B-13", "Popup: unmanaged view on an unpacked install (managed-view c
     assert.doesNotMatch(text, /Managed by your school/);
     return text;
   }));
+
+/**
+ * Open an extension page whose GET_* policy answers are replaced, before any page script runs.
+ * @param {object} b - Browser handle.
+ * @param {string} pagePath - e.g. "ui/popup.html".
+ * @param {"locked" | "unreachable"} mode - Report admin-no-policy, or throw as if the worker is gone.
+ * @returns {Promise<import("playwright").Page>}
+ */
+async function openWithStubbedWorker(b, pagePath, mode) {
+  const page = await b.context.newPage();
+  await page.addInitScript((m) => {
+    const real = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = async (msg) => {
+      if (msg?.type !== "GET_EFFECTIVE_POLICY" && msg?.type !== "GET_DIAGNOSTIC_SNAPSHOT") return real(msg);
+      if (m === "unreachable") throw new Error("Could not establish connection. Receiving end does not exist.");
+      const res = await real(msg);
+      const lock = (p) => ({ ...p, isManaged: true, source: "admin-no-policy" });
+      return msg.type === "GET_EFFECTIVE_POLICY" ? lock(res) : { ...res, policy: lock(res.policy) };
+    };
+  }, mode);
+  await page.goto(`chrome-extension://${b.extensionId}/${pagePath}`);
+  await page.waitForTimeout(400);
+  return page;
+}
+
+equivalent("B-13b", "Popup: managed view when the service worker reports a locked (admin-no-policy) policy", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await openWithStubbedWorker(b, "ui/popup.html", "locked");
+    const text = await page.evaluate(() => document.getElementById("popup-root").innerText);
+    assert.match(text, /Managed by your school/);
+    assert.doesNotMatch(text, /Local Test Mode/);
+    return text;
+  }), { bp: "BP-01" });
+
+equivalent("B-13c", "Popup: managed view (not unmanaged) when the service worker is unreachable", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await openWithStubbedWorker(b, "ui/popup.html", "unreachable");
+    const text = await page.evaluate(() => document.getElementById("popup-root").innerText);
+    assert.match(text, /Managed by your school/);
+    assert.doesNotMatch(text, /Local Test Mode/);
+    return text;
+  }), { bp: "BP-01" });
+
+equivalent("B-13d", "Options: locked banner and disabled switches when the worker reports admin-no-policy, and when it is unreachable", (target) =>
+  withBrowser(target, async (b) => {
+    const out = {};
+    for (const mode of ["locked", "unreachable"]) {
+      const page = await openWithStubbedWorker(b, "ui/options.html", mode);
+      out[mode] = await page.evaluate(() => ({
+        title: document.getElementById("policy-source-title")?.textContent ?? null,
+        badge: document.getElementById("policy-mode-badge")?.textContent ?? null,
+        enabledSwitches: [...document.querySelectorAll('input[id^="toggle-"]')].filter((i) => !i.disabled).length,
+        gradeBandDisabled: document.getElementById("grade-band-select")?.disabled ?? null,
+      }));
+      assert.match(out[mode].title, /No Grade-Band Policy Yet/, `${mode}: banner`);
+      assert.equal(out[mode].badge, "Locked", `${mode}: badge`);
+      assert.equal(out[mode].enabledSwitches, 0, `${mode}: every switch disabled`);
+      assert.equal(out[mode].gradeBandDisabled, true, `${mode}: grade band locked`);
+      await page.close();
+    }
+    return out;
+  }), { bp: "BP-01" });
+
+equivalent("B-15", "Options: two overlapping refreshes whose snapshots arrive in reverse order → the newer snapshot stays rendered", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    // Hold every diagnostic snapshot until the test releases it, stamped with a marker count.
+    await page.addInitScript(() => {
+      const real = chrome.runtime.sendMessage.bind(chrome.runtime);
+      window.__snap = [];
+      chrome.runtime.sendMessage = (msg) => msg?.type !== "GET_DIAGNOSTIC_SNAPSHOT"
+        ? real(msg)
+        : new Promise((resolve) => window.__snap.push(async (count) => resolve({ ...(await real(msg)), activeRuleCount: count })));
+    });
+    await page.goto(`chrome-extension://${b.extensionId}/ui/options.html`);
+    await page.waitForFunction(() => window.__snap.length === 1);
+    await page.evaluate(() => window.__snap[0](6));
+    await page.click("#tab-diagnostics");
+    await page.click("#btn-refresh-diag");
+    await page.click("#btn-refresh-diag");
+    await page.waitForFunction(() => window.__snap.length === 3);
+    await page.evaluate(() => window.__snap[2](22));
+    await page.waitForTimeout(150);
+    await page.evaluate(() => window.__snap[1](11));
+    await page.waitForTimeout(150);
+    const pill = await page.evaluate(() => document.getElementById("active-rule-count-pill").textContent);
+    assert.match(pill, /^22 /, "an older snapshot replaced the newer one");
+    return pill;
+  }), { bp: "BP-17" });
 
 equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"Value\":…}} wrappers and matches schema.json types", (target) =>
   withBrowser(target, async (b) => {

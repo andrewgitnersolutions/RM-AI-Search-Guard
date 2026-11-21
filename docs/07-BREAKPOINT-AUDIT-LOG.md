@@ -94,14 +94,25 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 
 **Recommendation:** **A**, and also allow overrides when `installType === "development"`. Popup and Options must use the same "is locked" decision as the service worker.
 
+**Owner decision 2026-11-21: option A.**
+
 **To-do:**
-- [ ] Add `resolveInstallType()` in the service worker: `await chrome.management.getSelf()` → `installType`. Catch errors and treat failure as `"unknown"`, which must lock (fail closed).
-- [ ] Extend `parsePolicy(managedRaw, localRaw, now, installType)`. If `installType` is `"admin"` (or `"unknown"`) and there are no managed keys, return strict defaults with `isManaged: true`, `source: "admin-no-policy"`, and push `WARN_NO_MANAGED_POLICY`. Update all 4 copies (or the shared module per D1).
-- [ ] Add `"admin-no-policy"` wherever `source` is rendered (`options.js:1205-1223` banner; diagnostic bundle) with copy along the lines of: "Force-installed by your school, no grade-band policy yet. Maximum protection is active."
-- [ ] `SET_LOCAL_OVERRIDES` (`service-worker.js:1133`): reject unless policy is unmanaged **and** installType is `"normal"` or `"development"`.
-- [ ] Popup (`popup.js:251`): stop parsing managed storage itself. Ask the service worker for the effective policy (with installType), and fall back to the **managed/locked** view if the worker is unreachable, not the unmanaged view.
-- [ ] Options: when locked, disable switches and the grade-band select (existing code does this off `isManaged`; confirm it now covers `admin-no-policy`).
-- [ ] Ignore any stale `rmsg_local_overrides` when locked (already true via the managed branch; add an explicit guard and comment).
+- [x] Add `resolveInstallType()` in the service worker: `await chrome.management.getSelf()` → `installType`. Catch errors and treat failure as `"unknown"`, which must lock (fail closed).
+- [x] Extend `parsePolicy(managedRaw, localRaw, now, installType)`. If `installType` is `"admin"` (or `"unknown"`) and there are no managed keys, return strict defaults with `isManaged: true`, `source: "admin-no-policy"`, and push `WARN_NO_MANAGED_POLICY`. Update all 4 copies (or the shared module per D1).
+- [x] Add `"admin-no-policy"` wherever `source` is rendered (`options.js:1205-1223` banner; diagnostic bundle) with copy along the lines of: "Force-installed by your school, no grade-band policy yet. Maximum protection is active."
+- [x] `SET_LOCAL_OVERRIDES` (`service-worker.js:1133`): reject unless policy is unmanaged **and** installType is `"normal"` or `"development"`.
+- [x] Popup (`popup.js:251`): stop parsing managed storage itself. Ask the service worker for the effective policy (with installType), and fall back to the **managed/locked** view if the worker is unreachable, not the unmanaged view.
+- [x] Options: when locked, disable switches and the grade-band select (existing code does this off `isManaged`; confirm it now covers `admin-no-policy`).
+- [x] Ignore any stale `rmsg_local_overrides` when locked (already true via the managed branch; add an explicit guard and comment).
+- [ ] **Still open:** run M-01, M-02 and M-05 on a real force-installed device in a test OU (owner has no managed Chromebook yet). BP-01 is not fully verified until they pass.
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **Install types:** only `normal` and `development` unlock test mode. Everything else locks when there are no managed keys: `admin`, plus `sideload`, `other` (two more values Chrome can report), an unreadable install type and a missing one.
+- **Permission check:** `chrome.management.getSelf()` was confirmed to work with no `management` permission. It was called from the service worker and the Options page of the current build in Chromium 153, and the `@types/chrome` docs say the same. The manifest is unchanged.
+- **Install-type reads:** the worker reads the install type on every policy resolve, with no cache, because docs/03 allows no mutable module-level state (CodeRabbit review of PR #4).
+- **Fallbacks:** every path that can't read the install type locks: the content-script storage fallback, the Options fallback, and the popup when the worker is unreachable.
+- **Tests:** U-01a (admin, sideload, other, unknown, missing), U-01d (`getSelf` throws or is missing), U-02 (development and normal), U-02b, B-13, B-13b (popup locked view), B-13c (popup, worker unreachable) and B-13d (Options banner and disabled switches when locked or unreachable) all pass. U-01a and U-02b were removed from `tests/known-failures.json`.
+- **NOT RUN:** M-01, M-02 and M-05 need a managed device.
 
 **Done when:** with the extension force-installed (real managed Chromebook/profile in a test OU) and **no** extension policy, Options shows a locked state, toggling is impossible, `SET_LOCAL_OVERRIDES` sent from the Options page DevTools console is refused, and the popup shows "Managed by your school". On an unpacked install, local toggles still work.
 
@@ -123,11 +134,19 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 
 **Recommendation:** **A.** The flicker in "allowed" OUs is the right trade for a K-12 product.
 
+**Owner decision 2026-11-21: option A.**
+
 **To-do:**
-- [ ] At the very top of the content-script IIFE (before `handleRedirectHashTelemetry()`), set `data-rmsg-hide-overviews/aimode/aux="1"` on `document.documentElement`, guarded for a null `documentElement`.
-- [ ] Keep `applyPolicyAttributes` as the step that removes attributes per policy, including when `masterEnabled === false`.
-- [ ] If the policy can't be resolved at all (worker and storage both fail), keep the attributes on and log `ERR_STORAGE_FAILURE`.
-- [ ] Comment the fail-closed rationale at the top of the file.
+- [x] At the very top of the content-script IIFE (before `handleRedirectHashTelemetry()`), set `data-rmsg-hide-overviews/aimode/aux="1"` on `document.documentElement`, guarded for a null `documentElement`.
+- [x] Keep `applyPolicyAttributes` as the step that removes attributes per policy, including when `masterEnabled === false`.
+- [x] If the policy can't be resolved at all (worker and storage both fail), keep the attributes on and log `ERR_STORAGE_FAILURE`.
+- [x] Comment the fail-closed rationale at the top of the file.
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **What changed:** `applyFailClosedAttributes()` is the content script's first statement, and the resolved policy only removes attributes. When the worker is unreachable and storage is unreadable, the fallback parse locks (BP-01), so the attributes stay on. `ERR_STORAGE_FAILURE` is then sent best-effort, with the storage error text only.
+- **B-01:** now checks all three attributes at parse time. It also checks, under a 6× CPU throttle, that the Overview is already hidden the instant it is parsed (an inline probe sits right after it in the fixture). It passes 3/3 runs, fails against the unfixed `dist/`, and was removed from `tests/known-failures.json`.
+- **B-02:** still passes (an allowed Overview appears after load).
+- **NOT RUN:** the manual DevTools check on live Google (L-tests).
 
 **Done when:** throttling the CPU 6× in DevTools and reloading a results page that has an AI Overview shows no visible flash. With `hideAiOverviews: false` the Overview still appears after load.
 
@@ -231,8 +250,14 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Add the rule in `@layer reset`.
-- [ ] Re-check every element that uses `hidden`: the 6 lock badges, Test Flush, Cancel Reset, field errors, the Staff card, the AIModeSettings reminders and the tab panels (must still switch, and Ctrl+F `beforematch` must still work).
+- [x] Add the rule in `@layer reset`.
+- [x] Re-check every element that uses `hidden`: the 6 lock badges, Test Flush, Cancel Reset, field errors, the Staff card, the AIModeSettings reminders and the tab panels (must still switch, and Ctrl+F `beforematch` must still work).
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **What changed:** `[hidden]:not([hidden="until-found"]) { display: none !important; }` is in `@layer reset`. As the first layer, its `!important` outranks every later layer.
+- **Elements checked:** Test Flush no longer exists (D6). The policy generator has no field-error elements today (`syncFieldErrorLink` is unused).
+- **Tests:** S-05a and B-12 pass, and both were removed from `tests/known-failures.json`. B-12 now also checks that the Staff card appears after "Show Staff OU Preset", that the K-2 AIModeSettings reminder shows, and that an inactive `until-found` tab panel keeps a non-`none` display, so it stays findable.
+- **NOT RUN:** actually pressing Ctrl+F to trigger `beforematch` can't be automated in Playwright; it's a manual check.
 
 **Done when:** the unmanaged Options page shows no "Locked" badges, Cancel Reset only appears after the first Reset click, Test Flush only appears when analytics is enabled, the Staff card only shows after clicking "Show Staff OU Preset", and tab switching still works.
 
@@ -341,8 +366,13 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Update 2026-11-20:** D4 resolved to a minimum of Chrome 134, which supports `:has()`, so the failure scenario no longer applies to any device that can install the extension. Still do option A's split (cheap insurance against future selector mistakes). `docs/04` now states the 134 requirement and that full two-layer protection needs 138.
 
 **To-do:**
-- [ ] Split line 24 into a separate rule with the same declarations.
-- [ ] Audit every other selector list for features newer than the baseline (`[attr i]` flag is fine). Note any you find with a comment.
+- [x] Split line 24 into a separate rule with the same declarations.
+- [x] Audit every other selector list for features newer than the baseline (`[attr i]` flag is fine). Note any you find with a comment.
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **What changed:** the `div[role="listitem"]:has(a[href*="udm=50"])` selector has its own rule in `static-guard.css`, with the same declarations and a comment saying why.
+- **Audit:** the newest selector features in `static-guard.css` and `shared.css` are `:has()` (Chrome 105), `:is()` and `:where()` (88) and the `[attr i]` flag (49). All are below the 134 minimum. `shared.css`'s only `:has()` (`.toggle-row:has(.rm-switch:disabled)`) is alone in its rule. Nothing else needed a comment.
+- **Tests:** S-05b passes and was removed from `tests/known-failures.json`. B-03 still passes (the AI Mode tab is hidden).
 - [ ] Add a "Supported Chrome versions" line to `docs/04` (agent must look up which version shipped `:has()` and `hidden="until-found"` rather than guess).
 
 **Done when:** in a browser with `:has()` disabled or unsupported, `button.plR5qb` and `a[href*="udm=50"]` are still hidden by CSS alone.
@@ -502,14 +532,21 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 **Recommendation:** **A.** Use the same sequence check for the content script's bootstrap and storage-change loads, so every policy source follows one rule (this touches BP-02's bootstrap code; do them together).
 
 **To-do:**
-- [ ] Service worker: one serialized `syncRuntimeState` chain (resolve + diagnostics + DNR install), or a generation check that drops a stale install.
-- [ ] Service worker: `SET_LOCAL_OVERRIDES` read + sanitize + merge + write as one queued operation. Keep BP-01's lock check in front of it.
-- [ ] Content script: `policyLoadSeq` used by both bootstrap and `storage.onChanged`; apply only the latest result.
-- [ ] Options: refresh generation in the storage-change path; a lone refresh still renders normally.
+- [x] Service worker: one serialized `syncRuntimeState` chain (resolve + diagnostics + DNR install), or a generation check that drops a stale install.
+- [x] Service worker: `SET_LOCAL_OVERRIDES` read + sanitize + merge + write as one queued operation. Keep BP-01's lock check in front of it.
+- [x] Content script: `policyLoadSeq` used by both bootstrap and `storage.onChanged`; apply only the latest result.
+- [x] Options: refresh generation in the storage-change path; a lone refresh still renders normally.
 
-**Done when:** U-17 (two overlapping syncs with the older one resolving last end with the newer policy's rules installed), U-18 (two concurrent `SET_LOCAL_OVERRIDES` keep both edits) and B-15 (an older disabled load finishing after a newer enabled load leaves the tab protected) pass.
+**Done when:** U-17 (two overlapping syncs with the older one resolving last end with the newer policy's rules installed), U-18 (two concurrent `SET_LOCAL_OVERRIDES` keep both edits), U-20 (an older disabled content-script load finishing after a newer enabled load leaves the tab protected) and B-15 (Options keeps the newer of two overlapping snapshots) pass.
 
-**Proposed phase:** 1, with BP-01/BP-02 (same code paths). The owner can move it.
+**Phase:** 1 (owner decision 2026-11-21).
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **Service worker:** `syncRuntimeState()` runs each whole sync on its own chain, separate from the storage queue so it can't deadlock.
+- **Toggle writes:** `SET_LOCAL_OVERRIDES` goes through a new `mergeLocalOverrides()`, which reads, merges and writes as one queued operation.
+- **Content script:** bootstrap and `storage.onChanged` both use `loadAndApplyPolicy()`, which drops a result once a newer load has started.
+- **Options:** every `refreshSnapshot()` call carries a generation number, and only the latest one renders.
+- **Tests:** U-17, U-18, U-20 (new `tests/helpers/content-harness.mjs`, because a browser test can't control the order the worker's replies arrive in) and B-15 pass. All four fail on the build from before this change, so they test the races themselves.
 
 ---
 
@@ -583,7 +620,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 | Phase | Break points | Why this order |
 |---|---|---|
 | 0. Setup | **Rebuild `src/` (D1 = B) in three separate commits, in this order** (sequencing clarified 2026-11-20 after CodeRabbit review of PR #1):<br>**0a. Behavior-preserving rebuild (analytics and old name still in).** Split the `dist/` bundles into the modules named in `docs/03` §1 (`shared/defaults, errors, policy, selectors, storage`; `background/service-worker, dnr-rules, analytics`; `content/dom-engine, content`; `ui/popup, options, policy-generator-core`). Add `package.json`, `tsconfig.json`, `scripts/build.mjs` (esbuild → gitignored `build/`) and `scripts/promote.mjs` (`build/` → `dist/`). The Apps Script template stays an inline string in the options module exactly as today: **don't create `templates/apps-script/`**, because analytics is removed in 0b. Keep the original `dist/` as gitignored `baseline-dist/`. **Equivalence gate (0a only):** the rebuilt output must behave identically to `baseline-dist/`, analytics included. Compare code with comments and whitespace stripped where bundling allows. Run every U-test and the Playwright B smoke tests against **both** `baseline-dist/` and `build/`: results must be identical, **failures included**. U-tests that describe not-yet-fixed break points are expected to fail on both and don't block promotion; only a *difference* between the two builds blocks it. Then promote and commit.<br>**0b. Remove analytics (D6).** Separate commit. The equivalence gate doesn't apply to these removed behaviors, which are the only allowed differences from 0a: alarm scheduling and flushing; the `TRIGGER_TEST_FLUSH` message; the 4 analytics policy fields and their validation; `ERR_ANALYTICS_ENDPOINT_INVALID` / `ERR_ANALYTICS_FLUSH_FAILED`; pending-bucket and flush-status telemetry fields; the Options analytics status bar and Test Flush button; the generator's analytics section and Copy Code.gs button; the manifest's `alarms` permission and `script.google.com` / `script.googleusercontent.com` hosts. Every other test result must match 0a. S-03 applies from this commit on.<br>**0c. Rename (D7).** Separate commit; extension strings only (manifest `name`/`short_name`/`default_title`, popup, Options, CSS header). Tests must match 0b.<br>**Workflow for every later change:** edit `src/` → `npm run build` writes to `build/` → run S-, U- and B-tests against `build/` (load it unpacked) → `npm run promote` copies `build/` into `dist/` only when the **promotion rule** holds. `dist/` changes only through promote.<br>**Promotion rule (known failures):** at the end of 0a, record every failing test in `tests/known-failures.json` with the break point and phase that will fix it. Before any promotion, (1) every test assigned to the current phase and every test not on the list must pass, and (2) each listed test must fail exactly as recorded (a *changed* failure blocks promotion just like a new one). When a phase fixes a break point, remove its tests from the list in the same commit. The list must be empty after Phase 4. | Every later fix needs one source of truth and a test harness. Proving equivalence before removing anything means any behavior change in 0b/0c is deliberate and visible. |
-| 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (proposed) | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
+| 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 1`. Still open: M-01, M-02 and M-05 on a managed device (BP-01). | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
 | 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18 and BP-19 (proposed) | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 | Touch the same sweep/metrics paths, so do them together. |
 | 4. Longevity | BP-03, BP-04, BP-11 | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
@@ -617,7 +654,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 
 | ID | Test | Covers |
 |---|---|---|
-| U-01 | Install-type × policy matrix: {admin, development, normal, unknown} × {no keys, valid, partly invalid}. Expect admin/unknown + no keys → locked strict defaults, `source:"admin-no-policy"`. Development/normal + no keys → unlocked. Any valid keys → managed. | BP-01 |
+| U-01 (U-01a–d in the tests; 2026-11-21 also covers `sideload`, `other`, a missing install type and a failing `getSelf`) | Install-type × policy matrix: {admin, development, normal, unknown} × {no keys, valid, partly invalid}. Expect admin/unknown + no keys → locked strict defaults, `source:"admin-no-policy"`. Development/normal + no keys → unlocked. Any valid keys → managed. | BP-01 |
 | U-02 | `SET_LOCAL_OVERRIDES` refused when locked; accepted on development/normal unmanaged | BP-01 |
 | U-03 | Invalid managed values (string `"true"`, out-of-range interval, bad enum) fall back fail-closed and are listed in `invalidFields` | Regression |
 | U-04 | `extraHideSelectors`: accepts valid string arrays; rejects non-arrays, over-long strings and >20 items into `invalidFields`; ignored when unmanaged | BP-04 |
@@ -636,6 +673,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-17 | Two overlapping `syncRuntimeState` runs where the older resolves last → the newer policy's DNR rules are installed | BP-17 |
 | U-18 | Two concurrent `SET_LOCAL_OVERRIDES` (different toggles) → both edits stored | BP-17 |
 | U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (only if BP-19 option A is chosen) | BP-19 |
+| U-20 | Content script (vm, controlled message timing): an older disabled policy load finishing after a newer enabled one is dropped; the tab stays protected | BP-17 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
 
@@ -655,9 +693,9 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-10 | `extraHideSelectors` hides `div.test-ai`; an invalid selector logs `ERR_SELECTOR_SYNTAX` and other hiding still works | BP-04 |
 | B-11 | Tier 1/2 selectors stripped from the mock Overview → `WARN_AI_SURFACE_VISIBLE` logged once | BP-04 |
 | B-12 | Options page (unmanaged): no "Locked" badges; Cancel Reset only after the first Reset click; Test Flush only when analytics is on; Staff card only after "Show Staff OU Preset"; tabs switch; Ctrl+F finds text in hidden tabs | BP-06 |
-| B-13 | Popup: unmanaged view on unpacked install; managed view when the service worker reports locked; managed view (not unmanaged) when the service worker is unreachable | BP-01 |
+| B-13 (B-13b–d in the tests stub the worker's answer for the locked and unreachable cases; B-13d also checks the Options page) | Popup: unmanaged view on unpacked install; managed view when the service worker reports locked; managed view (not unmanaged) when the service worker is unreachable | BP-01 |
 | B-14 | Policy generator: each band's JSON parses, uses `{"key":{"Value":…}}` wrappers, and matches `schema.json` types; `extraHideSelectors` only emitted when filled | Regression, BP-04 |
-| B-15 | Policy loads overlap and the older (disabled) one resolves last → the tab stays protected | BP-17 |
+| B-15 | Options: two overlapping refreshes whose snapshots arrive in reverse order → the newer snapshot stays rendered. (The content-script half moved to U-20, 2026-11-21.) | BP-17 |
 | B-16 | An element with inline `display:none` that is hidden and then unhidden by turning its toggle off stays `display:none`; removing a policy attribute unhides a marked element | BP-18 |
 
 ### 6.4 Live Google tests (Browser, real google.com, manual)

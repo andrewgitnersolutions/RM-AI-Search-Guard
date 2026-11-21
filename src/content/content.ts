@@ -4,7 +4,9 @@
  * Runs in: content script on google.com at document_start (bundled as an IIFE).
  * Must never: send page text, queries, URLs or identifiers; the only page-derived value is an
  * opaque hash used locally to count each page once.
- * Known gap (BP-02): hiding starts only after the policy round trip, so AI content can flash.
+ * Fails closed (BP-02): all three hide attributes are set synchronously before anything else
+ * runs, so static-guard.css hides AI surfaces from the first paint; the resolved policy then
+ * only removes the ones it turns off. If no policy can be resolved, they stay on.
  * Shared with: shared/defaults.ts, shared/policy.ts, shared/storage.ts, content/dom-engine.ts.
  */
 
@@ -13,6 +15,25 @@ import { parsePolicy } from "../shared/policy";
 import { readLocalOverrides, readManagedPolicyRaw } from "../shared/storage";
 import { applyPolicyAttributes, parseRedirectHash, sweepDom, unhideAllElements, unhideCategoryElements } from "./dom-engine";
 import type { EffectivePolicy, RawRecord } from "../shared/types";
+
+/**
+ * Turn every hide category on before the policy is known (BP-02). Google's HTML can stream and
+ * paint before the worker round trip finishes, so waiting would flash AI content. An OU that
+ * allows a feature sees it appear a moment later instead, which is the right trade for K-12.
+ * Fails closed: a missing documentElement (non-HTML document) is simply skipped.
+ */
+function applyFailClosedAttributes(): void {
+  const root = document.documentElement;
+  if (!root) {
+    return;
+  }
+  root.setAttribute("data-rmsg-hide-overviews", "1");
+  root.setAttribute("data-rmsg-hide-aimode", "1");
+  root.setAttribute("data-rmsg-hide-aux", "1");
+}
+
+// First statement on purpose: before the redirect-marker handling and any await.
+applyFailClosedAttributes();
 
 /**
  * Send a message to the service worker.
@@ -197,7 +218,8 @@ function applyEffectivePolicy(policy: EffectivePolicy): void {
 
 /**
  * Get the effective policy from the service worker, or parse storage directly if it doesn't answer.
- * @returns Effective policy.
+ * @returns Effective policy. The fallback can't read the install type (content scripts have no
+ * chrome.management), so with no managed keys it gets locked strict defaults (BP-01, fail closed).
  */
 async function loadEffectivePolicy(): Promise<EffectivePolicy> {
   const fromSw = await sendRuntimeMessage({
@@ -210,16 +232,44 @@ async function loadEffectivePolicy(): Promise<EffectivePolicy> {
     readManagedPolicyRaw(),
     readLocalOverrides()
   ]);
+  // Worker unreachable and storage unreadable: the parse below falls back to locked strict
+  // defaults, so the fail-closed attributes stay on. Report it (best effort: the worker may be
+  // the thing that's down). The detail is the storage error text only, never page data.
+  const storageError = managedRes.error ?? localRes.error;
+  if (storageError) {
+    void sendRuntimeMessage({ type: "LOG_DIAGNOSTIC", code: "ERR_STORAGE_FAILURE", detail: `content fallback: ${storageError}` });
+  }
   return parsePolicy(managedRes.data, localRes.data).policy;
+}
+
+/**
+ * Number of the newest policy load started in this tab (BP-17).
+ */
+let policyLoadSeq = 0;
+
+/**
+ * Load the policy and apply it, unless a newer load started meanwhile. Bootstrap and storage
+ * changes both go through here so every policy source follows the same newest-wins rule.
+ * @returns The applied policy, or null if this result was stale and dropped. Dropping is the
+ * safe choice: an older "disabled" result finishing last would otherwise unhide everything and
+ * disconnect the observers until the next reload (fail-open).
+ */
+async function loadAndApplyPolicy(): Promise<EffectivePolicy | null> {
+  const seq = ++policyLoadSeq;
+  const policy = await loadEffectivePolicy();
+  if (seq !== policyLoadSeq) {
+    return null;
+  }
+  applyEffectivePolicy(policy);
+  return policy;
 }
 
 /**
  * Load the policy, apply it, and sweep at once if the DOM is already parsed.
  */
 async function bootstrapContentGuard() {
-  const policy = await loadEffectivePolicy();
-  applyEffectivePolicy(policy);
-  if (policy.masterEnabled && document.readyState !== "loading") {
+  const policy = await loadAndApplyPolicy();
+  if (policy?.masterEnabled && document.readyState !== "loading") {
     runSweepNow();
   }
 }
@@ -228,8 +278,7 @@ async function bootstrapContentGuard() {
 if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener(async (changes, areaName) => {
     if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
-      const policy = await loadEffectivePolicy();
-      applyEffectivePolicy(policy);
+      await loadAndApplyPolicy();
     }
   });
 }
@@ -251,5 +300,6 @@ window.addEventListener("hashchange", () => {
   handleRedirectHashTelemetry();
 });
 
-// Start at document_start; hiding begins once the policy resolves (BP-02).
+// Start at document_start. CSS hiding is already on (applyFailClosedAttributes); JS sweeps and
+// any un-hiding wait for the policy.
 void bootstrapContentGuard();

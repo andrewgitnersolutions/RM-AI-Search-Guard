@@ -16,7 +16,9 @@ export const FIXED_NOW = Date.parse("2026-11-20T15:00:00.000Z");
 /**
  * Build a chrome.storage area stub backed by a plain object.
  * @param {Record<string, unknown>} initial - Initial contents.
- * @param {{ getError?: string }} opts - Make get() reject with this message.
+ * @param {{ getError?: string, getDelays?: number[] }} opts - getError: make get() reject with
+ * this message. getDelays: per-call delays in ms (consumed in order); the value is read when
+ * get() is called and delivered after the delay, like a slow storage read.
  * @returns {object} Storage area with get/set/remove and its backing `data`.
  */
 function makeArea(initial, opts = {}) {
@@ -26,6 +28,8 @@ function makeArea(initial, opts = {}) {
     async get(keys) {
       if (opts.getError) throw new (area.ErrorCtor ?? Error)(opts.getError);
       const all = structuredClone(area.data);
+      const delay = opts.getDelays?.shift();
+      if (delay) await new Promise((r) => setTimeout(r, delay));
       if (keys === null || keys === undefined) return all;
       const list = typeof keys === "string" ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
       const out = {};
@@ -61,6 +65,9 @@ function makeEvent() {
  * @param {string} [opts.managedError] - Make managed reads fail.
  * @param {Function} [opts.fetch] - fetch implementation visible to the worker.
  * @param {string} [opts.installType] - chrome.management.getSelf().installType (BP-01 tests).
+ * @param {string} [opts.installTypeError] - Make getSelf() reject with this message.
+ * @param {boolean} [opts.noManagement] - Leave chrome.management undefined.
+ * @param {number[]} [opts.managedGetDelays] - Per-call delays for managed reads (BP-17 tests).
  * @returns {object} { ctx, chrome, send, fire, settle }
  */
 export function loadServiceWorker(target, opts = {}) {
@@ -84,13 +91,16 @@ export function loadServiceWorker(target, opts = {}) {
       onMessage: events.onMessage,
       lastError: undefined,
     },
-    management: {
-      async getSelf() {
-        return { installType: opts.installType ?? "development" };
-      },
-    },
+    management: opts.noManagement
+      ? undefined
+      : {
+          async getSelf() {
+            if (opts.installTypeError) throw new Error(opts.installTypeError);
+            return { installType: opts.installType ?? "development" };
+          },
+        },
     storage: {
-      managed: makeArea(opts.managed ?? {}, { getError: opts.managedError }),
+      managed: makeArea(opts.managed ?? {}, { getError: opts.managedError, getDelays: opts.managedGetDelays ? [...opts.managedGetDelays] : undefined }),
       local: makeArea(opts.local ?? {}),
       onChanged: events.onChanged,
     },

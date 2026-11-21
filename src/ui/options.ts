@@ -203,6 +203,8 @@ async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
     } catch {
     }
   }
+  // No install type here (only the worker reads it), so with no managed keys this locks: if the
+  // worker is unreachable the page shows the locked view, never interactive test mode (BP-01).
   const parsed = parsePolicy(managedRaw, localRaw);
   const version = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest().version : "1.0.0";
   return {
@@ -414,7 +416,13 @@ async function bootOptionsPage() {
         "policy-banner-unmanaged"
       );
       policyModeBadge.classList.remove("rm-pill-navy", "rm-pill-red", "rm-pill-amber");
-      if (policy.isManaged && policy.source === "managed-degraded") {
+      if (policy.source === "admin-no-policy") {
+        policyBanner.classList.add("policy-banner-managed");
+        policyTitle.textContent = "Managed by Your School (No Grade-Band Policy Yet)";
+        policyDetail.textContent = "Force-installed by your school, no grade-band policy yet. Maximum protection is active. IT: paste the grade-band JSON from the Admin Policy Generator into Google Admin Console to configure this OU.";
+        policyModeBadge.classList.add("rm-pill-navy");
+        policyModeBadge.textContent = "Locked";
+      } else if (policy.isManaged && policy.source === "managed-degraded") {
         policyBanner.classList.add("policy-banner-degraded");
         policyTitle.textContent = "Managed by Google Admin Console (Degraded \u2014 Fail-Closed)";
         policyDetail.textContent = `Invalid managed policy fields (${policy.invalidFields.join(", ")}) fell back to Strict Maximum Lockdown ON. See IT Diagnostics for exact fixes.`;
@@ -484,8 +492,15 @@ async function bootOptionsPage() {
     }
     renderDiagnosticTable(telemetry.diagnosticLog);
   }
-  async function refreshSnapshot() {
+  // Newest refresh wins (BP-17): storage events can start refreshes that overlap, and an older
+  // snapshot finishing last would otherwise replace the controls, counters and currentSnapshot.
+  let snapshotGeneration = 0;
+  async function refreshSnapshot(): Promise<void> {
+    const generation = ++snapshotGeneration;
     const snapshot = await fetchDiagnosticSnapshot();
+    if (generation !== snapshotGeneration) {
+      return;
+    }
     renderSnapshot(snapshot);
   }
   async function persistLocalOverride(partial: RawRecord): Promise<void> {

@@ -1,7 +1,8 @@
 /* Design tokens and component styles for the popup and Options hub.
  * Runs in: extension pages only (popup.html, options.html). No external fonts or CDNs.
  * Must never: load remote assets (extension CSP is script-src 'self').
- * Note (BP-06): component display rules override the [hidden] attribute; not fixed in Phase 0.
+ * The reset layer's [hidden] rule (BP-06) makes the hidden attribute win over component
+ * display rules everywhere.
  */
 @layer reset, base, components, utilities;
 
@@ -94,6 +95,14 @@
     border: 0;
     margin: 0;
     padding: 0;
+  }
+
+  /* BP-06: author display rules (.rm-btn, .lock-indicator, .band-card ...) beat the browser's
+     built-in [hidden] style, so hidden badges and buttons showed. !important in the first layer
+     outranks every later layer, normal or important. until-found is excluded: those tab panels
+     must stay in layout (content-visibility) so Ctrl+F and beforematch can reveal them. */
+  [hidden]:not([hidden="until-found"]) {
+    display: none !important;
   }
 }
 

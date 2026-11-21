@@ -165,16 +165,22 @@ export async function readLocalOverrides(): Promise<{ data: RawRecord | null; er
 }
 
 /**
- * Save local IT test-mode overrides (serialized via enqueueStorageOp).
- * @param overrides - Sanitized toggle/gradeBand object.
- * @returns Resolves when written. Throws if chrome.storage.local is unavailable.
+ * Merge sanitized changes into the stored local IT test-mode overrides. The read, merge and
+ * write run as one queued operation (BP-17), so two quick toggle clicks can't both merge into
+ * the same old object and lose one edit.
+ * @param patch - Sanitized toggle/gradeBand changes.
+ * @returns The merged overrides that were written. Throws if chrome.storage.local is
+ * unavailable. An unreadable existing value is treated as empty, as before.
  */
-export async function writeLocalOverrides(overrides: RawRecord): Promise<void> {
-  await enqueueStorageOp(async () => {
+export async function mergeLocalOverrides(patch: RawRecord): Promise<RawRecord> {
+  return enqueueStorageOp(async () => {
     if (typeof chrome === "undefined" || !chrome.storage?.local) {
       throw new Error("chrome.storage.local is unavailable");
     }
-    await chrome.storage.local.set({ [STORAGE_KEYS.LOCAL_OVERRIDES]: overrides });
+    const existing = await readLocalOverrides();
+    const merged = { ...existing.data ?? {}, ...patch };
+    await chrome.storage.local.set({ [STORAGE_KEYS.LOCAL_OVERRIDES]: merged });
+    return merged;
   });
 }
 
