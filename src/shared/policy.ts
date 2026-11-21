@@ -9,7 +9,7 @@
  */
 
 import { FEATURE_TOGGLE_KEYS, STRICT_LOCKDOWN_TOGGLES, VALID_GRADE_BANDS } from "./defaults";
-import type { EffectivePolicy, GradeBand, PolicyError, RawRecord, Toggles } from "./types";
+import type { EffectivePolicy, GradeBand, InstallType, PolicyError, RawRecord, Toggles } from "./types";
 
 /** Generator input: a grade band (possibly invalid) plus the six toggles. */
 export interface PolicyDraft extends Partial<Toggles> {
@@ -26,19 +26,35 @@ export function isValidGradeBand(value: unknown): value is GradeBand {
 }
 
 /**
+ * Whether an install type may use local test mode. Only an unpacked load ("development") or a
+ * normal Web Store / .crx install by the user qualifies; anything else, including "admin"
+ * (force-installed), "sideload", "other" and "unknown", is locked (BP-01, fail closed).
+ * @param installType - Install type, or undefined if the caller couldn't learn it.
+ * @returns true only for "normal" and "development".
+ */
+export function isUnlockableInstall(installType: InstallType | undefined): boolean {
+  return installType === "normal" || installType === "development";
+}
+
+/**
  * Resolve the effective policy from raw managed and local storage data.
- * With no managed keys, local overrides apply (unmanaged test mode; see BP-01). With managed
- * keys, local overrides are ignored and each invalid value falls back to its strict default.
+ * With managed keys, local overrides are ignored and each invalid value falls back to its
+ * strict default. With no managed keys, the install type decides (BP-01): a normal or
+ * development install is unlocked and local test overrides apply; any other install,
+ * including a missing installType, gets locked strict defaults ("admin-no-policy").
  * @param managedRaw - Raw chrome.storage.managed object (or null).
  * @param localRaw - Raw local overrides object (or null).
  * @param now - Evaluation time, recorded as evaluatedAt.
+ * @param installType - From chrome.management.getSelf(). Callers that can't read it (content
+ * scripts, worker-unreachable fallbacks) omit it, which locks.
  * @returns { policy, errors }. Never throws for bad input: it fails closed and reports
  * ERR_POLICY_INVALID / WARN_NO_MANAGED_POLICY in errors.
  */
 export function parsePolicy(
   managedRaw: RawRecord | null | undefined,
   localRaw: RawRecord | null | undefined,
-  now: Date = /* @__PURE__ */ new Date()
+  now: Date = /* @__PURE__ */ new Date(),
+  installType?: InstallType
 ): { policy: EffectivePolicy; errors: PolicyError[] } {
   const evaluatedAt = now.toISOString();
   const errors: PolicyError[] = [];
@@ -49,6 +65,19 @@ export function parsePolicy(
       detail: "chrome.storage.managed returned no policy keys"
     });
     const toggles = { ...STRICT_LOCKDOWN_TOGGLES };
+    if (!isUnlockableInstall(installType)) {
+      // Force-installed (or unknown) with no usable policy: lock strict defaults and ignore any
+      // stale rmsg_local_overrides, so a student can't use test mode to switch protection off.
+      const policy: EffectivePolicy = {
+        ...toggles,
+        gradeBand: "Unassigned",
+        source: "admin-no-policy",
+        isManaged: true,
+        invalidFields: [],
+        evaluatedAt
+      };
+      return { policy, errors };
+    }
     let gradeBand: GradeBand = "Unassigned";
     let appliedLocalOverride = false;
     if (localRaw !== null && localRaw !== void 0 && typeof localRaw === "object") {

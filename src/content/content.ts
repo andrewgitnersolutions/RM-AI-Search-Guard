@@ -197,7 +197,8 @@ function applyEffectivePolicy(policy: EffectivePolicy): void {
 
 /**
  * Get the effective policy from the service worker, or parse storage directly if it doesn't answer.
- * @returns Effective policy.
+ * @returns Effective policy. The fallback can't read the install type (content scripts have no
+ * chrome.management), so with no managed keys it gets locked strict defaults (BP-01, fail closed).
  */
 async function loadEffectivePolicy(): Promise<EffectivePolicy> {
   const fromSw = await sendRuntimeMessage({

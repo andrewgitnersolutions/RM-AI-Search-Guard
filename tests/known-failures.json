@@ -46,16 +46,6 @@
       "phase": 1,
       "message": "AssertionError: 1 mixed :has() selector list(s)\n\n1 !== 0\n"
     },
-    "U-01a": {
-      "bp": "BP-01",
-      "phase": 1,
-      "message": "AssertionError: admin: must lock\n\nfalse !== true\n"
-    },
-    "U-02b": {
-      "bp": "BP-01",
-      "phase": 1,
-      "message": "AssertionError: Expected values to be strictly equal:\n\nfalse !== true\n"
-    },
     "U-04": {
       "bp": "BP-04",
       "phase": 4,

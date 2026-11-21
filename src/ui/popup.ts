@@ -6,9 +6,9 @@
  * Shared with: shared/defaults.ts, shared/policy.ts.
  */
 
-import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS } from "../shared/defaults";
+import { FEATURE_TOGGLE_KEYS } from "../shared/defaults";
 import { parsePolicy } from "../shared/policy";
-import type { EffectivePolicy, RawRecord } from "../shared/types";
+import type { EffectivePolicy } from "../shared/types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -113,19 +113,13 @@ function renderPopup(root: HTMLElement, policy: EffectivePolicy, onOpenOptions?:
 }
 
 /**
- * Resolve the policy to display: managed storage, then the service worker, then local overrides.
- * @returns Effective policy. With no managed keys this shows the unmanaged view (BP-01).
+ * Resolve the policy to display by asking the service worker, which alone knows the install
+ * type (BP-01). The popup no longer parses storage itself.
+ * @returns The worker's effective policy. If the worker doesn't answer, locked strict defaults
+ * (parsePolicy with no install type), so the popup shows "Managed by your school" rather than
+ * the unmanaged view: fail closed.
  */
 async function resolvePopupPolicy(): Promise<EffectivePolicy> {
-  if (typeof chrome !== "undefined" && chrome.storage?.managed?.get) {
-    try {
-      const managedRaw = await chrome.storage.managed.get(null);
-      if (managedRaw && typeof managedRaw === "object" && Object.keys(managedRaw).length > 0) {
-        return parsePolicy(managedRaw, null).policy;
-      }
-    } catch {
-    }
-  }
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
     try {
       const response = await chrome.runtime.sendMessage({
@@ -134,14 +128,6 @@ async function resolvePopupPolicy(): Promise<EffectivePolicy> {
       if (response && typeof response.isManaged === "boolean") {
         return response as EffectivePolicy;
       }
-    } catch {
-    }
-  }
-  if (typeof chrome !== "undefined" && chrome.storage?.local?.get) {
-    try {
-      const localResult = await chrome.storage.local.get(STORAGE_KEYS.LOCAL_OVERRIDES);
-      const localRaw = (localResult[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null) as RawRecord | null;
-      return parsePolicy(null, localRaw).policy;
     } catch {
     }
   }

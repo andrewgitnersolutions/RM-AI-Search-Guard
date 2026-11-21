@@ -94,14 +94,25 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 
 **Recommendation:** **A**, and also allow overrides when `installType === "development"`. Popup and Options must use the same "is locked" decision as the service worker.
 
+**Owner decision 2026-11-21: option A.**
+
 **To-do:**
-- [ ] Add `resolveInstallType()` in the service worker: `await chrome.management.getSelf()` → `installType`. Catch errors and treat failure as `"unknown"`, which must lock (fail closed).
-- [ ] Extend `parsePolicy(managedRaw, localRaw, now, installType)`. If `installType` is `"admin"` (or `"unknown"`) and there are no managed keys, return strict defaults with `isManaged: true`, `source: "admin-no-policy"`, and push `WARN_NO_MANAGED_POLICY`. Update all 4 copies (or the shared module per D1).
-- [ ] Add `"admin-no-policy"` wherever `source` is rendered (`options.js:1205-1223` banner; diagnostic bundle) with copy along the lines of: "Force-installed by your school, no grade-band policy yet. Maximum protection is active."
-- [ ] `SET_LOCAL_OVERRIDES` (`service-worker.js:1133`): reject unless policy is unmanaged **and** installType is `"normal"` or `"development"`.
-- [ ] Popup (`popup.js:251`): stop parsing managed storage itself. Ask the service worker for the effective policy (with installType), and fall back to the **managed/locked** view if the worker is unreachable, not the unmanaged view.
-- [ ] Options: when locked, disable switches and the grade-band select (existing code does this off `isManaged`; confirm it now covers `admin-no-policy`).
-- [ ] Ignore any stale `rmsg_local_overrides` when locked (already true via the managed branch; add an explicit guard and comment).
+- [x] Add `resolveInstallType()` in the service worker: `await chrome.management.getSelf()` → `installType`. Catch errors and treat failure as `"unknown"`, which must lock (fail closed).
+- [x] Extend `parsePolicy(managedRaw, localRaw, now, installType)`. If `installType` is `"admin"` (or `"unknown"`) and there are no managed keys, return strict defaults with `isManaged: true`, `source: "admin-no-policy"`, and push `WARN_NO_MANAGED_POLICY`. Update all 4 copies (or the shared module per D1).
+- [x] Add `"admin-no-policy"` wherever `source` is rendered (`options.js:1205-1223` banner; diagnostic bundle) with copy along the lines of: "Force-installed by your school, no grade-band policy yet. Maximum protection is active."
+- [x] `SET_LOCAL_OVERRIDES` (`service-worker.js:1133`): reject unless policy is unmanaged **and** installType is `"normal"` or `"development"`.
+- [x] Popup (`popup.js:251`): stop parsing managed storage itself. Ask the service worker for the effective policy (with installType), and fall back to the **managed/locked** view if the worker is unreachable, not the unmanaged view.
+- [x] Options: when locked, disable switches and the grade-band select (existing code does this off `isManaged`; confirm it now covers `admin-no-policy`).
+- [x] Ignore any stale `rmsg_local_overrides` when locked (already true via the managed branch; add an explicit guard and comment).
+- [ ] **Still open:** run M-01, M-02 and M-05 on a real force-installed device in a test OU (owner has no managed Chromebook yet). BP-01 is not fully verified until they pass.
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **Install types:** only `normal` and `development` unlock test mode. Everything else locks when there are no managed keys: `admin`, plus `sideload`, `other` (two more values Chrome can report), an unreadable install type and a missing one.
+- **Permission check:** `chrome.management.getSelf()` was confirmed to work with no `management` permission. It was called from the service worker and the Options page of the current build in Chromium 153, and the `@types/chrome` docs say the same. The manifest is unchanged.
+- **Install-type caching:** the worker caches the install type only after a successful read.
+- **Fallbacks:** every path that can't read the install type locks: the content-script storage fallback, the Options fallback, and the popup when the worker is unreachable.
+- **Tests:** U-01a (admin, sideload, other, unknown, missing), U-01d (`getSelf` throws or is missing), U-02 (development and normal), U-02b, B-13, B-13b (popup locked view), B-13c (popup, worker unreachable) and B-13d (Options banner and disabled switches when locked or unreachable) all pass. U-01a and U-02b were removed from `tests/known-failures.json`.
+- **NOT RUN:** M-01, M-02 and M-05 need a managed device.
 
 **Done when:** with the extension force-installed (real managed Chromebook/profile in a test OU) and **no** extension policy, Options shows a locked state, toggling is impossible, `SET_LOCAL_OVERRIDES` sent from the Options page DevTools console is refused, and the popup shows "Managed by your school". On an unpacked install, local toggles still work.
 
@@ -617,7 +628,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 
 | ID | Test | Covers |
 |---|---|---|
-| U-01 | Install-type × policy matrix: {admin, development, normal, unknown} × {no keys, valid, partly invalid}. Expect admin/unknown + no keys → locked strict defaults, `source:"admin-no-policy"`. Development/normal + no keys → unlocked. Any valid keys → managed. | BP-01 |
+| U-01 (U-01a–d in the tests; 2026-11-21 also covers `sideload`, `other`, a missing install type and a failing `getSelf`) | Install-type × policy matrix: {admin, development, normal, unknown} × {no keys, valid, partly invalid}. Expect admin/unknown + no keys → locked strict defaults, `source:"admin-no-policy"`. Development/normal + no keys → unlocked. Any valid keys → managed. | BP-01 |
 | U-02 | `SET_LOCAL_OVERRIDES` refused when locked; accepted on development/normal unmanaged | BP-01 |
 | U-03 | Invalid managed values (string `"true"`, out-of-range interval, bad enum) fall back fail-closed and are listed in `invalidFields` | Regression |
 | U-04 | `extraHideSelectors`: accepts valid string arrays; rejects non-arrays, over-long strings and >20 items into `invalidFields`; ignored when unmanaged | BP-04 |
@@ -655,7 +666,7 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-10 | `extraHideSelectors` hides `div.test-ai`; an invalid selector logs `ERR_SELECTOR_SYNTAX` and other hiding still works | BP-04 |
 | B-11 | Tier 1/2 selectors stripped from the mock Overview → `WARN_AI_SURFACE_VISIBLE` logged once | BP-04 |
 | B-12 | Options page (unmanaged): no "Locked" badges; Cancel Reset only after the first Reset click; Test Flush only when analytics is on; Staff card only after "Show Staff OU Preset"; tabs switch; Ctrl+F finds text in hidden tabs | BP-06 |
-| B-13 | Popup: unmanaged view on unpacked install; managed view when the service worker reports locked; managed view (not unmanaged) when the service worker is unreachable | BP-01 |
+| B-13 (B-13b–d in the tests stub the worker's answer for the locked and unreachable cases; B-13d also checks the Options page) | Popup: unmanaged view on unpacked install; managed view when the service worker reports locked; managed view (not unmanaged) when the service worker is unreachable | BP-01 |
 | B-14 | Policy generator: each band's JSON parses, uses `{"key":{"Value":…}}` wrappers, and matches `schema.json` types; `extraHideSelectors` only emitted when filled | Regression, BP-04 |
 | B-15 | Policy loads overlap and the older (disabled) one resolves last → the tab stays protected | BP-17 |
 | B-16 | An element with inline `display:none` that is hidden and then unhidden by turning its toggle off stays `display:none`; removing a policy attribute unhides a marked element | BP-18 |

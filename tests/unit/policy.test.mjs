@@ -1,4 +1,4 @@
-// U-01, U-03, U-04 (docs/07 §6.2): parsePolicy behavior, run on each target's service worker in node:vm.
+// U-01a–d, U-03, U-04 (docs/07 §6.2): parsePolicy behavior, run on each target's service worker in node:vm.
 import assert from "node:assert/strict";
 import { equivalent, plain } from "../helpers/equivalence.mjs";
 import { loadServiceWorker } from "../helpers/sw-harness.mjs";
@@ -12,15 +12,27 @@ function parse(sw, managed, local, installType) {
   return plain(sw.ctx.parsePolicy(managed, local, new sw.ctx.Date(), installType));
 }
 
-equivalent("U-01a", "admin/unknown install with no managed keys → locked strict defaults (admin-no-policy)", (target) => {
+equivalent("U-01a", "admin/sideload/other/unknown/missing install type with no managed keys → locked strict defaults (admin-no-policy)", (target) => {
   const sw = loadServiceWorker(target);
   const out = {};
-  for (const installType of ["admin", "unknown"]) {
+  for (const installType of ["admin", "sideload", "other", "unknown", undefined]) {
     const { policy } = parse(sw, {}, { masterEnabled: false }, installType);
-    out[installType] = { isManaged: policy.isManaged, source: policy.source, masterEnabled: policy.masterEnabled };
+    out[String(installType)] = { isManaged: policy.isManaged, source: policy.source, masterEnabled: policy.masterEnabled };
     assert.equal(policy.isManaged, true, `${installType}: must lock`);
     assert.equal(policy.source, "admin-no-policy");
     assert.equal(policy.masterEnabled, true);
+  }
+  return out;
+}, { bp: "BP-01" });
+
+equivalent("U-01d", "service worker: install type unreadable (getSelf throws or is missing) → GET_EFFECTIVE_POLICY is locked", async (target) => {
+  const out = {};
+  for (const [label, opts] of [["throws", { installTypeError: "management unavailable" }], ["missing", { noManagement: true }]]) {
+    const sw = loadServiceWorker(target, opts);
+    const policy = await sw.send({ type: "GET_EFFECTIVE_POLICY" });
+    assert.equal(policy.isManaged, true, `${label}: must lock`);
+    assert.equal(policy.source, "admin-no-policy");
+    out[label] = { isManaged: policy.isManaged, source: policy.source };
   }
   return out;
 }, { bp: "BP-01" });

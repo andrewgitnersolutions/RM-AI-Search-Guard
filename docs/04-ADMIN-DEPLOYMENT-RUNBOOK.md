@@ -15,7 +15,9 @@ Because Chrome separates **native browser chrome** (Omnibox address bar & New Ta
 
 > **Browser Requirement:** The extension requires **Chrome / ChromeOS 134 or later** (`minimum_chrome_version: "134"`). On older devices Chrome will not install it at all. Typically these are Chromebooks past their Auto Update Expiration, or devices pinned to an old version with a target-version policy. Those devices get **no** extension protection. Full two-layer protection (Step 1 + Step 2) needs **138 or later**, because the native AI Mode setting only exists from 138.
 
-> **Fail-Safe Notice:** If you force-install RaiseMark *before* pasting a Policy JSON—or accidentally paste invalid JSON—the extension automatically enters **Strict Maximum Lockdown** (all 6 protections ON) until valid JSON is saved.
+> **Fail-Safe Notice:** If you force-install RaiseMark *before* pasting a Policy JSON—or accidentally paste invalid JSON—the extension automatically enters **Strict Maximum Lockdown** (all 6 protections ON) until valid JSON is saved. Students can't change anything in this state: the Options page shows **"Managed by Your School (No Grade-Band Policy Yet)"** with every switch disabled, and the toolbar popup shows "Managed by your school".
+>
+> **Local test toggles** (Options → Status & Local Testing) only work on a copy IT installs itself: loaded unpacked, or added from the Chrome Web Store by hand on an unmanaged profile. A force-installed copy is always locked, with or without a policy.
 
 ---
 

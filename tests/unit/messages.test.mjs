@@ -12,18 +12,21 @@ const MANAGED = { gradeBand: "9-12" };
 /** Read the stored telemetry object from a harness. */
 const telemetry = (sw) => sw.chrome.storage.local.data.rmsg_telemetry ?? null;
 
-equivalent("U-02", "SET_LOCAL_OVERRIDES refused when managed (locked); accepted when unmanaged", async (target) => {
+equivalent("U-02", "SET_LOCAL_OVERRIDES refused when managed (locked); accepted on unmanaged development/normal installs", async (target) => {
   const managed = loadServiceWorker(target, { managed: { gradeBand: "K-2" } });
   const refused = await managed.send({ type: "SET_LOCAL_OVERRIDES", toggles: { masterEnabled: false } }, OPTIONS_SENDER);
   assert.equal(refused.masterEnabled, true);
   assert.equal(managed.chrome.storage.local.data.rmsg_local_overrides, undefined, "no override written when managed");
 
-  const unmanaged = loadServiceWorker(target);
-  const accepted = await unmanaged.send({ type: "SET_LOCAL_OVERRIDES", toggles: { masterEnabled: false, gradeBand: "3-5", bogus: 1 } }, OPTIONS_SENDER);
-  assert.equal(accepted.masterEnabled, false);
-  assert.deepEqual(plain(unmanaged.chrome.storage.local.data.rmsg_local_overrides), { masterEnabled: false, gradeBand: "3-5" });
-  assert.deepEqual(plain(unmanaged.dynamicRules), [], "rules removed when master switch is off");
-  return { refused, accepted, overrides: unmanaged.chrome.storage.local.data.rmsg_local_overrides };
+  const accepted = {};
+  for (const installType of ["development", "normal"]) {
+    const unmanaged = loadServiceWorker(target, { installType });
+    accepted[installType] = await unmanaged.send({ type: "SET_LOCAL_OVERRIDES", toggles: { masterEnabled: false, gradeBand: "3-5", bogus: 1 } }, OPTIONS_SENDER);
+    assert.equal(accepted[installType].masterEnabled, false, `${installType}: override accepted`);
+    assert.deepEqual(plain(unmanaged.chrome.storage.local.data.rmsg_local_overrides), { masterEnabled: false, gradeBand: "3-5" });
+    assert.deepEqual(plain(unmanaged.dynamicRules), [], "rules removed when master switch is off");
+  }
+  return { refused, accepted };
 });
 
 equivalent("U-02b", "SET_LOCAL_OVERRIDES refused on a force-installed device with no policy (installType admin)", async (target) => {

@@ -9,10 +9,40 @@
 
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS } from "../shared/defaults";
 import { getTodayDateBucket } from "../shared/errors";
-import { parsePolicy } from "../shared/policy";
+import { isUnlockableInstall, parsePolicy } from "../shared/policy";
 import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, writeLocalOverrides } from "../shared/storage";
 import { syncDynamicRules } from "./dnr-rules";
-import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, RawRecord } from "../shared/types";
+import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, InstallType, RawRecord } from "../shared/types";
+
+/**
+ * Cached install type for this worker wake. Only a successful read is cached, so a failed
+ * lookup is retried on the next policy resolve instead of sticking for the worker's lifetime.
+ */
+let cachedInstallType: InstallType | null = null;
+
+/**
+ * Learn how the extension was installed (BP-01). chrome.management.getSelf() needs no
+ * "management" permission (verified 2026-11-21 in Chromium 153 with this manifest).
+ * @returns The install type, or "unknown" if the API is missing or throws. "unknown" locks
+ * (fail closed): a force-installed student device must never fall into local test mode.
+ */
+async function resolveInstallType(): Promise<InstallType> {
+  if (cachedInstallType) {
+    return cachedInstallType;
+  }
+  if (typeof chrome === "undefined" || typeof chrome.management?.getSelf !== "function") {
+    return "unknown";
+  }
+  try {
+    const self = await chrome.management.getSelf();
+    if (typeof self?.installType === "string") {
+      cachedInstallType = self.installType as InstallType;
+      return cachedInstallType;
+    }
+  } catch {
+  }
+  return "unknown";
+}
 
 /**
  * Read the extension version from the manifest.
@@ -60,14 +90,16 @@ async function getActiveDynamicRuleCount(): Promise<number> {
 }
 
 /**
- * Read managed and local storage, log read failures, and parse the policy.
- * @returns parsePolicy result. Storage read errors are logged as ERR_STORAGE_FAILURE and
- * parsing continues with empty data.
+ * Read managed and local storage plus the install type, log read failures, and parse the policy.
+ * @returns parsePolicy result and the install type. Storage read errors are logged as
+ * ERR_STORAGE_FAILURE and parsing continues with empty data; on a force-installed device that
+ * means locked strict defaults, never test mode (BP-01).
  */
 async function resolvePolicyFromStorage() {
-  const [managedRes, localRes] = await Promise.all([
+  const [managedRes, localRes, installType] = await Promise.all([
     readManagedPolicyRaw(),
-    readLocalOverrides()
+    readLocalOverrides(),
+    resolveInstallType()
   ]);
   if (managedRes.error) {
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `managed read: ${managedRes.error}`);
@@ -75,7 +107,7 @@ async function resolvePolicyFromStorage() {
   if (localRes.error) {
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `local read: ${localRes.error}`);
   }
-  return parsePolicy(managedRes.data, localRes.data);
+  return { ...parsePolicy(managedRes.data, localRes.data, new Date(), installType), installType };
 }
 
 /**
@@ -150,8 +182,11 @@ async function handleRuntimeMessage(message: RawRecord): Promise<unknown> {
       return snapshot;
     }
     case "SET_LOCAL_OVERRIDES": {
-      const { policy: currentPolicy } = await resolvePolicyFromStorage();
-      if (currentPolicy.isManaged) {
+      const { policy: currentPolicy, installType } = await resolvePolicyFromStorage();
+      // Locked devices get the unchanged policy back and nothing is written. The install-type
+      // check repeats parsePolicy's decision on purpose: overrides must never be stored on a
+      // force-installed device, even if a later change to parsePolicy got the lock wrong.
+      if (currentPolicy.isManaged || !isUnlockableInstall(installType)) {
         return currentPolicy;
       }
       const existingLocalRes = await readLocalOverrides();

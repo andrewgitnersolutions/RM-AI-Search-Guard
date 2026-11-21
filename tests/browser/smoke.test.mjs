@@ -1,7 +1,8 @@
 // B tests (docs/07 §6.3): the built extension in Chromium against mock Google pages served by
 // route interception (tests/helpers/browser.mjs). No request reaches real Google.
-// Not automated here: B-09 (performance profile), B-10 (needs managed policy), the managed and
-// worker-unreachable halves of B-13, and BP-09's churning-page half of B-08 — reported NOT RUN.
+// Not automated here: B-09 (performance profile), B-10 (needs managed policy), B-13 on a real
+// managed profile (B-13b–d stub the worker's answer instead), and BP-09's churning-page half of
+// B-08 — reported NOT RUN.
 import assert from "node:assert/strict";
 import { equivalent } from "../helpers/equivalence.mjs";
 import { launchWithExtension, readTelemetry, settle, visibilityById } from "../helpers/browser.mjs";
@@ -234,6 +235,68 @@ equivalent("B-13", "Popup: unmanaged view on an unpacked install (managed-view c
     assert.doesNotMatch(text, /Managed by your school/);
     return text;
   }));
+
+/**
+ * Open an extension page whose GET_* policy answers are replaced, before any page script runs.
+ * @param {object} b - Browser handle.
+ * @param {string} pagePath - e.g. "ui/popup.html".
+ * @param {"locked" | "unreachable"} mode - Report admin-no-policy, or throw as if the worker is gone.
+ * @returns {Promise<import("playwright").Page>}
+ */
+async function openWithStubbedWorker(b, pagePath, mode) {
+  const page = await b.context.newPage();
+  await page.addInitScript((m) => {
+    const real = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = async (msg) => {
+      if (msg?.type !== "GET_EFFECTIVE_POLICY" && msg?.type !== "GET_DIAGNOSTIC_SNAPSHOT") return real(msg);
+      if (m === "unreachable") throw new Error("Could not establish connection. Receiving end does not exist.");
+      const res = await real(msg);
+      const lock = (p) => ({ ...p, isManaged: true, source: "admin-no-policy" });
+      return msg.type === "GET_EFFECTIVE_POLICY" ? lock(res) : { ...res, policy: lock(res.policy) };
+    };
+  }, mode);
+  await page.goto(`chrome-extension://${b.extensionId}/${pagePath}`);
+  await page.waitForTimeout(400);
+  return page;
+}
+
+equivalent("B-13b", "Popup: managed view when the service worker reports a locked (admin-no-policy) policy", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await openWithStubbedWorker(b, "ui/popup.html", "locked");
+    const text = await page.evaluate(() => document.getElementById("popup-root").innerText);
+    assert.match(text, /Managed by your school/);
+    assert.doesNotMatch(text, /Local Test Mode/);
+    return text;
+  }), { bp: "BP-01" });
+
+equivalent("B-13c", "Popup: managed view (not unmanaged) when the service worker is unreachable", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await openWithStubbedWorker(b, "ui/popup.html", "unreachable");
+    const text = await page.evaluate(() => document.getElementById("popup-root").innerText);
+    assert.match(text, /Managed by your school/);
+    assert.doesNotMatch(text, /Local Test Mode/);
+    return text;
+  }), { bp: "BP-01" });
+
+equivalent("B-13d", "Options: locked banner and disabled switches when the worker reports admin-no-policy, and when it is unreachable", (target) =>
+  withBrowser(target, async (b) => {
+    const out = {};
+    for (const mode of ["locked", "unreachable"]) {
+      const page = await openWithStubbedWorker(b, "ui/options.html", mode);
+      out[mode] = await page.evaluate(() => ({
+        title: document.getElementById("policy-source-title")?.textContent ?? null,
+        badge: document.getElementById("policy-mode-badge")?.textContent ?? null,
+        enabledSwitches: [...document.querySelectorAll('input[id^="toggle-"]')].filter((i) => !i.disabled).length,
+        gradeBandDisabled: document.getElementById("grade-band-select")?.disabled ?? null,
+      }));
+      assert.match(out[mode].title, /No Grade-Band Policy Yet/, `${mode}: banner`);
+      assert.equal(out[mode].badge, "Locked", `${mode}: badge`);
+      assert.equal(out[mode].enabledSwitches, 0, `${mode}: every switch disabled`);
+      assert.equal(out[mode].gradeBandDisabled, true, `${mode}: grade band locked`);
+      await page.close();
+    }
+    return out;
+  }), { bp: "BP-01" });
 
 equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"Value\":…}} wrappers and matches schema.json types", (target) =>
   withBrowser(target, async (b) => {

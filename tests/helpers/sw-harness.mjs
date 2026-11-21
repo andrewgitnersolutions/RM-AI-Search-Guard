@@ -61,6 +61,8 @@ function makeEvent() {
  * @param {string} [opts.managedError] - Make managed reads fail.
  * @param {Function} [opts.fetch] - fetch implementation visible to the worker.
  * @param {string} [opts.installType] - chrome.management.getSelf().installType (BP-01 tests).
+ * @param {string} [opts.installTypeError] - Make getSelf() reject with this message.
+ * @param {boolean} [opts.noManagement] - Leave chrome.management undefined.
  * @returns {object} { ctx, chrome, send, fire, settle }
  */
 export function loadServiceWorker(target, opts = {}) {
@@ -84,11 +86,14 @@ export function loadServiceWorker(target, opts = {}) {
       onMessage: events.onMessage,
       lastError: undefined,
     },
-    management: {
-      async getSelf() {
-        return { installType: opts.installType ?? "development" };
-      },
-    },
+    management: opts.noManagement
+      ? undefined
+      : {
+          async getSelf() {
+            if (opts.installTypeError) throw new Error(opts.installTypeError);
+            return { installType: opts.installType ?? "development" };
+          },
+        },
     storage: {
       managed: makeArea(opts.managed ?? {}, { getError: opts.managedError }),
       local: makeArea(opts.local ?? {}),
