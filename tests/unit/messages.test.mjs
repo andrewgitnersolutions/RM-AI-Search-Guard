@@ -1,4 +1,4 @@
-// U-02, U-12a–f, U-13, U-14a–b, U-15 (docs/07 §6.2; U-12 and U-14 are split per behavior)
+// U-02, U-12a–f, U-13, U-13b, U-14a–b, U-15 (docs/07 §6.2; U-12 and U-14 are split per behavior)
 // plus X-01/X-02/X-03 regression probes of the message router and lifecycle listeners (not in
 // docs/07; added for the Phase 0 gate).
 import assert from "node:assert/strict";
@@ -87,6 +87,19 @@ equivalent("U-13", "policy sent to content scripts has no analyticsEndpointUrl o
   assert.ok(!("analyticsSharedToken" in policy), "shared token leaked to content script");
   return keys;
 });
+
+equivalent("U-13b", "content scripts get only the content-safe policy (toggles, gradeBand, isManaged); extension pages get the full policy; unknown type → bad_message, not logged", async (target) => {
+  const sw = loadServiceWorker(target, { managed: MANAGED });
+  const fromTab = await sw.send({ type: "GET_EFFECTIVE_POLICY" }, GOOGLE_TAB_SENDER);
+  const fromPage = await sw.send({ type: "GET_EFFECTIVE_POLICY" }, OPTIONS_SENDER);
+  const tabKeys = Object.keys(fromTab).sort();
+  assert.deepEqual(tabKeys, ["blockAiModeNavigation", "forceWebOnlySearch", "gradeBand", "hideAiModeUi", "hideAiOverviews", "hideAuxiliaryAiFeatures", "isManaged", "masterEnabled"]);
+  assert.equal(fromPage.source, "managed", "extension page sees the full policy");
+  const unknown = await sw.send({ type: "NOT_A_TYPE" }, OPTIONS_SENDER);
+  assert.equal(unknown?.error, "bad_message");
+  assert.equal(telemetry(sw)?.diagnosticLog?.length ?? 0, 0, "bad messages are not logged");
+  return { tabKeys, pageSource: fromPage.source, unknown };
+}, { bp: "BP-13" });
 
 // The former Test Flush rate-limit half of U-14 was dropped with analytics (D6; docs/07 §6.2).
 // U-14 is split so the unlocked half is checked even while the locked half is a known failure.

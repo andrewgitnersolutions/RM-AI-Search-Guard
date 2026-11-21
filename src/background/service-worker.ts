@@ -12,7 +12,8 @@ import { getTodayDateBucket } from "../shared/errors";
 import { isUnlockableInstall, parsePolicy } from "../shared/policy";
 import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, mergeLocalOverrides } from "../shared/storage";
 import { syncDynamicRules } from "./dnr-rules";
-import type { DiagnosticSnapshot, EffectivePolicy, ErrorCode, InstallType, RawRecord } from "../shared/types";
+import { BAD_MESSAGE, FORBIDDEN, PRIVILEGED_MESSAGE_TYPES, isFromExtensionPage, toContentPolicy, validateMessage } from "./messages";
+import type { DiagnosticSnapshot, EffectivePolicy, InstallType, RawRecord } from "../shared/types";
 
 /**
  * Learn how the extension was installed (BP-01). chrome.management.getSelf() needs no
@@ -144,19 +145,29 @@ async function syncRuntimeStateNow(options: { recordPolicyDiagnostics: boolean }
 }
 
 /**
- * Handle one runtime message from the content script, popup or options page.
- * Sender and payload shape are not checked yet (BP-13).
- * @param message - { type, ... }.
- * @returns The response for that type, or undefined for unknown types. Errors propagate to the onMessage wrapper.
+ * Handle one runtime message from the content script, popup or options page (BP-13).
+ * @param message - Untrusted message.
+ * @param sender - Who sent it.
+ * @returns The response for that type. A malformed message gets bad_message and a privileged
+ * one from a google.com tab gets forbidden; neither is logged, so a bad message can't fill the
+ * diagnostic log with misleading entries. Other errors propagate to the onMessage wrapper.
  */
-async function handleRuntimeMessage(message: RawRecord): Promise<unknown> {
+async function handleRuntimeMessage(message: unknown, sender: chrome.runtime.MessageSender | undefined): Promise<unknown> {
+  if (!validateMessage(message)) {
+    return BAD_MESSAGE;
+  }
+  const fromExtensionPage = isFromExtensionPage(sender);
+  if (PRIVILEGED_MESSAGE_TYPES.has(message.type) && !fromExtensionPage) {
+    return FORBIDDEN;
+  }
   switch (message.type) {
     case "GET_EFFECTIVE_POLICY": {
       const { policy } = await resolvePolicyFromStorage();
-      return policy;
+      // Pages show source and lock state; a content script only needs what to hide.
+      return fromExtensionPage ? policy : toContentPolicy(policy);
     }
     case "INCREMENT_METRICS": {
-      await incrementTelemetryMetrics(message.deltas as RawRecord);
+      await incrementTelemetryMetrics(message.deltas);
       return { ok: true };
     }
     case "RECORD_REDIRECT": {
@@ -177,7 +188,7 @@ async function handleRuntimeMessage(message: RawRecord): Promise<unknown> {
       return { ok: true };
     }
     case "LOG_DIAGNOSTIC": {
-      await recordDiagnosticEntry(message.code as ErrorCode, (message.detail ?? "") as string);
+      await recordDiagnosticEntry(message.code, message.detail ?? "");
       return { ok: true };
     }
     case "GET_DIAGNOSTIC_SNAPSHOT": {
@@ -203,7 +214,7 @@ async function handleRuntimeMessage(message: RawRecord): Promise<unknown> {
       if (currentPolicy.isManaged || !isUnlockableInstall(installType)) {
         return currentPolicy;
       }
-      await mergeLocalOverrides(sanitizeLocalOverridesInput(message.toggles as RawRecord));
+      await mergeLocalOverrides(sanitizeLocalOverridesInput(message.toggles));
       const { policy: updatedPolicy } = await syncRuntimeState({
         recordPolicyDiagnostics: false
       });
@@ -260,10 +271,10 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
 });
 
 // Returning true keeps the message channel open for the async sendResponse.
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
-      const result = await handleRuntimeMessage(message);
+      const result = await handleRuntimeMessage(message, sender);
       sendResponse(result);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);

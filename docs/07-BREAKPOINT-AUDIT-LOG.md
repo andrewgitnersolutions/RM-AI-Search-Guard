@@ -455,10 +455,18 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] Add `isFromExtensionPage(sender)` and `isFromContentScript(sender)` helpers. Gate the privileged types.
-- [ ] Add `validateMessage(message)` per type. On failure return `{ ok:false, error:"bad_message" }` **without** logging `ERR_STORAGE_FAILURE`.
-- [ ] Add `toContentPolicy(policy)` returning only the 6 toggles, `gradeBand`, `isManaged`, and `blockAiModeNavigation`/`forceWebOnlySearch` (needed by BP-05). Use it for messages from content scripts.
-- [ ] Content-script fallback path (`content.js:785-789`): unchanged. It reads managed storage directly and never transmits anything.
+- [x] Add `isFromExtensionPage(sender)` and `isFromContentScript(sender)` helpers. Gate the privileged types.
+- [x] Add `validateMessage(message)` per type. On failure return `{ ok:false, error:"bad_message" }` **without** logging `ERR_STORAGE_FAILURE`.
+- [x] Add `toContentPolicy(policy)` returning only the 6 toggles, `gradeBand`, `isManaged`, and `blockAiModeNavigation`/`forceWebOnlySearch` (needed by BP-05). Use it for messages from content scripts.
+- [x] Content-script fallback path (`content.js:785-789`): unchanged. It reads managed storage directly and never transmits anything.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **New module:** `src/background/messages.ts` holds `isFromExtensionPage()`, `validateMessage()` (a typed message union), `toContentPolicy()` and `PRIVILEGED_MESSAGE_TYPES`.
+- **Sender check:** an extension page is a sender whose `id` is ours and whose `url` is `chrome-extension://<id>/…`. Everything else counts as not a page, so `isFromContentScript()` wasn't needed. A missing id or URL fails closed.
+- **Privileged messages:** `SET_LOCAL_OVERRIDES`, `RESET_LOCAL_METRICS` and `GET_DIAGNOSTIC_SNAPSHOT` from a non-page sender get `{ ok:false, error:"forbidden" }`.
+- **Bad messages:** malformed or unknown messages get `bad_message`, and neither response is logged.
+- **Content policy:** `GET_EFFECTIVE_POLICY` from a content script returns only the toggles, `gradeBand` and `isManaged`.
+- **Tests:** U-12a, U-12b, U-12c, U-12e and U-12f pass and were removed from `tests/known-failures.json`. U-12d, U-13 and new U-13b (content-safe keys, full policy for pages, unknown type not logged) pass. The browser suite passes with content scripts on the reduced policy.
 
 **Done when:** a `LOG_DIAGNOSTIC` with `code:"NOPE"` sent from the Options console returns `bad_message` and doesn't add a log entry, and the content script's policy object has no analytics fields.
 
