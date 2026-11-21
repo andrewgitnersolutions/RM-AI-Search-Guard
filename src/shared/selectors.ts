@@ -78,8 +78,11 @@ export const SELECTORS = {
         '[role="listitem"] a',
         '[role="listitem"] span',
         "button",
-        "a"
+        '[role="button"]'
       ],
+      // BP-09 Option D: anchors outside nav listitems are checked separately and skipped when
+      // trimmed text exceeds 40 chars, avoiding regex normalization on long organic-result links.
+      maxAnchorTextLength: 40,
       exactTexts: ["ai mode", "dive deeper in ai mode", "ask ai mode"],
       navItemAncestor: '[role="listitem"]'
     },

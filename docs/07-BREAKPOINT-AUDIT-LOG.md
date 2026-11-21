@@ -374,11 +374,26 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A + C + D.** Also make the Options page's storage listener ignore telemetry-only changes unless the Diagnostics tab is visible.
 
 **To-do:**
-- [ ] Add throttling around `scheduleSweep`. Comment the timing rationale.
-- [ ] Look up the search input once per sweep and pass it into `isUnsafeToHide`.
-- [ ] Replace the all-pairs `topLevelCandidates` filter with a single pass (sort in document order, skip any candidate contained in the last kept one).
-- [ ] Accumulate `deltas` in a module-level object and flush via `INCREMENT_METRICS` on `pagehide`, on `visibilitychange` to hidden, and on a 10 s timer.
-- [ ] Options: in the storage listener, skip `refreshSnapshot()` for `local` changes that only touch `rmsg_telemetry` while the Diagnostics panel is hidden.
+- [x] Add throttling around `scheduleSweep`. Comment the timing rationale.
+- [x] Look up the search input once per sweep and pass it into `isUnsafeToHide`.
+- [x] Replace the all-pairs `topLevelCandidates` filter with a single pass (sort in document order, skip any candidate contained in the last kept one).
+- [x] Accumulate `deltas` in a module-level object and flush via `INCREMENT_METRICS` on `pagehide`, on `visibilitychange` to hidden, and on a 10 s timer.
+- [x] Options: in the storage listener, skip `refreshSnapshot()` for `local` changes that only touch `rmsg_telemetry` while the Diagnostics panel is hidden.
+
+**2026-11-21, fixed in `src/` (Phase 3):**
+- **Sweep throttling (`src/content/content.ts`):** `scheduleSweep()` runs first/idle sweeps on the next animation frame and throttles burst mutation sweeps to at most once every 150 ms with a trailing sweep after mutations settle; `disconnectObservers()` cancels pending timers and animation frames.
+- **DOM sweep & safety-guard cache (`src/content/dom-engine.ts`, `src/shared/selectors.ts`):** `createSafetyGuardCache()` snapshots search inputs and protected landmarks once per sweep for `isUnsafeToHide()` (falling back to live queries for disconnected or non-light-DOM elements), `isUnsafeToHide()` uses a `querySelector` short-circuit at threshold 1, `filterTopLevelCandidates()` sorts in document order (`compareDocumentPosition`) for a single-pass containment filter, built-in selector lists are pre-combined at module load, already-hidden elements are skipped before normalization/walking, AI Mode `<a>` text matching skips anchors with trimmed length > 40 (`maxAnchorTextLength: 40`), and `hasAiAttributionBadge()` skips leaf text > 60 chars.
+- **Batched metrics (`src/content/content.ts`):** `queueMetricDeltas()` accumulates deltas in memory and `flushPendingMetrics()` flushes once on `visibilitychange` (`hidden`), `pagehide`, AI Mode redirect, `masterEnabled: false`, or a 10 s fallback timer.
+- **Options listener (`src/ui/options.ts`):** `chrome.storage.onChanged` skips `refreshSnapshot()` for `rmsg_telemetry`-only `local` updates while `#panel-diagnostics` is hidden and marks Diagnostics stale so switching to it refreshes once.
+- **B-09 CDP CPU profile benchmark (Phase 2 `dist/` vs. Phase 3 `build/` on `tests/browser/fixtures/churn.html`, 2 s of 16 ms DOM mutations, 3 runs each):**
+  - Phase 2 `dist/` baseline: **50.18 ms/s median** (50.55 ms/s mean; runs: 51.76, 50.18, 49.73 ms/s), **125** telemetry storage writes during the 2 s churn.
+  - Phase 3 `build/`: **5.67 ms/s median** (5.76 ms/s mean; runs: 5.99, 5.67, 5.63 ms/s), **0** telemetry storage writes during the 2 s churn (flushed on exit/10 s).
+  - Reduction: **88.7% median** (88.6% mean), exceeding the ≥50% target.
+- **Tests:** `U-21`, `U-22`, `B-08` (churning SERP: ≤2 telemetry writes, all counters flushed on `pagehide`), `B-08b`, and `B-09` pass. `B-07`, `B-08`, and `B-08b` fail against the unfixed Phase 2 `dist/`.
+
+**2026-11-21, CodeRabbit review of PR #6:**
+- **Restore unsafe wrappers before collection (`src/content/dom-engine.ts`):** Extracted `restoreUnsafeHiddenElements()` and run it in `sweepDom()` before collecting any category candidates, so restored `[role="listitem"]` wrappers release inner AI Mode buttons and short anchors to be hidden in the same sweep (`B-05d`).
+- **Reset epoch gating (`src/shared/defaults.ts`, `src/shared/storage.ts`, `src/background/messages.ts`, `src/background/service-worker.ts`, `src/content/content.ts`, `src/ui/options.ts`):** `readMetricsResetEpoch()` propagates storage read errors (`0` only when missing/malformed) so `resetLocalTelemetry()` cannot regress a stored epoch on failure and increments `rmsg_metrics_reset_epoch` atomically; open content scripts discard `pendingMetricDeltas` and cancel `metricsFlushTimer` on reset via `storage.onChanged`, confirm the epoch (retrying on transient error without caching `0` and dropping unconfirmed batches on unload rather than sending untagged messages), and tag every `INCREMENT_METRICS` batch with `resetEpoch` so stale pre-reset batches are ignored (`U-23`, `U-23b`).
 
 **Done when:** on a recorded results page, a DevTools Performance profile shows sweep time per second reduced by at least 50% versus baseline, and a single search causes ≤ 2 telemetry writes.
 
@@ -454,9 +469,11 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A**, plus an "ensure alarm exists" check at top level on every worker wake (cheap `alarms.get`).
 
 **To-do:**
-- [ ] Change `scheduleAnalyticsAlarm` to repeating. Store the configured interval in the alarm name or telemetry state so it's recreated only when the interval changes.
-- [ ] `onAlarm`: no rescheduling; wrap the flush in try/catch only.
-- [ ] Top level: `void ensureAnalyticsAlarm()` (resolve policy → create or clear as needed).
+- [ ] ~~Change `scheduleAnalyticsAlarm` to repeating. Store the configured interval in the alarm name or telemetry state so it's recreated only when the interval changes.~~ Removed by D6 (analytics and `chrome.alarms` dropped 2026-11-20).
+- [ ] ~~`onAlarm`: no rescheduling; wrap the flush in try/catch only.~~ Removed by D6.
+- [ ] ~~Top level: `void ensureAnalyticsAlarm()` (resolve policy → create or clear as needed).~~ Removed by D6.
+
+**2026-11-21 (Phase 3):** Confirmed N/A per D6 — `chrome.alarms` and all analytics flush scheduling remain absent (`S-06b` enforces this across `src/`, `build/`, and `dist/`).
 
 **Done when:** with an injected flush failure (e.g. invalid JSON response), the alarm still exists afterwards (`chrome.alarms.getAll()` in the service worker console) and fires again on schedule.
 
@@ -507,8 +524,13 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A.** Rename the UI labels to "Searches with AI Mode UI hidden" and "Searches with auxiliary AI hidden".
 
 **To-do:**
-- [ ] Track `seenAiModePages` / `seenAuxPages` sets like `seenOverviewPages`.
-- [ ] Update labels in `options.html` (metric cards), the CSV headers' meaning in a comment, and the `docs/02` analytics description.
+- [x] Track `seenAiModePages` / `seenAuxPages` sets like `seenOverviewPages`.
+- [x] Update labels in `options.html` (metric cards), the CSV headers' meaning in a comment, and the `docs/02` analytics description.
+
+**2026-11-21, fixed in `src/` (Phase 3):**
+- **Per-page category sets (`src/content/content.ts`, `src/content/dom-engine.ts`):** `seenOverviewPages`, `seenAiModePages`, and `seenAuxPages` (`SeenCategoryPages`) count each hidden category at most once per opaque page key.
+- **UI & docs (`src/ui/options.html`, `src/ui/options.ts`, `docs/02-ARCHITECTURE.md`, `docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md`):** Renamed Options metric cards to **"Searches with AI Mode UI hidden"** and **"Searches with auxiliary AI hidden"**, documented the per-page meaning in `buildMetricsCsv()`, and updated architecture/runbook notes.
+- **Tests:** `B-07` (3 reloads with multi-burst re-render churn → `{ overviewsHidden: 3, aiModeUiHidden: 3, auxAiHidden: 3 }`) passes, fails on Phase 2 `dist/` (`{ overviewsHidden: 3, aiModeUiHidden: 12, auxAiHidden: 21 }`), and was removed from `tests/known-failures.json`.
 
 **Done when:** reloading the same results page 3 times increments each category by exactly 3, regardless of re-renders.
 
@@ -675,7 +697,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 | 0. Setup | **Rebuild `src/` (D1 = B) in three separate commits, in this order** (sequencing clarified 2026-11-20 after CodeRabbit review of PR #1):<br>**0a. Behavior-preserving rebuild (analytics and old name still in).** Split the `dist/` bundles into the modules named in `docs/03` §1 (`shared/defaults, errors, policy, selectors, storage`; `background/service-worker, dnr-rules, analytics`; `content/dom-engine, content`; `ui/popup, options, policy-generator-core`). Add `package.json`, `tsconfig.json`, `scripts/build.mjs` (esbuild → gitignored `build/`) and `scripts/promote.mjs` (`build/` → `dist/`). The Apps Script template stays an inline string in the options module exactly as today: **don't create `templates/apps-script/`**, because analytics is removed in 0b. Keep the original `dist/` as gitignored `baseline-dist/`. **Equivalence gate (0a only):** the rebuilt output must behave identically to `baseline-dist/`, analytics included. Compare code with comments and whitespace stripped where bundling allows. Run every U-test and the Playwright B smoke tests against **both** `baseline-dist/` and `build/`: results must be identical, **failures included**. U-tests that describe not-yet-fixed break points are expected to fail on both and don't block promotion; only a *difference* between the two builds blocks it. Then promote and commit.<br>**0b. Remove analytics (D6).** Separate commit. The equivalence gate doesn't apply to these removed behaviors, which are the only allowed differences from 0a: alarm scheduling and flushing; the `TRIGGER_TEST_FLUSH` message; the 4 analytics policy fields and their validation; `ERR_ANALYTICS_ENDPOINT_INVALID` / `ERR_ANALYTICS_FLUSH_FAILED`; pending-bucket and flush-status telemetry fields; the Options analytics status bar and Test Flush button; the generator's analytics section and Copy Code.gs button; the manifest's `alarms` permission and `script.google.com` / `script.googleusercontent.com` hosts. Every other test result must match 0a. S-03 applies from this commit on.<br>**0c. Rename (D7).** Separate commit; extension strings only (manifest `name`/`short_name`/`default_title`, popup, Options, CSS header). Tests must match 0b.<br>**Workflow for every later change:** edit `src/` → `npm run build` writes to `build/` → run S-, U- and B-tests against `build/` (load it unpacked) → `npm run promote` copies `build/` into `dist/` only when the **promotion rule** holds. `dist/` changes only through promote.<br>**Promotion rule (known failures):** at the end of 0a, record every failing test in `tests/known-failures.json` with the break point and phase that will fix it. Before any promotion, (1) every test assigned to the current phase and every test not on the list must pass, and (2) each listed test must fail exactly as recorded (a *changed* failure blocks promotion just like a new one). When a phase fixes a break point, remove its tests from the list in the same commit. The list must be empty after Phase 4. | Every later fix needs one source of truth and a test harness. Proving equivalence before removing anything means any behavior change in 0b/0c is deliberate and visible. |
 | 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 1`. Still open: M-01, M-02 and M-05 on a managed device (BP-01). | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
 | 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 (BP-19 option A, owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 2`. Still open: M-05 (managed device) and L-06/L-07 (live Google). | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
-| 3. Performance and accuracy | BP-09, BP-14, BP-12 | Touch the same sweep/metrics paths, so do them together. |
+| 3. Performance and accuracy | BP-09, BP-14, BP-12 (N/A per D6). **Done 2026-11-21**: BP-09 and BP-14 fixed; BP-12 N/A per D6; `tests/known-failures.json` has `currentPhase: 3`. | Touch the same sweep/metrics paths, so do them together. |
 | 4. Longevity | BP-03, BP-04, BP-11 | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
 | 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above | Comment once, after the code is stable. |
 
@@ -727,6 +749,9 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-18 | Two concurrent `SET_LOCAL_OVERRIDES` (different toggles) → both edits stored | BP-17 |
 | U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (option A chosen 2026-11-21) | BP-19 |
 | U-20 | Content script (vm, controlled message timing): an older disabled policy load finishing after a newer enabled one is dropped; the tab stays protected | BP-17 |
+| U-21 | Content script (vm, fake timers): burst mutations throttle to ≥150 ms, first/idle sweep runs on rAF, disabling `masterEnabled` cancels pending timer/rAF | BP-09 |
+| U-22 | Content script (vm, fake timers): metric deltas batch across sweeps, flush once on `visibilitychange` (`hidden`) / `pagehide` (no double-send), and flush on the 10 s timer | BP-09 |
+| U-23 | Content script + service worker (vm): `RESET_LOCAL_METRICS` discards pending pre-reset batches in open tabs and drops stale in-flight `INCREMENT_METRICS` via `resetEpoch` (`U-23b`: delayed/failed epoch reads never emit untagged batches, never cache `0`, and failed resets keep the stored epoch intact) | BP-09 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
 
@@ -738,11 +763,11 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-02 | Policy with `hideAiOverviews:false` → Overview visible after load | BP-02 |
 | B-03 | Each surface is hidden: Overview, AI Mode tab, homepage button, Dive deeper, Labs, Lens, follow-up; search box visible; ≥5 organic results visible | Regression |
 | B-04 | Organic result linking to `example.com/.../aimode-review` stays visible | BP-08 |
-| B-05 | Overview whose nearest `data-hveid` wrapper contains 1 organic result: only the Overview card hides; `ERR_SAFETY_GUARD_TRIPPED` if the only candidate is the wrapper | BP-08 |
+| B-05 | Overview whose nearest `data-hveid` wrapper contains 1 organic result: only the Overview card hides; `ERR_SAFETY_GUARD_TRIPPED` if the only candidate is the wrapper (`B-05b`/`B-05c`: CSS guard deferral & late un-hide; `B-05d`: restored `aimode` wrapper releases inner button/anchor in the same sweep) | BP-08, BP-09 |
 | B-06 | `history.pushState(…udm=50)` + a DOM mutation → page ends on the clean URL; `aiModeRedirects` +1 exactly. (B-06b, 2026-11-21: pushState alone, caught by the Navigation API.) | BP-05 |
 | B-07 | Same page reloaded 3× with re-render churn → each category counter +3 exactly | BP-14 |
-| B-08 | A single search produces ≤2 telemetry writes (count via a `chrome.storage.onChanged` logger in the service worker console) | BP-09 |
-| B-09 | Performance profile on the churning mock page: sweep time per second down ≥50% vs. the current `dist` baseline (record the baseline first) | BP-09 |
+| B-08 | A single search on a churning results page (`churn.html`) produces ≤2 telemetry writes and flushes all counters on `pagehide` (`B-08b`: Options skips telemetry-only refreshes while Diagnostics is hidden) | BP-09 |
+| B-09 | Performance profile on the churning mock page (`churn.html`): sweep time per second down ≥50% vs. the Phase 2 `dist` baseline (88.7% median reduction measured via CDP CPU profiler: 50.18 → 5.67 ms/s) | BP-09 |
 | B-10 | `extraHideSelectors` hides `div.test-ai`; an invalid selector logs `ERR_SELECTOR_SYNTAX` and other hiding still works | BP-04 |
 | B-11 | Tier 1/2 selectors stripped from the mock Overview → `WARN_AI_SURFACE_VISIBLE` logged once | BP-04 |
 | B-12 | Options page (unmanaged): no "Locked" badges; Cancel Reset only after the first Reset click; Test Flush only when analytics is on; Staff card only after "Show Staff OU Preset"; tabs switch; Ctrl+F finds text in hidden tabs | BP-06 |

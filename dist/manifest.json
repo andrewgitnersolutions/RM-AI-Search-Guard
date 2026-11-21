@@ -4,7 +4,7 @@
   "short_name": "RaiseMark",
   "version": "1.0.0",
   "minimum_chrome_version": "134",
-  "description": "Grade-level Google Admin Console controls to hide AI Overviews, remove AI Mode, and protect student search on Google.",
+  "description": "Grade-level Google Admin Console controls to hide AI Overviews, remove AI Mode, and manage AI Search features on Google.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",

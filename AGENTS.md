@@ -16,7 +16,8 @@ A Manifest V3 Chrome extension for K-12 school districts. It hides Google Search
 
 - **Phase 0 is done** (0a rebuild, 0b analytics removed, 0c rename; PR #3, 2026-11-21). The equivalence gate passed.
 - **Phase 1 is done** (BP-01, BP-02, BP-06, BP-10, BP-17; PR #4, 2026-11-21).
-- **Phase 2 is done** (BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 option A; 2026-11-21). `tests/known-failures.json` has `currentPhase: 2`. Still open: M-01, M-02 and M-05 on a managed device (the owner has none yet), and L-06/L-07 on live Google. **Next: Phase 3** (docs/07 §5: BP-09, BP-14, BP-12).
+- **Phase 2 is done** (BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 option A; PR #5, 2026-11-21).
+- **Phase 3 is done** (BP-09, BP-14; BP-12 removed by D6; 2026-11-21). `tests/known-failures.json` has `currentPhase: 3`. Still open: M-01, M-02 and M-05 on a managed device (the owner has none yet), and L-06/L-07 on live Google. **Next: Phase 4** (docs/07 §5: BP-03, BP-04; BP-11 removed by D6).
 - **`src/` is the source of truth and `dist/` is build output.** Never hand-edit `dist/`; change `src/` and rebuild. TypeScript runs with `strict: true`; `npm run typecheck` must pass.
 - **Workflow (2026-11-20):** edit `src/` → `npm run build` (writes to the gitignored `build/`) → run the S/U/B tests against `build/` → `npm run promote` copies `build/` to `dist/`. Never write to `dist/` any other way.
 - Open owner decisions: see the decisions table in docs/07 §2. Don't act on an unresolved decision; use its stated default only if the owner said to.
@@ -29,7 +30,7 @@ A Manifest V3 Chrome extension for K-12 school districts. It hides Google Search
 - No remote code, remote config or remote selector fetching.
 - Don't solve, bypass or retry through Google CAPTCHA / "unusual traffic" pages; record the test as INCONCLUSIVE.
 - Don't upload, publish or submit anything to the Chrome Web Store.
-- Don't commit, push, create branches or open PRs unless the owner asks. The GitHub repo is **public**.
+- When a phase or task is complete and verified (all required tests pass and `dist/` is promoted if `src/` changed), create a feature branch, commit, push, and open a PR against `main` (never push directly to `main` or force-push). The GitHub repo is **public** — never commit `local-cws/`, secrets, or untracked personal files.
 - The product name is **"RaiseMark: AI Search Controls for K-12"** (short name **"RaiseMark"**), decided 2026-11-20. Don't change it, and never put "Google" or "Chrome" in the title (Chrome Web Store branding rules). The license is standard MIT.
 - Minimum Chrome is **134** (`minimum_chrome_version`, decided 2026-11-20). Don't use a browser API or CSS feature newer than 134 without feature-detecting it. Don't raise the minimum without owner approval: raising it silently cuts off updates for devices below the new floor.
 - Supported Google UI languages for text matching: **English and Spanish** (decided 2026-11-20). Strings must be collected from live Google with `hl=xx`, never machine-translated, and each gets a `FRAGILE(…, last verified …)` date.

@@ -53,6 +53,7 @@ be empty after Phase 4.
 
 ## Not automated (report as NOT RUN)
 
-B-09 (performance profile), B-10 (needs managed policy), B-13 on a real managed profile
-(B-13b–d cover the locked and worker-unreachable views by stubbing the worker's answer), the
-churning-page half of B-08, all L (live Google), M (managed device) and O (Chrome-version) tests.
+B-10 (needs managed policy), B-13 on a real managed profile (B-13b–d cover the locked and
+worker-unreachable views by stubbing the worker's answer), all L (live Google), M (managed
+device) and O (Chrome-version) tests. B-09 was measured with a CDP CPU profile comparison on
+`tests/browser/fixtures/churn.html` against the Phase 2 `dist/` baseline.

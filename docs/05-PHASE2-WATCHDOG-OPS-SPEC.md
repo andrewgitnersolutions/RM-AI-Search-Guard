@@ -1,7 +1,9 @@
 # 05 — Phase 2 Operations Spec: Daily Selector Watchdog & Self-Healing Pipeline
 
-**Status:** Phase 2 (Post-MVP Operations Automation — NOT part of the 1-shot Extension MVP build; builds directly on Phase 1's `npm run canary` harness)  
-**Maintainer Notification Target:** `andrew@raisemarkai.com`  
+> **Current Implementation Note (2026-11-21):** This document is a future post-release operations concept. Current active engineering work, breakpoint fixes (`BP-01`–`BP-20`), and verification suites (`S`, `U`, `B`, `L`, `M`) are tracked in [`docs/07-BREAKPOINT-AUDIT-LOG.md`](07-BREAKPOINT-AUDIT-LOG.md).
+
+**Status:** Post-Release Operations Concept (builds on the `src/` + `tests/` harness in `docs/07-BREAKPOINT-AUDIT-LOG.md`)  
+**Maintainer Notification Target:** `info@raisemarkai.com`  
 **Hosting Cost:** \$0.00/month (runs via local Antigravity `/schedule` automation + free Chrome Web Store Publish API + free GitHub PRs)
 
 ---

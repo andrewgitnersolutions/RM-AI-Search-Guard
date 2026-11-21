@@ -33,7 +33,8 @@ var METRIC_KEYS = [
 var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
-  LAST_POLICY: "rmsg_last_policy"
+  LAST_POLICY: "rmsg_last_policy",
+  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
 };
 var MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
 function createEmptyMetrics() {
@@ -352,8 +353,25 @@ async function writeTelemetryState(state) {
   }
   await chrome.storage.local.set({ [STORAGE_KEYS.TELEMETRY]: state });
 }
-async function incrementTelemetryMetrics(deltas) {
+async function readMetricsResetEpoch() {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) {
+    return 0;
+  }
+  const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
+  const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
+    return raw;
+  }
+  return 0;
+}
+async function incrementTelemetryMetrics(deltas, batchResetEpoch) {
   return enqueueStorageOp(async () => {
+    if (batchResetEpoch !== void 0) {
+      const currentEpoch = await readMetricsResetEpoch();
+      if (batchResetEpoch < currentEpoch) {
+        return await readTelemetryState();
+      }
+    }
     const state = await readTelemetryState();
     let changed = false;
     for (const key of METRIC_KEYS) {
@@ -404,8 +422,15 @@ async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ ne
 }
 async function resetLocalTelemetry() {
   return enqueueStorageOp(async () => {
+    if (typeof chrome === "undefined" || !chrome.storage?.local) {
+      throw new Error("chrome.storage.local is unavailable");
+    }
     const fresh = createInitialTelemetryState();
-    await writeTelemetryState(fresh);
+    const nextEpoch = await readMetricsResetEpoch() + 1;
+    await chrome.storage.local.set({
+      [STORAGE_KEYS.TELEMETRY]: fresh,
+      [STORAGE_KEYS.METRICS_RESET_EPOCH]: nextEpoch
+    });
     return fresh;
   });
 }
@@ -594,7 +619,7 @@ function validateMessage(message) {
     case "RESET_LOCAL_METRICS":
       return true;
     case "INCREMENT_METRICS":
-      return isPlainObject(message.deltas);
+      return isPlainObject(message.deltas) && (message.resetEpoch === void 0 || typeof message.resetEpoch === "number" && Number.isInteger(message.resetEpoch) && message.resetEpoch >= 0);
     case "RECORD_REDIRECT":
       return message.source === "omnibox" || message.source === "aimode";
     case "LOG_DIAGNOSTIC":
@@ -709,7 +734,7 @@ async function handleRuntimeMessage(message, sender) {
       return fromExtensionPage ? policy : toContentPolicy(policy);
     }
     case "INCREMENT_METRICS": {
-      await incrementTelemetryMetrics(message.deltas);
+      await incrementTelemetryMetrics(message.deltas, message.resetEpoch);
       return { ok: true };
     }
     case "RECORD_REDIRECT": {

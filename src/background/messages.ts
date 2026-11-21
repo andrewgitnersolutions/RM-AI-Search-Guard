@@ -15,7 +15,7 @@ export type RuntimeMessage =
   | { type: "GET_EFFECTIVE_POLICY" }
   | { type: "GET_DIAGNOSTIC_SNAPSHOT" }
   | { type: "RESET_LOCAL_METRICS" }
-  | { type: "INCREMENT_METRICS"; deltas: RawRecord }
+  | { type: "INCREMENT_METRICS"; deltas: RawRecord; resetEpoch?: number }
   | { type: "RECORD_REDIRECT"; source: "omnibox" | "aimode" }
   | { type: "LOG_DIAGNOSTIC"; code: ErrorCode; detail?: string }
   | { type: "SET_LOCAL_OVERRIDES"; toggles: RawRecord };
@@ -78,7 +78,11 @@ export function validateMessage(message: unknown): message is RuntimeMessage {
     case "RESET_LOCAL_METRICS":
       return true;
     case "INCREMENT_METRICS":
-      return isPlainObject(message.deltas);
+      return (
+        isPlainObject(message.deltas) &&
+        (message.resetEpoch === undefined ||
+          (typeof message.resetEpoch === "number" && Number.isInteger(message.resetEpoch) && message.resetEpoch >= 0))
+      );
     case "RECORD_REDIRECT":
       return message.source === "omnibox" || message.source === "aimode";
     case "LOG_DIAGNOSTIC":

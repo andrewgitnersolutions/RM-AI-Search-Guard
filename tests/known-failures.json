@@ -1,11 +1,6 @@
 {
-  "currentPhase": 2,
+  "currentPhase": 3,
   "failures": {
-    "B-07": {
-      "bp": "BP-14",
-      "phase": 3,
-      "message": "AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n    aiModeUiHidden: 3,\n+   auxAiHidden: 12,\n-   auxAiHidden: 3,\n    overviewsHidden: 3\n  }\n"
-    },
     "B-11": {
       "bp": "BP-04",
       "phase": 4,

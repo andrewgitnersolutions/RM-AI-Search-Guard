@@ -209,12 +209,41 @@ export async function writeTelemetryState(state: TelemetryState): Promise<void> 
 }
 
 /**
- * Add aggregate counter deltas to the lifetime totals.
- * @param deltas - Partial metrics; non-positive or non-numeric values are ignored.
- * @returns Updated state. Writes only if something changed. A missing deltas object throws (BP-13).
+ * Read the monotonic reset generation counter from chrome.storage.local.
+ * Used to drop stale pre-reset metric batches from open tabs after Reset Local Counters.
+ * @returns Non-negative integer epoch (0 when the key is missing, invalid, or outside Chrome).
+ * Storage read failures propagate so resetLocalTelemetry() leaves the stored generation intact
+ * instead of regressing to 1 and content scripts know the epoch is unconfirmed.
  */
-export async function incrementTelemetryMetrics(deltas: Partial<Record<string, unknown>>): Promise<TelemetryState> {
+export async function readMetricsResetEpoch(): Promise<number> {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) {
+    return 0;
+  }
+  const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
+  const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
+    return raw;
+  }
+  return 0;
+}
+
+/**
+ * Add aggregate counter deltas to the lifetime totals, dropping stale pre-reset batches.
+ * @param deltas - Partial metrics; non-positive or non-numeric values are ignored.
+ * @param batchResetEpoch - Reset generation captured when the batch was queued, if any.
+ * @returns Updated state (or current state unchanged when batchResetEpoch predates a reset).
+ */
+export async function incrementTelemetryMetrics(
+  deltas: Partial<Record<string, unknown>>,
+  batchResetEpoch?: number
+): Promise<TelemetryState> {
   return enqueueStorageOp(async () => {
+    if (batchResetEpoch !== undefined) {
+      const currentEpoch = await readMetricsResetEpoch();
+      if (batchResetEpoch < currentEpoch) {
+        return await readTelemetryState();
+      }
+    }
     const state = await readTelemetryState();
     let changed = false;
     for (const key of METRIC_KEYS) {
@@ -274,13 +303,21 @@ export async function recordDiagnosticEntry(code: ErrorCode, detail: string = ""
 }
 
 /**
- * Replace telemetry with a fresh state (counters and log).
+ * Replace telemetry with a fresh state (counters and log) and advance the reset epoch so
+ * open tabs discard unflushed pre-reset batches and any in-flight batch is ignored.
  * @returns The fresh state.
  */
 export async function resetLocalTelemetry(): Promise<TelemetryState> {
   return enqueueStorageOp(async () => {
+    if (typeof chrome === "undefined" || !chrome.storage?.local) {
+      throw new Error("chrome.storage.local is unavailable");
+    }
     const fresh = createInitialTelemetryState();
-    await writeTelemetryState(fresh);
+    const nextEpoch = (await readMetricsResetEpoch()) + 1;
+    await chrome.storage.local.set({
+      [STORAGE_KEYS.TELEMETRY]: fresh,
+      [STORAGE_KEYS.METRICS_RESET_EPOCH]: nextEpoch
+    });
     return fresh;
   });
 }

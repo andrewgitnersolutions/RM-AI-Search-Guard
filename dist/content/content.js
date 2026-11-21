@@ -74,7 +74,8 @@
   var STORAGE_KEYS = {
     LOCAL_OVERRIDES: "rmsg_local_overrides",
     TELEMETRY: "rmsg_telemetry",
-    LAST_POLICY: "rmsg_last_policy"
+    LAST_POLICY: "rmsg_last_policy",
+    METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
   };
 
   // src/shared/policy.ts
@@ -205,6 +206,17 @@
       return { data: null, error: formatErrorMessage(err) };
     }
   }
+  async function readMetricsResetEpoch() {
+    if (typeof chrome === "undefined" || !chrome.storage?.local) {
+      return 0;
+    }
+    const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
+    const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
+    if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
+      return raw;
+    }
+    return 0;
+  }
 
   // src/shared/selectors.ts
   var SELECTORS = {
@@ -279,8 +291,11 @@
           '[role="listitem"] a',
           '[role="listitem"] span',
           "button",
-          "a"
+          '[role="button"]'
         ],
+        // BP-09 Option D: anchors outside nav listitems are checked separately and skipped when
+        // trimmed text exceeds 40 chars, avoiding regex normalization on long organic-result links.
+        maxAnchorTextLength: 40,
         exactTexts: ["ai mode", "dive deeper in ai mode", "ask ai mode"],
         navItemAncestor: '[role="listitem"]'
       },
@@ -317,6 +332,15 @@
   var OVERVIEW_HEADING_TEXT_SET = new Set(SELECTORS.tier1.aiOverviews.headingTexts);
   var AI_MODE_EXACT_TEXT_SET = new Set(SELECTORS.tier1.aiModeUi.exactTexts);
   var AI_ATTRIBUTION_MARKER_SET = new Set(SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers);
+  var OVERVIEW_DIRECT_COMBINED = SELECTORS.tier1.aiOverviews.directSelectors.join(", ");
+  var OVERVIEW_HEADING_COMBINED = SELECTORS.tier1.aiOverviews.headingSelectors.join(", ");
+  var OVERVIEW_TIER2_COMBINED = SELECTORS.tier2.aiOverviews.join(", ");
+  var AI_MODE_DIRECT_COMBINED = SELECTORS.tier1.aiModeUi.directSelectors.join(", ");
+  var AI_MODE_TEXT_COMBINED = SELECTORS.tier1.aiModeUi.textCandidateSelectors.join(", ");
+  var AI_MODE_TIER2_COMBINED = SELECTORS.tier2.aiModeUi.join(", ");
+  var AUX_DIRECT_COMBINED = SELECTORS.tier1.auxiliaryAi.directSelectors.join(", ");
+  var AUX_PAA_COMBINED = SELECTORS.tier1.auxiliaryAi.paaCardSelectors.join(", ");
+  var AUX_TIER2_COMBINED = SELECTORS.tier2.auxiliaryAi.join(", ");
   function normalizeText(text) {
     if (!text) {
       return "";
@@ -355,43 +379,83 @@
     }
     return null;
   }
-  function isUnsafeToHide(el, doc, category) {
+  function createSafetyGuardCache(doc) {
+    let searchInputs = null;
+    let protectedElements = null;
+    try {
+      searchInputs = Array.from(doc.querySelectorAll(SELECTORS.safetyGuard.searchInputSelector));
+    } catch {
+      searchInputs = null;
+    }
+    try {
+      protectedElements = Array.from(doc.querySelectorAll(PROTECTED_SELECTOR_COMBINED));
+    } catch {
+      protectedElements = null;
+    }
+    return { doc, searchInputs, protectedElements };
+  }
+  function isUnsafeToHide(el, doc, category, cache) {
     if (PROTECTED_TAG_SET.has(el.tagName.toUpperCase())) {
       return true;
     }
-    for (const protectedSel of SELECTORS.safetyGuard.protectedSelectors) {
-      if (safeMatches(el, protectedSel)) {
-        return true;
+    const ownerDoc = doc ?? el.ownerDocument;
+    const canUseCache = Boolean(
+      cache && el.isConnected && ownerDoc === cache.doc && (typeof el.getRootNode !== "function" || el.getRootNode() === cache.doc)
+    );
+    if (canUseCache && cache.protectedElements !== null) {
+      for (const protectedEl of cache.protectedElements) {
+        if (protectedEl === el || el.contains(protectedEl)) {
+          return true;
+        }
       }
-    }
-    try {
-      if (el.querySelector(PROTECTED_SELECTOR_COMBINED) !== null) {
-        return true;
+    } else {
+      for (const protectedSel of SELECTORS.safetyGuard.protectedSelectors) {
+        if (safeMatches(el, protectedSel)) {
+          return true;
+        }
       }
-    } catch {
+      try {
+        if (el.querySelector(PROTECTED_SELECTOR_COMBINED) !== null) {
+          return true;
+        }
+      } catch {
+      }
     }
     const searchInputSel = SELECTORS.safetyGuard.searchInputSelector;
-    if (safeMatches(el, searchInputSel)) {
-      return true;
-    }
-    try {
-      if (el.querySelector(searchInputSel) !== null) {
+    if (canUseCache && cache.searchInputs !== null) {
+      for (const searchInput of cache.searchInputs) {
+        if (searchInput === el || el.contains(searchInput)) {
+          return true;
+        }
+      }
+    } else {
+      if (safeMatches(el, searchInputSel)) {
         return true;
       }
-    } catch {
-    }
-    const ownerDoc = doc ?? el.ownerDocument;
-    if (ownerDoc) {
-      const searchInput = ownerDoc.querySelector(searchInputSel);
-      if (searchInput && el.contains(searchInput)) {
-        return true;
+      try {
+        if (el.querySelector(searchInputSel) !== null) {
+          return true;
+        }
+      } catch {
+      }
+      if (ownerDoc) {
+        const searchInput = ownerDoc.querySelector(searchInputSel);
+        if (searchInput && el.contains(searchInput)) {
+          return true;
+        }
       }
     }
     try {
-      const organicResults = el.querySelectorAll(SELECTORS.safetyGuard.organicResultSelector);
       const threshold = category === "overview" ? SELECTORS.safetyGuard.overviewOrganicResultThreshold : SELECTORS.safetyGuard.organicResultThreshold;
-      if (organicResults.length >= threshold) {
-        return true;
+      if (threshold <= 1) {
+        if (el.querySelector(SELECTORS.safetyGuard.organicResultSelector) !== null) {
+          return true;
+        }
+      } else {
+        const organicResults = el.querySelectorAll(SELECTORS.safetyGuard.organicResultSelector);
+        if (organicResults.length >= threshold) {
+          return true;
+        }
       }
     } catch {
     }
@@ -472,9 +536,37 @@
     }
     return Boolean(el.parentElement?.closest("[data-rmsg-hidden]"));
   }
-  function processCategoryCandidates(candidates, category, doc, errors, reportedUnsafe) {
+  function filterTopLevelCandidates(candidates) {
+    if (candidates.length <= 1) {
+      return [...candidates];
+    }
+    const sorted = [...candidates].sort((a, b) => {
+      if (a === b) {
+        return 0;
+      }
+      const pos = a.compareDocumentPosition(b);
+      if ((pos & 4) !== 0) {
+        return -1;
+      }
+      if ((pos & 2) !== 0) {
+        return 1;
+      }
+      return 0;
+    });
+    const topLevel = [];
+    let lastKept = null;
+    for (const candidate of sorted) {
+      if (lastKept && (lastKept === candidate || lastKept.contains(candidate))) {
+        continue;
+      }
+      topLevel.push(candidate);
+      lastKept = candidate;
+    }
+    return topLevel;
+  }
+  function restoreUnsafeHiddenElements(category, doc, errors, reportedUnsafe, guardCache) {
     for (const hidden of doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`)) {
-      if (isUnsafeToHide(hidden, doc, category)) {
+      if (isUnsafeToHide(hidden, doc, category, guardCache)) {
         restoreElementVisibility(hidden);
         if (!reportedUnsafe.has(hidden)) {
           reportedUnsafe.add(hidden);
@@ -485,13 +577,15 @@
         }
       }
     }
+  }
+  function processCategoryCandidates(candidates, category, doc, errors, reportedUnsafe, guardCache) {
     const uniqueCandidates = Array.from(new Set(candidates));
     const safeCandidates = [];
     for (const candidate of uniqueCandidates) {
       if (isAlreadyHidden(candidate)) {
         continue;
       }
-      if (isUnsafeToHide(candidate, doc, category)) {
+      if (isUnsafeToHide(candidate, doc, category, guardCache)) {
         if (!reportedUnsafe.has(candidate)) {
           reportedUnsafe.add(candidate);
           errors.push({
@@ -503,9 +597,7 @@
       }
       safeCandidates.push(candidate);
     }
-    const topLevelCandidates = safeCandidates.filter(
-      (candidate) => !safeCandidates.some((other) => other !== candidate && other.contains(candidate))
-    );
+    const topLevelCandidates = filterTopLevelCandidates(safeCandidates);
     let newlyHiddenCount = 0;
     for (const el of topLevelCandidates) {
       if (isAlreadyHidden(el)) {
@@ -516,7 +608,7 @@
     }
     return newlyHiddenCount;
   }
-  function findOverviewHeadingContainer(headingEl, doc) {
+  function findOverviewHeadingContainer(headingEl, doc, guardCache) {
     let cursor = headingEl.parentElement;
     let depth = 0;
     while (cursor && depth < SELECTORS.safetyGuard.maxAncestorDepth) {
@@ -524,7 +616,7 @@
       if (safeMatches(cursor, CONTAINER_ANCESTOR_COMBINED)) {
         return cursor;
       }
-      if (isUnsafeToHide(cursor, doc, "overview")) {
+      if (isUnsafeToHide(cursor, doc, "overview", guardCache)) {
         if (cursor === headingEl.parentElement) {
           return cursor;
         }
@@ -532,60 +624,94 @@
       }
       cursor = cursor.parentElement;
     }
-    if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc, "overview")) {
+    if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc, "overview", guardCache)) {
       return headingEl.parentElement;
     }
     return headingEl;
   }
-  function collectAiOverviewCandidates(doc, errors) {
+  function collectAiOverviewCandidates(doc, errors, guardCache) {
     const candidates = [];
-    for (const selector of SELECTORS.tier1.aiOverviews.directSelectors) {
-      candidates.push(...safeQueryAll(doc, selector, errors));
-    }
-    const headingSelector = SELECTORS.tier1.aiOverviews.headingSelectors.join(", ");
-    for (const headingEl of safeQueryAll(doc, headingSelector, errors)) {
-      if (OVERVIEW_HEADING_TEXT_SET.has(normalizeText(headingEl.textContent))) {
-        candidates.push(findOverviewHeadingContainer(headingEl, doc));
+    if (OVERVIEW_DIRECT_COMBINED) {
+      for (const el of safeQueryAll(doc, OVERVIEW_DIRECT_COMBINED, errors)) {
+        if (!isAlreadyHidden(el)) {
+          candidates.push(el);
+        }
       }
     }
-    for (const selector of SELECTORS.tier2.aiOverviews) {
-      candidates.push(...safeQueryAll(doc, selector, errors));
+    if (OVERVIEW_HEADING_COMBINED) {
+      for (const headingEl of safeQueryAll(doc, OVERVIEW_HEADING_COMBINED, errors)) {
+        if (isAlreadyHidden(headingEl)) {
+          continue;
+        }
+        if (OVERVIEW_HEADING_TEXT_SET.has(normalizeText(headingEl.textContent))) {
+          candidates.push(findOverviewHeadingContainer(headingEl, doc, guardCache));
+        }
+      }
+    }
+    if (OVERVIEW_TIER2_COMBINED) {
+      for (const el of safeQueryAll(doc, OVERVIEW_TIER2_COMBINED, errors)) {
+        if (!isAlreadyHidden(el)) {
+          candidates.push(el);
+        }
+      }
     }
     return candidates;
   }
-  function promoteAiModeTarget(el, doc) {
+  function promoteAiModeTarget(el, doc, guardCache) {
     const navItem = el.closest(SELECTORS.tier1.aiModeUi.navItemAncestor);
-    if (navItem && !isUnsafeToHide(navItem, doc, "aimode")) {
+    if (navItem && !isUnsafeToHide(navItem, doc, "aimode", guardCache)) {
       return navItem;
     }
     if (el.tagName.toUpperCase() === "SPAN") {
       const interactiveAncestor = el.closest('a, button, [role="tab"], [role="button"]');
-      if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc, "aimode")) {
+      if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc, "aimode", guardCache)) {
         return interactiveAncestor;
       }
     }
     return el;
   }
-  function collectAiModeUiCandidates(doc, errors) {
+  function collectAiModeUiCandidates(doc, errors, guardCache) {
     const candidates = [];
-    const directSelectors = SELECTORS.tier1.aiModeUi.directSelectors;
-    for (const selector of directSelectors) {
-      for (const el of safeQueryAll(doc, selector, errors)) {
-        candidates.push(promoteAiModeTarget(el, doc));
+    if (AI_MODE_DIRECT_COMBINED) {
+      for (const el of safeQueryAll(doc, AI_MODE_DIRECT_COMBINED, errors)) {
+        if (!isAlreadyHidden(el)) {
+          candidates.push(promoteAiModeTarget(el, doc, guardCache));
+        }
       }
     }
-    const textSelector = [
-      ...SELECTORS.tier1.aiModeUi.textCandidateSelectors,
-      // Extra text-candidate selector not in the registry; kept as shipped.
-      '[role="button"]'
-    ].join(", ");
-    for (const el of safeQueryAll(doc, textSelector, errors)) {
-      if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(el.textContent))) {
-        candidates.push(promoteAiModeTarget(el, doc));
+    if (AI_MODE_TEXT_COMBINED) {
+      for (const el of safeQueryAll(doc, AI_MODE_TEXT_COMBINED, errors)) {
+        if (isAlreadyHidden(el)) {
+          continue;
+        }
+        if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(el.textContent))) {
+          candidates.push(promoteAiModeTarget(el, doc, guardCache));
+        }
       }
     }
-    for (const selector of SELECTORS.tier2.aiModeUi) {
-      candidates.push(...safeQueryAll(doc, selector, errors));
+    const anchors = typeof doc.getElementsByTagName === "function" ? doc.getElementsByTagName("a") : safeQueryAll(doc, "a", errors);
+    for (const anchor of anchors) {
+      if (isAlreadyHidden(anchor)) {
+        continue;
+      }
+      const rawText = anchor.textContent;
+      if (!rawText) {
+        continue;
+      }
+      const trimmed = rawText.trim();
+      if (trimmed.length === 0 || trimmed.length > SELECTORS.tier1.aiModeUi.maxAnchorTextLength) {
+        continue;
+      }
+      if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(trimmed))) {
+        candidates.push(promoteAiModeTarget(anchor, doc, guardCache));
+      }
+    }
+    if (AI_MODE_TIER2_COMBINED) {
+      for (const el of safeQueryAll(doc, AI_MODE_TIER2_COMBINED, errors)) {
+        if (!isAlreadyHidden(el)) {
+          candidates.push(el);
+        }
+      }
     }
     return candidates;
   }
@@ -601,7 +727,11 @@
         return true;
       }
       if (node.children.length === 0) {
-        const text = normalizeText(node.textContent);
+        const rawText = node.textContent;
+        if (!rawText || rawText.trim().length > 60) {
+          continue;
+        }
+        const text = normalizeText(rawText);
         if (AI_ATTRIBUTION_MARKER_SET.has(text)) {
           return true;
         }
@@ -611,22 +741,30 @@
   }
   function collectAuxAiCandidates(doc, errors) {
     const candidates = [];
-    for (const selector of SELECTORS.tier1.auxiliaryAi.directSelectors) {
-      candidates.push(...safeQueryAll(doc, selector, errors));
+    if (AUX_DIRECT_COMBINED) {
+      for (const el of safeQueryAll(doc, AUX_DIRECT_COMBINED, errors)) {
+        if (!isAlreadyHidden(el)) {
+          candidates.push(el);
+        }
+      }
     }
-    for (const selector of SELECTORS.tier1.auxiliaryAi.paaCardSelectors) {
-      for (const card of safeQueryAll(doc, selector, errors)) {
-        if (hasAiAttributionBadge(card)) {
+    if (AUX_PAA_COMBINED) {
+      for (const card of safeQueryAll(doc, AUX_PAA_COMBINED, errors)) {
+        if (!isAlreadyHidden(card) && hasAiAttributionBadge(card)) {
           candidates.push(card);
         }
       }
     }
-    for (const selector of SELECTORS.tier2.auxiliaryAi) {
-      candidates.push(...safeQueryAll(doc, selector, errors));
+    if (AUX_TIER2_COMBINED) {
+      for (const el of safeQueryAll(doc, AUX_TIER2_COMBINED, errors)) {
+        if (!isAlreadyHidden(el)) {
+          candidates.push(el);
+        }
+      }
     }
     return candidates;
   }
-  function sweepDom(doc, policy, seenOverviewUrls, pageKey) {
+  function sweepDom(doc, policy, seenPages, pageKey) {
     const deltas = {};
     const errors = [];
     if (!policy.masterEnabled) {
@@ -634,31 +772,44 @@
     }
     const resolvedPageKey = pageKey ?? (doc.location && doc.location.href ? doc.location.href : "default");
     const reportedUnsafe = /* @__PURE__ */ new Set();
+    const guardCache = createSafetyGuardCache(doc);
     if (policy.hideAiOverviews) {
-      const overviewCandidates = collectAiOverviewCandidates(doc, errors);
+      restoreUnsafeHiddenElements("overview", doc, errors, reportedUnsafe, guardCache);
+    }
+    if (policy.hideAiModeUi) {
+      restoreUnsafeHiddenElements("aimode", doc, errors, reportedUnsafe, guardCache);
+    }
+    if (policy.hideAuxiliaryAiFeatures) {
+      restoreUnsafeHiddenElements("aux", doc, errors, reportedUnsafe, guardCache);
+    }
+    if (policy.hideAiOverviews) {
+      const overviewCandidates = collectAiOverviewCandidates(doc, errors, guardCache);
       const hiddenOverviews = processCategoryCandidates(
         overviewCandidates,
         "overview",
         doc,
         errors,
-        reportedUnsafe
+        reportedUnsafe,
+        guardCache
       );
-      if (hiddenOverviews > 0 && !seenOverviewUrls.has(resolvedPageKey)) {
-        seenOverviewUrls.add(resolvedPageKey);
+      if (hiddenOverviews > 0 && !seenPages.overview.has(resolvedPageKey)) {
+        seenPages.overview.add(resolvedPageKey);
         deltas.overviewsHidden = 1;
       }
     }
     if (policy.hideAiModeUi) {
-      const aiModeCandidates = collectAiModeUiCandidates(doc, errors);
+      const aiModeCandidates = collectAiModeUiCandidates(doc, errors, guardCache);
       const hiddenAiMode = processCategoryCandidates(
         aiModeCandidates,
         "aimode",
         doc,
         errors,
-        reportedUnsafe
+        reportedUnsafe,
+        guardCache
       );
-      if (hiddenAiMode > 0) {
-        deltas.aiModeUiHidden = hiddenAiMode;
+      if (hiddenAiMode > 0 && !seenPages.aimode.has(resolvedPageKey)) {
+        seenPages.aimode.add(resolvedPageKey);
+        deltas.aiModeUiHidden = 1;
       }
     }
     if (policy.hideAuxiliaryAiFeatures) {
@@ -668,10 +819,12 @@
         "aux",
         doc,
         errors,
-        reportedUnsafe
+        reportedUnsafe,
+        guardCache
       );
-      if (hiddenAux > 0) {
-        deltas.auxAiHidden = hiddenAux;
+      if (hiddenAux > 0 && !seenPages.aux.has(resolvedPageKey)) {
+        seenPages.aux.add(resolvedPageKey);
+        deltas.auxAiHidden = 1;
       }
     }
     return { deltas, errors };
@@ -723,12 +876,140 @@
     void sendRuntimeMessage({ type: "RECORD_REDIRECT", source: redirectSource });
   }
   handleRedirectHashTelemetry();
+  var SWEEP_THROTTLE_MS = 150;
+  var METRICS_FLUSH_INTERVAL_MS = 1e4;
   var currentPolicy = null;
   var bodyObserver = null;
   var rootObserver = null;
   var pendingRaf = false;
+  var pendingRafId = null;
+  var sweepTimer = null;
+  var lastSweepAt = -Infinity;
   var seenOverviewPages = /* @__PURE__ */ new Set();
+  var seenAiModePages = /* @__PURE__ */ new Set();
+  var seenAuxPages = /* @__PURE__ */ new Set();
+  var seenCategoryPages = {
+    overview: seenOverviewPages,
+    aimode: seenAiModePages,
+    aux: seenAuxPages
+  };
   var reportedErrorKeys = /* @__PURE__ */ new Set();
+  var pendingMetricDeltas = {};
+  var metricsFlushTimer = null;
+  var currentResetEpoch = null;
+  var epochReadPromise = null;
+  var epochVersion = 0;
+  async function ensureMetricsResetEpoch() {
+    if (currentResetEpoch !== null) {
+      return currentResetEpoch;
+    }
+    if (epochReadPromise === null) {
+      const versionAtStart = epochVersion;
+      epochReadPromise = (async () => {
+        try {
+          const epoch = await readMetricsResetEpoch();
+          if (epochVersion === versionAtStart && currentResetEpoch === null) {
+            currentResetEpoch = epoch;
+          }
+          return currentResetEpoch;
+        } catch {
+          return null;
+        } finally {
+          epochReadPromise = null;
+        }
+      })();
+    }
+    return await epochReadPromise;
+  }
+  function clearPendingMetrics() {
+    if (metricsFlushTimer !== null) {
+      if (typeof window.clearTimeout === "function") {
+        window.clearTimeout(metricsFlushTimer);
+      }
+      metricsFlushTimer = null;
+    }
+    pendingMetricDeltas = {};
+  }
+  function cancelScheduledSweep() {
+    if (sweepTimer !== null) {
+      if (typeof window.clearTimeout === "function") {
+        window.clearTimeout(sweepTimer);
+      }
+      sweepTimer = null;
+    }
+    if (pendingRafId !== null && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(pendingRafId);
+    }
+    pendingRafId = null;
+    pendingRaf = false;
+  }
+  function queueSweepFrame() {
+    pendingRaf = true;
+    const id = window.requestAnimationFrame(() => {
+      pendingRaf = false;
+      pendingRafId = null;
+      runSweepNow();
+    });
+    pendingRafId = typeof id === "number" ? id : null;
+  }
+  function scheduleMetricsFlushTimer() {
+    if (metricsFlushTimer === null && typeof window.setTimeout === "function") {
+      metricsFlushTimer = window.setTimeout(() => {
+        metricsFlushTimer = null;
+        flushPendingMetrics();
+      }, METRICS_FLUSH_INTERVAL_MS);
+    }
+  }
+  function queueMetricDeltas(deltas) {
+    let added = false;
+    for (const [key, rawValue] of Object.entries(deltas)) {
+      if (typeof rawValue === "number" && Number.isFinite(rawValue) && rawValue > 0) {
+        const value = Math.floor(rawValue);
+        if (value > 0) {
+          pendingMetricDeltas[key] = (pendingMetricDeltas[key] ?? 0) + value;
+          added = true;
+        }
+      }
+    }
+    if (added) {
+      scheduleMetricsFlushTimer();
+    }
+  }
+  async function flushAfterEpochRetry(versionBeforeRetry) {
+    const confirmedEpoch = await ensureMetricsResetEpoch();
+    if (epochVersion !== versionBeforeRetry) {
+      return;
+    }
+    if (confirmedEpoch === null) {
+      if (Object.keys(pendingMetricDeltas).length > 0) {
+        scheduleMetricsFlushTimer();
+      }
+      return;
+    }
+    flushPendingMetrics(false);
+  }
+  function flushPendingMetrics(allowAsyncRetry = true) {
+    if (metricsFlushTimer !== null) {
+      if (typeof window.clearTimeout === "function") {
+        window.clearTimeout(metricsFlushTimer);
+      }
+      metricsFlushTimer = null;
+    }
+    if (Object.keys(pendingMetricDeltas).length === 0) {
+      return;
+    }
+    if (currentResetEpoch === null) {
+      if (!allowAsyncRetry) {
+        clearPendingMetrics();
+        return;
+      }
+      void flushAfterEpochRetry(epochVersion);
+      return;
+    }
+    const deltas = pendingMetricDeltas;
+    pendingMetricDeltas = {};
+    void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas, resetEpoch: currentResetEpoch });
+  }
   function disconnectObservers() {
     if (bodyObserver) {
       bodyObserver.disconnect();
@@ -738,7 +1019,7 @@
       rootObserver.disconnect();
       rootObserver = null;
     }
-    pendingRaf = false;
+    cancelScheduledSweep();
   }
   var aiModeRedirectStarted = false;
   function checkAiModeUrl() {
@@ -750,6 +1031,7 @@
       return false;
     }
     aiModeRedirectStarted = true;
+    flushPendingMetrics(false);
     window.location.replace(clean);
     return true;
   }
@@ -757,13 +1039,15 @@
     if (!currentPolicy || !currentPolicy.masterEnabled) {
       return;
     }
+    cancelScheduledSweep();
+    lastSweepAt = Date.now();
     if (checkAiModeUrl()) {
       return;
     }
     const pageKey = computeOpaquePageKey();
-    const { deltas, errors } = sweepDom(document, currentPolicy, seenOverviewPages, pageKey);
+    const { deltas, errors } = sweepDom(document, currentPolicy, seenCategoryPages, pageKey);
     if (Object.keys(deltas).length > 0) {
-      void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas });
+      queueMetricDeltas(deltas);
     }
     for (const err of errors) {
       const dedupeKey = `${pageKey}:${err.code}:${err.detail}`;
@@ -777,15 +1061,36 @@
       }
     }
   }
-  function scheduleSweep() {
-    if (pendingRaf || !currentPolicy || !currentPolicy.masterEnabled) {
+  function scheduleSweep(immediate = false) {
+    if (!currentPolicy || !currentPolicy.masterEnabled) {
       return;
     }
-    pendingRaf = true;
-    window.requestAnimationFrame(() => {
-      pendingRaf = false;
-      runSweepNow();
-    });
+    if (immediate) {
+      if (sweepTimer !== null) {
+        if (typeof window.clearTimeout === "function") {
+          window.clearTimeout(sweepTimer);
+        }
+        sweepTimer = null;
+      }
+      if (!pendingRaf) {
+        queueSweepFrame();
+      }
+      return;
+    }
+    if (pendingRaf || sweepTimer !== null) {
+      return;
+    }
+    const elapsed = Date.now() - lastSweepAt;
+    if (elapsed >= SWEEP_THROTTLE_MS || typeof window.setTimeout !== "function") {
+      queueSweepFrame();
+      return;
+    }
+    sweepTimer = window.setTimeout(() => {
+      sweepTimer = null;
+      if (!pendingRaf && currentPolicy?.masterEnabled) {
+        queueSweepFrame();
+      }
+    }, SWEEP_THROTTLE_MS - elapsed);
   }
   function attachMutationObserver() {
     if (!currentPolicy || !currentPolicy.masterEnabled) {
@@ -821,6 +1126,7 @@
     currentPolicy = policy;
     applyPolicyAttributes(document, policy);
     if (!policy.masterEnabled) {
+      flushPendingMetrics();
       disconnectObservers();
       unhideAllElements(document);
       return;
@@ -835,7 +1141,7 @@
       unhideCategoryElements(document, "aux");
     }
     attachMutationObserver();
-    scheduleSweep();
+    scheduleSweep(true);
   }
   async function loadEffectivePolicy() {
     const fromSw = await sendRuntimeMessage({
@@ -873,6 +1179,14 @@
   }
   if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener(async (changes, areaName) => {
+      if (areaName === "local" && STORAGE_KEYS.METRICS_RESET_EPOCH in changes) {
+        const nextEpoch = changes[STORAGE_KEYS.METRICS_RESET_EPOCH]?.newValue;
+        if (typeof nextEpoch === "number" && Number.isInteger(nextEpoch) && nextEpoch >= 0) {
+          epochVersion += 1;
+          currentResetEpoch = nextEpoch;
+          clearPendingMetrics();
+        }
+      }
       if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
         await loadAndApplyPolicy();
       }
@@ -898,11 +1212,22 @@
   window.addEventListener("pageshow", () => {
     checkAiModeUrl();
   });
+  window.addEventListener("pagehide", () => {
+    flushPendingMetrics(false);
+  });
+  if (typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        flushPendingMetrics(true);
+      }
+    });
+  }
   var navigationApi = window.navigation;
   if (navigationApi && typeof navigationApi.addEventListener === "function") {
     navigationApi.addEventListener("navigatesuccess", () => {
       checkAiModeUrl();
     });
   }
+  void ensureMetricsResetEpoch();
   void bootstrapContentGuard();
 })();

@@ -13,6 +13,20 @@ import type { PolicyError, Toggles } from "../shared/types";
 /** Which policy toggle an element was hidden under (stored in data-rmsg-hidden). */
 export type HideCategory = "overview" | "aimode" | "aux";
 
+/** Page-key sets used to count each hidden category at most once per page (BP-14). */
+export interface SeenCategoryPages {
+  overview: Set<string>;
+  aimode: Set<string>;
+  aux: Set<string>;
+}
+
+/** Per-sweep DOM snapshot of search inputs and protected landmarks (BP-09). */
+export interface SafetyGuardCache {
+  doc: Document;
+  searchInputs: Element[] | null;
+  protectedElements: Element[] | null;
+}
+
 export const PROTECTED_TAG_SET = new Set(SELECTORS.safetyGuard.protectedTags);
 
 export const PROTECTED_SELECTOR_COMBINED = SELECTORS.safetyGuard.protectedSelectors.join(", ");
@@ -24,6 +38,18 @@ export const OVERVIEW_HEADING_TEXT_SET = new Set(SELECTORS.tier1.aiOverviews.hea
 export const AI_MODE_EXACT_TEXT_SET = new Set(SELECTORS.tier1.aiModeUi.exactTexts);
 
 export const AI_ATTRIBUTION_MARKER_SET = new Set(SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers);
+
+// Combined built-in selector lists so each sweep issues one querySelectorAll per group instead
+// of looping per selector string (BP-09).
+const OVERVIEW_DIRECT_COMBINED = SELECTORS.tier1.aiOverviews.directSelectors.join(", ");
+const OVERVIEW_HEADING_COMBINED = SELECTORS.tier1.aiOverviews.headingSelectors.join(", ");
+const OVERVIEW_TIER2_COMBINED = SELECTORS.tier2.aiOverviews.join(", ");
+const AI_MODE_DIRECT_COMBINED = SELECTORS.tier1.aiModeUi.directSelectors.join(", ");
+const AI_MODE_TEXT_COMBINED = SELECTORS.tier1.aiModeUi.textCandidateSelectors.join(", ");
+const AI_MODE_TIER2_COMBINED = SELECTORS.tier2.aiModeUi.join(", ");
+const AUX_DIRECT_COMBINED = SELECTORS.tier1.auxiliaryAi.directSelectors.join(", ");
+const AUX_PAA_COMBINED = SELECTORS.tier1.auxiliaryAi.paaCardSelectors.join(", ");
+const AUX_TIER2_COMBINED = SELECTORS.tier2.auxiliaryAi.join(", ");
 
 /**
  * Collapse whitespace and lowercase text for exact label comparisons.
@@ -97,6 +123,28 @@ export function parseRedirectHash(hash: string): "omnibox" | "aimode" | null {
 }
 
 /**
+ * Snapshot search inputs and protected landmarks once per sweep so isUnsafeToHide avoids
+ * repeating document-wide queries for every candidate (BP-09).
+ * @param doc - Page document.
+ * @returns Cache object; fields are null on query error so callers fall back to live queries.
+ */
+export function createSafetyGuardCache(doc: Document): SafetyGuardCache {
+  let searchInputs: Element[] | null = null;
+  let protectedElements: Element[] | null = null;
+  try {
+    searchInputs = Array.from(doc.querySelectorAll(SELECTORS.safetyGuard.searchInputSelector));
+  } catch {
+    searchInputs = null;
+  }
+  try {
+    protectedElements = Array.from(doc.querySelectorAll(PROTECTED_SELECTOR_COMBINED));
+  } catch {
+    protectedElements = null;
+  }
+  return { doc, searchInputs, protectedElements };
+}
+
+/**
  * Organic Results Safety Guard: refuse to hide core search UI or a block of organic results.
  * Protects landmark tags and IDs, the search box, and any element holding 3+ organic results;
  * AI Overview candidates are refused at 1 organic result (BP-08). Don't weaken this (AGENTS.md
@@ -105,45 +153,80 @@ export function parseRedirectHash(hash: string): "omnibox" | "aimode" | null {
  * @param doc - Owning document (defaults to el.ownerDocument).
  * @param category - What the candidate would be hidden as; "overview" uses the stricter threshold.
  * Omitted, the general threshold applies.
+ * @param cache - Optional per-sweep snapshot from createSafetyGuardCache().
  * @returns true if the element must not be hidden. Query errors are ignored so the remaining checks still run.
  */
-export function isUnsafeToHide(el: Element, doc?: Document | null, category?: HideCategory): boolean {
+export function isUnsafeToHide(
+  el: Element,
+  doc?: Document | null,
+  category?: HideCategory,
+  cache?: SafetyGuardCache
+): boolean {
   if (PROTECTED_TAG_SET.has(el.tagName.toUpperCase())) {
     return true;
   }
-  for (const protectedSel of SELECTORS.safetyGuard.protectedSelectors) {
-    if (safeMatches(el, protectedSel)) {
-      return true;
+  const ownerDoc = doc ?? el.ownerDocument;
+  // Use cached document-wide lists only when el lives in the same light DOM as cache.doc.
+  const canUseCache = Boolean(
+    cache &&
+      el.isConnected &&
+      ownerDoc === cache.doc &&
+      (typeof el.getRootNode !== "function" || el.getRootNode() === cache.doc)
+  );
+  if (canUseCache && cache!.protectedElements !== null) {
+    for (const protectedEl of cache!.protectedElements) {
+      if (protectedEl === el || el.contains(protectedEl)) {
+        return true;
+      }
     }
-  }
-  try {
-    if (el.querySelector(PROTECTED_SELECTOR_COMBINED) !== null) {
-      return true;
+  } else {
+    for (const protectedSel of SELECTORS.safetyGuard.protectedSelectors) {
+      if (safeMatches(el, protectedSel)) {
+        return true;
+      }
     }
-  } catch {
+    try {
+      if (el.querySelector(PROTECTED_SELECTOR_COMBINED) !== null) {
+        return true;
+      }
+    } catch {
+    }
   }
   const searchInputSel = SELECTORS.safetyGuard.searchInputSelector;
-  if (safeMatches(el, searchInputSel)) {
-    return true;
-  }
-  try {
-    if (el.querySelector(searchInputSel) !== null) {
+  if (canUseCache && cache!.searchInputs !== null) {
+    for (const searchInput of cache!.searchInputs) {
+      if (searchInput === el || el.contains(searchInput)) {
+        return true;
+      }
+    }
+  } else {
+    if (safeMatches(el, searchInputSel)) {
       return true;
     }
-  } catch {
-  }
-  const ownerDoc = doc ?? el.ownerDocument;
-  if (ownerDoc) {
-    const searchInput = ownerDoc.querySelector(searchInputSel);
-    if (searchInput && el.contains(searchInput)) {
-      return true;
+    try {
+      if (el.querySelector(searchInputSel) !== null) {
+        return true;
+      }
+    } catch {
+    }
+    if (ownerDoc) {
+      const searchInput = ownerDoc.querySelector(searchInputSel);
+      if (searchInput && el.contains(searchInput)) {
+        return true;
+      }
     }
   }
   try {
-    const organicResults = el.querySelectorAll(SELECTORS.safetyGuard.organicResultSelector);
     const threshold = category === "overview" ? SELECTORS.safetyGuard.overviewOrganicResultThreshold : SELECTORS.safetyGuard.organicResultThreshold;
-    if (organicResults.length >= threshold) {
-      return true;
+    if (threshold <= 1) {
+      if (el.querySelector(SELECTORS.safetyGuard.organicResultSelector) !== null) {
+        return true;
+      }
+    } else {
+      const organicResults = el.querySelectorAll(SELECTORS.safetyGuard.organicResultSelector);
+      if (organicResults.length >= threshold) {
+        return true;
+      }
     }
   } catch {
   }
@@ -263,27 +346,65 @@ export function isAlreadyHidden(el: Element): boolean {
 }
 
 /**
- * Vet, dedupe and hide one category's candidates, keeping only outermost safe ones.
- * @param candidates - Raw candidates.
+ * Keep only outermost elements from a candidate list in a single pre-order pass (BP-09).
+ * Replaces the O(n^2) all-pairs containment check with an O(n log n) document-order sort:
+ * in pre-order, any ancestor precedes all of its descendants before the next sibling subtree.
+ * @param candidates - Vetted safe candidates.
+ * @returns Top-level candidates with nested descendants removed.
+ */
+export function filterTopLevelCandidates(candidates: Element[]): Element[] {
+  if (candidates.length <= 1) {
+    return [...candidates];
+  }
+  const sorted = [...candidates].sort((a, b) => {
+    if (a === b) {
+      return 0;
+    }
+    const pos = a.compareDocumentPosition(b);
+    // Bit 4 (DOCUMENT_POSITION_FOLLOWING) includes descendants, so ancestors sort before descendants.
+    if ((pos & 4) !== 0) {
+      return -1;
+    }
+    // Bit 2 (DOCUMENT_POSITION_PRECEDING) includes ancestors.
+    if ((pos & 2) !== 0) {
+      return 1;
+    }
+    return 0;
+  });
+  const topLevel: Element[] = [];
+  let lastKept: Element | null = null;
+  for (const candidate of sorted) {
+    if (lastKept && (lastKept === candidate || lastKept.contains(candidate))) {
+      continue;
+    }
+    topLevel.push(candidate);
+    lastKept = candidate;
+  }
+  return topLevel;
+}
+
+/**
+ * Re-check elements already hidden under one category and restore any that now violate the
+ * Organic Results Safety Guard (e.g., an empty wrapper that received organic results later).
+ * Runs before candidate collection so restored wrappers release safe inner AI elements to be
+ * collected and hidden individually in the same sweep.
  * @param category - Category name.
  * @param doc - Page document.
- * @param errors - Collector; ERR_SAFETY_GUARD_TRIPPED is added once per refused element.
+ * @param errors - Collector; ERR_SAFETY_GUARD_TRIPPED is added once per un-hidden element.
  * @param reportedUnsafe - Elements already reported this sweep.
- * @returns Number of elements newly hidden.
+ * @param guardCache - Optional per-sweep safety-guard cache.
+ * @returns Nothing. Fails safe: query errors inside isUnsafeToHide() are caught so remaining
+ * safety checks still run; DOM query/restore errors on doc propagate.
  */
-export function processCategoryCandidates(
-  candidates: Element[],
+export function restoreUnsafeHiddenElements(
   category: HideCategory,
   doc: Document,
   errors: PolicyError[],
-  reportedUnsafe: Set<Element>
-): number {
-  // Re-check what this category already hid: a wrapper hidden while empty can receive an
-  // organic result later, and the guard must still win then (CodeRabbit review of #5). Every
-  // marked element is checked, not just this sweep's candidates, because a container found via
-  // the heading walk may not be found again once results land in it.
+  reportedUnsafe: Set<Element>,
+  guardCache?: SafetyGuardCache
+): void {
   for (const hidden of doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`)) {
-    if (isUnsafeToHide(hidden, doc, category)) {
+    if (isUnsafeToHide(hidden, doc, category, guardCache)) {
       restoreElementVisibility(hidden);
       if (!reportedUnsafe.has(hidden)) {
         reportedUnsafe.add(hidden);
@@ -294,13 +415,36 @@ export function processCategoryCandidates(
       }
     }
   }
+}
+
+/**
+ * Vet, dedupe and hide one category's candidates, keeping only outermost safe ones.
+ * Callers (sweepDom) run restoreUnsafeHiddenElements() first so stale unsafe wrappers are
+ * un-hidden before candidates are collected.
+ * @param candidates - Raw candidates.
+ * @param category - Category name.
+ * @param doc - Page document.
+ * @param errors - Collector; ERR_SAFETY_GUARD_TRIPPED is added once per refused element.
+ * @param reportedUnsafe - Elements already reported this sweep.
+ * @param guardCache - Optional per-sweep safety-guard cache.
+ * @returns Number of elements newly hidden. Fails closed against over-hiding: unsafe candidates
+ * stay visible and are logged once; query errors inside isUnsafeToHide() are caught per check.
+ */
+export function processCategoryCandidates(
+  candidates: Element[],
+  category: HideCategory,
+  doc: Document,
+  errors: PolicyError[],
+  reportedUnsafe: Set<Element>,
+  guardCache?: SafetyGuardCache
+): number {
   const uniqueCandidates = Array.from(new Set(candidates));
   const safeCandidates: Element[] = [];
   for (const candidate of uniqueCandidates) {
     if (isAlreadyHidden(candidate)) {
       continue;
     }
-    if (isUnsafeToHide(candidate, doc, category)) {
+    if (isUnsafeToHide(candidate, doc, category, guardCache)) {
       if (!reportedUnsafe.has(candidate)) {
         reportedUnsafe.add(candidate);
         errors.push({
@@ -312,9 +456,7 @@ export function processCategoryCandidates(
     }
     safeCandidates.push(candidate);
   }
-  const topLevelCandidates = safeCandidates.filter(
-    (candidate) => !safeCandidates.some((other) => other !== candidate && other.contains(candidate))
-  );
+  const topLevelCandidates = filterTopLevelCandidates(safeCandidates);
   let newlyHiddenCount = 0;
   for (const el of topLevelCandidates) {
     if (isAlreadyHidden(el)) {
@@ -330,11 +472,16 @@ export function processCategoryCandidates(
  * Walk up from an "AI Overview" heading to its card container.
  * @param headingEl - Matched heading.
  * @param doc - Page document.
+ * @param guardCache - Optional per-sweep safety-guard cache.
  * @returns The nearest container-ancestor match within maxAncestorDepth levels, else the parent
  * if safe, else the heading. Stops at the first ancestor the overview guard refuses (BP-08), so
  * the walk never climbs into a wrapper that holds real results.
  */
-export function findOverviewHeadingContainer(headingEl: Element, doc: Document): Element {
+export function findOverviewHeadingContainer(
+  headingEl: Element,
+  doc: Document,
+  guardCache?: SafetyGuardCache
+): Element {
   let cursor = headingEl.parentElement;
   let depth = 0;
   while (cursor && depth < SELECTORS.safetyGuard.maxAncestorDepth) {
@@ -342,7 +489,7 @@ export function findOverviewHeadingContainer(headingEl: Element, doc: Document):
     if (safeMatches(cursor, CONTAINER_ANCESTOR_COMBINED)) {
       return cursor;
     }
-    if (isUnsafeToHide(cursor, doc, "overview")) {
+    if (isUnsafeToHide(cursor, doc, "overview", guardCache)) {
       if (cursor === headingEl.parentElement) {
         return cursor;
       }
@@ -350,7 +497,7 @@ export function findOverviewHeadingContainer(headingEl: Element, doc: Document):
     }
     cursor = cursor.parentElement;
   }
-  if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc, "overview")) {
+  if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc, "overview", guardCache)) {
     return headingEl.parentElement;
   }
   return headingEl;
@@ -360,21 +507,38 @@ export function findOverviewHeadingContainer(headingEl: Element, doc: Document):
  * Collect AI Overview candidates from Tier 1 selectors, heading text and Tier 2 selectors.
  * @param doc - Page document.
  * @param errors - Collector for selector errors.
+ * @param guardCache - Optional per-sweep safety-guard cache.
  * @returns Candidate elements (unvetted).
  */
-export function collectAiOverviewCandidates(doc: Document, errors: PolicyError[]): Element[] {
+export function collectAiOverviewCandidates(
+  doc: Document,
+  errors: PolicyError[],
+  guardCache?: SafetyGuardCache
+): Element[] {
   const candidates: Element[] = [];
-  for (const selector of SELECTORS.tier1.aiOverviews.directSelectors) {
-    candidates.push(...safeQueryAll(doc, selector, errors));
-  }
-  const headingSelector = SELECTORS.tier1.aiOverviews.headingSelectors.join(", ");
-  for (const headingEl of safeQueryAll(doc, headingSelector, errors)) {
-    if (OVERVIEW_HEADING_TEXT_SET.has(normalizeText(headingEl.textContent))) {
-      candidates.push(findOverviewHeadingContainer(headingEl, doc));
+  if (OVERVIEW_DIRECT_COMBINED) {
+    for (const el of safeQueryAll(doc, OVERVIEW_DIRECT_COMBINED, errors)) {
+      if (!isAlreadyHidden(el)) {
+        candidates.push(el);
+      }
     }
   }
-  for (const selector of SELECTORS.tier2.aiOverviews) {
-    candidates.push(...safeQueryAll(doc, selector, errors));
+  if (OVERVIEW_HEADING_COMBINED) {
+    for (const headingEl of safeQueryAll(doc, OVERVIEW_HEADING_COMBINED, errors)) {
+      if (isAlreadyHidden(headingEl)) {
+        continue;
+      }
+      if (OVERVIEW_HEADING_TEXT_SET.has(normalizeText(headingEl.textContent))) {
+        candidates.push(findOverviewHeadingContainer(headingEl, doc, guardCache));
+      }
+    }
+  }
+  if (OVERVIEW_TIER2_COMBINED) {
+    for (const el of safeQueryAll(doc, OVERVIEW_TIER2_COMBINED, errors)) {
+      if (!isAlreadyHidden(el)) {
+        candidates.push(el);
+      }
+    }
   }
   return candidates;
 }
@@ -383,16 +547,21 @@ export function collectAiOverviewCandidates(doc: Document, errors: PolicyError[]
  * Widen an AI Mode match to its nav tab slot or interactive ancestor when that is safe.
  * @param el - Matched element.
  * @param doc - Page document.
+ * @param guardCache - Optional per-sweep safety-guard cache.
  * @returns Element to hide.
  */
-export function promoteAiModeTarget(el: Element, doc: Document): Element {
+export function promoteAiModeTarget(
+  el: Element,
+  doc: Document,
+  guardCache?: SafetyGuardCache
+): Element {
   const navItem = el.closest(SELECTORS.tier1.aiModeUi.navItemAncestor);
-  if (navItem && !isUnsafeToHide(navItem, doc, "aimode")) {
+  if (navItem && !isUnsafeToHide(navItem, doc, "aimode", guardCache)) {
     return navItem;
   }
   if (el.tagName.toUpperCase() === "SPAN") {
     const interactiveAncestor = el.closest('a, button, [role="tab"], [role="button"]');
-    if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc, "aimode")) {
+    if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc, "aimode", guardCache)) {
       return interactiveAncestor;
     }
   }
@@ -403,29 +572,58 @@ export function promoteAiModeTarget(el: Element, doc: Document): Element {
  * Collect AI Mode buttons, tabs and prompts from links, exact label text and Tier 2 selectors.
  * @param doc - Page document.
  * @param errors - Collector for selector errors.
+ * @param guardCache - Optional per-sweep safety-guard cache.
  * @returns Candidate elements (unvetted).
  */
-export function collectAiModeUiCandidates(doc: Document, errors: PolicyError[]): Element[] {
+export function collectAiModeUiCandidates(
+  doc: Document,
+  errors: PolicyError[],
+  guardCache?: SafetyGuardCache
+): Element[] {
   const candidates: Element[] = [];
-  // The bare google.com host variants now live in the registry (BP-08).
-  const directSelectors = SELECTORS.tier1.aiModeUi.directSelectors;
-  for (const selector of directSelectors) {
-    for (const el of safeQueryAll(doc, selector, errors)) {
-      candidates.push(promoteAiModeTarget(el, doc));
+  if (AI_MODE_DIRECT_COMBINED) {
+    for (const el of safeQueryAll(doc, AI_MODE_DIRECT_COMBINED, errors)) {
+      if (!isAlreadyHidden(el)) {
+        candidates.push(promoteAiModeTarget(el, doc, guardCache));
+      }
     }
   }
-  const textSelector = [
-    ...SELECTORS.tier1.aiModeUi.textCandidateSelectors,
-    // Extra text-candidate selector not in the registry; kept as shipped.
-    '[role="button"]'
-  ].join(", ");
-  for (const el of safeQueryAll(doc, textSelector, errors)) {
-    if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(el.textContent))) {
-      candidates.push(promoteAiModeTarget(el, doc));
+  if (AI_MODE_TEXT_COMBINED) {
+    for (const el of safeQueryAll(doc, AI_MODE_TEXT_COMBINED, errors)) {
+      if (isAlreadyHidden(el)) {
+        continue;
+      }
+      if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(el.textContent))) {
+        candidates.push(promoteAiModeTarget(el, doc, guardCache));
+      }
     }
   }
-  for (const selector of SELECTORS.tier2.aiModeUi) {
-    candidates.push(...safeQueryAll(doc, selector, errors));
+  // BP-09 Option D: scan anchors outside nav listitems by short trimmed text before normalizing.
+  const anchors = typeof doc.getElementsByTagName === "function"
+    ? doc.getElementsByTagName("a")
+    : safeQueryAll(doc, "a", errors);
+  for (const anchor of anchors) {
+    if (isAlreadyHidden(anchor)) {
+      continue;
+    }
+    const rawText = anchor.textContent;
+    if (!rawText) {
+      continue;
+    }
+    const trimmed = rawText.trim();
+    if (trimmed.length === 0 || trimmed.length > SELECTORS.tier1.aiModeUi.maxAnchorTextLength) {
+      continue;
+    }
+    if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(trimmed))) {
+      candidates.push(promoteAiModeTarget(anchor, doc, guardCache));
+    }
+  }
+  if (AI_MODE_TIER2_COMBINED) {
+    for (const el of safeQueryAll(doc, AI_MODE_TIER2_COMBINED, errors)) {
+      if (!isAlreadyHidden(el)) {
+        candidates.push(el);
+      }
+    }
   }
   return candidates;
 }
@@ -447,7 +645,12 @@ export function hasAiAttributionBadge(card: Element): boolean {
       return true;
     }
     if (node.children.length === 0) {
-      const text = normalizeText(node.textContent);
+      const rawText = node.textContent;
+      // Short badge text only; avoids whitespace normalization on long PAA answer paragraphs.
+      if (!rawText || rawText.trim().length > 60) {
+        continue;
+      }
+      const text = normalizeText(rawText);
       if (AI_ATTRIBUTION_MARKER_SET.has(text)) {
         return true;
       }
@@ -464,18 +667,26 @@ export function hasAiAttributionBadge(card: Element): boolean {
  */
 export function collectAuxAiCandidates(doc: Document, errors: PolicyError[]): Element[] {
   const candidates: Element[] = [];
-  for (const selector of SELECTORS.tier1.auxiliaryAi.directSelectors) {
-    candidates.push(...safeQueryAll(doc, selector, errors));
+  if (AUX_DIRECT_COMBINED) {
+    for (const el of safeQueryAll(doc, AUX_DIRECT_COMBINED, errors)) {
+      if (!isAlreadyHidden(el)) {
+        candidates.push(el);
+      }
+    }
   }
-  for (const selector of SELECTORS.tier1.auxiliaryAi.paaCardSelectors) {
-    for (const card of safeQueryAll(doc, selector, errors)) {
-      if (hasAiAttributionBadge(card)) {
+  if (AUX_PAA_COMBINED) {
+    for (const card of safeQueryAll(doc, AUX_PAA_COMBINED, errors)) {
+      if (!isAlreadyHidden(card) && hasAiAttributionBadge(card)) {
         candidates.push(card);
       }
     }
   }
-  for (const selector of SELECTORS.tier2.auxiliaryAi) {
-    candidates.push(...safeQueryAll(doc, selector, errors));
+  if (AUX_TIER2_COMBINED) {
+    for (const el of safeQueryAll(doc, AUX_TIER2_COMBINED, errors)) {
+      if (!isAlreadyHidden(el)) {
+        candidates.push(el);
+      }
+    }
   }
   return candidates;
 }
@@ -484,14 +695,14 @@ export function collectAuxAiCandidates(doc: Document, errors: PolicyError[]): El
  * Run one full hiding sweep for the active policy.
  * @param doc - Page document.
  * @param policy - Effective policy.
- * @param seenOverviewUrls - Page keys already counted for overviewsHidden (count once per page).
+ * @param seenPages - Page-key sets used to count each hidden category once per page (BP-14).
  * @param pageKey - Opaque page key; defaults to location.href (kept local, never sent).
  * @returns { deltas, errors } for the caller to report.
  */
 export function sweepDom(
   doc: Document,
   policy: Toggles,
-  seenOverviewUrls: Set<string>,
+  seenPages: SeenCategoryPages,
   pageKey?: string
 ): { deltas: Record<string, number>; errors: PolicyError[] } {
   const deltas: Record<string, number> = {};
@@ -501,31 +712,46 @@ export function sweepDom(
   }
   const resolvedPageKey = pageKey ?? (doc.location && doc.location.href ? doc.location.href : "default");
   const reportedUnsafe = /* @__PURE__ */ new Set<Element>();
+  const guardCache = createSafetyGuardCache(doc);
+  // Restore unsafe hidden wrappers before any collector runs so safe inner AI controls are
+  // not skipped by isAlreadyHidden() and can be hidden in the same sweep (PR #6 review).
   if (policy.hideAiOverviews) {
-    const overviewCandidates = collectAiOverviewCandidates(doc, errors);
+    restoreUnsafeHiddenElements("overview", doc, errors, reportedUnsafe, guardCache);
+  }
+  if (policy.hideAiModeUi) {
+    restoreUnsafeHiddenElements("aimode", doc, errors, reportedUnsafe, guardCache);
+  }
+  if (policy.hideAuxiliaryAiFeatures) {
+    restoreUnsafeHiddenElements("aux", doc, errors, reportedUnsafe, guardCache);
+  }
+  if (policy.hideAiOverviews) {
+    const overviewCandidates = collectAiOverviewCandidates(doc, errors, guardCache);
     const hiddenOverviews = processCategoryCandidates(
       overviewCandidates,
       "overview",
       doc,
       errors,
-      reportedUnsafe
+      reportedUnsafe,
+      guardCache
     );
-    if (hiddenOverviews > 0 && !seenOverviewUrls.has(resolvedPageKey)) {
-      seenOverviewUrls.add(resolvedPageKey);
+    if (hiddenOverviews > 0 && !seenPages.overview.has(resolvedPageKey)) {
+      seenPages.overview.add(resolvedPageKey);
       deltas.overviewsHidden = 1;
     }
   }
   if (policy.hideAiModeUi) {
-    const aiModeCandidates = collectAiModeUiCandidates(doc, errors);
+    const aiModeCandidates = collectAiModeUiCandidates(doc, errors, guardCache);
     const hiddenAiMode = processCategoryCandidates(
       aiModeCandidates,
       "aimode",
       doc,
       errors,
-      reportedUnsafe
+      reportedUnsafe,
+      guardCache
     );
-    if (hiddenAiMode > 0) {
-      deltas.aiModeUiHidden = hiddenAiMode;
+    if (hiddenAiMode > 0 && !seenPages.aimode.has(resolvedPageKey)) {
+      seenPages.aimode.add(resolvedPageKey);
+      deltas.aiModeUiHidden = 1;
     }
   }
   if (policy.hideAuxiliaryAiFeatures) {
@@ -535,10 +761,12 @@ export function sweepDom(
       "aux",
       doc,
       errors,
-      reportedUnsafe
+      reportedUnsafe,
+      guardCache
     );
-    if (hiddenAux > 0) {
-      deltas.auxAiHidden = hiddenAux;
+    if (hiddenAux > 0 && !seenPages.aux.has(resolvedPageKey)) {
+      seenPages.aux.add(resolvedPageKey);
+      deltas.auxAiHidden = 1;
     }
   }
   return { deltas, errors };

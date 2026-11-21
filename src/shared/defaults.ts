@@ -118,7 +118,8 @@ export const METRIC_KEYS = [
 export const STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
-  LAST_POLICY: "rmsg_last_policy"
+  LAST_POLICY: "rmsg_last_policy",
+  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
 };
 
 export const MAX_DIAGNOSTIC_LOG_ENTRIES = 50;

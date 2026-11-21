@@ -1,0 +1,20 @@
+<!doctype html>
+<!-- B-05d fixture: two [role="listitem"] wrappers promoted under "aimode" (via text and
+     short-anchor loops) that later receive organic results in a single mutation. Restoring
+     the unsafe wrapper before candidate collection must hide the inner AI Mode controls in the
+     exact same sweep while keeping the wrappers and organic results visible. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>x - Google Search</title>
+</head>
+<body>
+  <div id="main">
+    <form role="search" id="search-form"><textarea name="q" id="q">x</textarea></form>
+    <div id="rso">
+      <div role="listitem" id="wrap-btn"><button type="button" id="ai-btn-inside">AI Mode</button></div>
+      <div role="listitem" id="wrap-link"><a id="ai-link-inside" href="/other-path">Dive deeper in AI Mode</a></div>
+    </div>
+  </div>
+</body>
+</html>
