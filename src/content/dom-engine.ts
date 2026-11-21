@@ -238,7 +238,9 @@ export function hideElement(el: Element, category: HideCategory): void {
   if (htmlEl.style) {
     const prevDisplay = htmlEl.style.getPropertyValue("display");
     const prevPriority = htmlEl.style.getPropertyPriority("display");
-    if (prevDisplay && prevDisplay !== "none") {
+    // Save every original inline value, "none" included (BP-18): if Google had the element
+    // hidden inline, un-hiding must put that back rather than reveal it.
+    if (prevDisplay) {
       el.setAttribute("data-rmsg-prev-display", prevDisplay);
       if (prevPriority) {
         el.setAttribute("data-rmsg-prev-display-priority", prevPriority);

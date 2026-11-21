@@ -602,10 +602,14 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 **Recommendation:** **A.**
 
 **To-do:**
-- [ ] `hideElement()`: drop the `prevDisplay !== "none"` exclusion; `restoreElementVisibility()` already restores the saved value with its priority.
-- [ ] `static-guard.css`: replace the global `[data-rmsg-hidden]` rule with three policy-gated rules.
+- [x] `hideElement()`: drop the `prevDisplay !== "none"` exclusion; `restoreElementVisibility()` already restores the saved value with its priority.
+- [x] `static-guard.css`: replace the global `[data-rmsg-hidden]` rule with three policy-gated rules.
 
-**Done when:** B-16 (an element with inline `display:none` that gets hidden and then unhidden by turning its toggle off is still `display:none`; removing a policy attribute un-hides a marked element even if the marker stays) passes.
+**Done when:** B-16 passes. It checks that an element with inline `display:none`, hidden and then unhidden by turning its toggle off, is still `display:none`. It also checks that a leftover marker with no inline style stops hiding once its category's policy attribute is off. (Corrected 2026-11-21: elements hidden by the engine also carry an inline `display:none !important`. The policy-off path removes that, not the CSS gate.)
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **What changed:** `hideElement()` saves every non-empty original inline `display`, `none` included. The marker rule in `static-guard.css` is now three rules, one per category, each gated by its `html[data-rmsg-hide-*]` attribute.
+- **Tests:** new B-16 (fixture `restore.html`) passes. On the old `dist/` it fails: unhiding revealed an Overview that Google had hidden inline.
 
 **Proposed phase:** 2, with BP-08 (hiding correctness).
 

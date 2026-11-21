@@ -151,8 +151,13 @@ html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#c
   padding: 0 !important;
 }
 
-/* Elements explicitly vetted by the Organic Results Safety Guard and hidden by dom-engine.ts */
-[data-rmsg-hidden] {
+/* Elements explicitly vetted by the Organic Results Safety Guard and hidden by dom-engine.ts.
+   Each marker only hides while its category's policy attribute is on (BP-18), so CSS and policy
+   can't disagree if a marker outlives its policy (e.g. on a node Google cloned). dom-engine.ts
+   also sets an inline display:none and undoes it when the policy turns the category off. */
+html[data-rmsg-hide-overviews="1"] [data-rmsg-hidden="overview"],
+html[data-rmsg-hide-aimode="1"] [data-rmsg-hidden="aimode"],
+html[data-rmsg-hide-aux="1"] [data-rmsg-hidden="aux"] {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;

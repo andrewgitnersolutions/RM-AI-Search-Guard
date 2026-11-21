@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- B-16 fixture (BP-18): an AI Overview that Google already hid with an inline display:none,
+     and an element carrying only a leftover hide marker (no inline style). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>x - Google Search</title>
+</head>
+<body>
+  <div id="main">
+    <form role="search" id="search-form"><textarea name="q" id="q">x</textarea></form>
+    <div id="rso">
+      <div data-attrid="AIOverview" id="ov-google-hidden" style="display: none">Overview Google keeps hidden.</div>
+      <div id="marker-only" data-rmsg-hidden="overview">Leftover marker, no inline style.</div>
+      <div class="g" id="r1"><a href="https://example.com/1"><h3 class="LC20lb">Result one</h3></a></div>
+    </div>
+  </div>
+</body>
+</html>

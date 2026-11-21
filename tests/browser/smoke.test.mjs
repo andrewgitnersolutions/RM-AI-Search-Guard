@@ -147,6 +147,40 @@ equivalent("B-05b", "Overview container wrapping an organic result stays visible
     return { vis, codes };
   }), { bp: "BP-08" });
 
+equivalent("B-16", "unhide restores an original inline display:none; a leftover hide marker stops hiding once its category's policy attribute is off", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=restore&udm=14");
+    await settle(page);
+    const whileHidden = await page.evaluate(() => ({
+      marker: document.getElementById("ov-google-hidden").getAttribute("data-rmsg-hidden"),
+      markerOnlyVisible: document.getElementById("marker-only").checkVisibility(),
+    }));
+    await setOverrides(b, { hideAiOverviews: false });
+    await page.waitForFunction(() => !document.getElementById("ov-google-hidden").hasAttribute("data-rmsg-hidden"));
+    const afterUnhide = await page.evaluate(() => {
+      const el = document.getElementById("ov-google-hidden");
+      return { inlineDisplay: el.style.display, visible: el.checkVisibility() };
+    });
+    // Simulate a marker that outlived its policy: the category attribute is off, marker stays.
+    await setOverrides(b, { hideAiOverviews: true });
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-rmsg-hide-overviews") === "1");
+    const markerAfterReenable = await page.evaluate(() => {
+      const el = document.getElementById("marker-only");
+      el.setAttribute("data-rmsg-hidden", "overview");
+      const hiddenWithAttr = !el.checkVisibility();
+      document.documentElement.removeAttribute("data-rmsg-hide-overviews");
+      return { hiddenWithAttr, visibleWithoutAttr: el.checkVisibility() };
+    });
+    assert.equal(whileHidden.marker, "overview", "Overview was swept");
+    assert.equal(whileHidden.markerOnlyVisible, false, "marker hides while its category is on");
+    assert.equal(afterUnhide.inlineDisplay, "none", "Google's own inline display:none was not restored");
+    assert.equal(afterUnhide.visible, false);
+    assert.equal(markerAfterReenable.hiddenWithAttr, true);
+    assert.equal(markerAfterReenable.visibleWithoutAttr, true, "leftover marker still hides with its category off");
+    return { whileHidden, afterUnhide, markerAfterReenable };
+  }), { bp: "BP-18" });
+
 equivalent("B-06", "history.pushState(…udm=50) + DOM mutation → clean URL; aiModeRedirects +1 exactly", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
