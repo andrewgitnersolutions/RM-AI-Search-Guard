@@ -332,14 +332,15 @@ equivalent("B-13d", "Options: locked banner, disabled switches and disabled Rese
         enabledSwitches: [...document.querySelectorAll('input[id^="toggle-"]')].filter((i) => !i.disabled).length,
         gradeBandDisabled: document.getElementById("grade-band-select")?.disabled ?? null,
         resetDisabled: document.getElementById("btn-reset-metrics")?.disabled ?? null,
-        resetNoteVisible: document.getElementById("reset-locked-note")?.checkVisibility() ?? null,
+        // The note lives in the (inactive, until-found) Diagnostics tab, so check its own hidden flag.
+        resetNoteShown: document.getElementById("reset-locked-note")?.hidden === false,
       }));
       assert.match(out[mode].title, /No Grade-Band Policy Yet/, `${mode}: banner`);
       assert.equal(out[mode].badge, "Locked", `${mode}: badge`);
       assert.equal(out[mode].enabledSwitches, 0, `${mode}: every switch disabled`);
       assert.equal(out[mode].gradeBandDisabled, true, `${mode}: grade band locked`);
       assert.equal(out[mode].resetDisabled, true, `${mode}: Reset disabled when locked (BP-07)`);
-      assert.equal(out[mode].resetNoteVisible, true, `${mode}: locked-reset note shown`);
+      assert.equal(out[mode].resetNoteShown, true, `${mode}: locked-reset note shown`);
       await page.close();
     }
     return out;
