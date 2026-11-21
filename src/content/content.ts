@@ -1,9 +1,10 @@
 /**
  * Content script entry point: loads the effective policy, sets the html[data-rmsg-*] attributes
- * that static-guard.css keys on, runs DOM sweeps on mutations and reports aggregate counts.
+ * that static-guard.css keys on, runs throttled DOM sweeps on mutations and batches per-page
+ * aggregate counts (BP-09, BP-14).
  * Runs in: content script on google.com at document_start (bundled as an IIFE).
  * Must never: send page text, queries, URLs or identifiers; the only page-derived value is an
- * opaque hash used locally to count each page once.
+ * opaque hash used locally to count each page once per category.
  * Fails closed (BP-02): all three hide attributes are set synchronously before anything else
  * runs, so static-guard.css hides AI surfaces from the first paint; the resolved policy then
  * only removes the ones it turns off. If no policy can be resolved, they stay on.
@@ -18,6 +19,7 @@ import { STORAGE_KEYS } from "../shared/defaults";
 import { parsePolicy } from "../shared/policy";
 import { readLocalOverrides, readManagedPolicyRaw } from "../shared/storage";
 import { applyPolicyAttributes, parseRedirectHash, sweepDom, unhideAllElements, unhideCategoryElements } from "./dom-engine";
+import type { SeenCategoryPages } from "./dom-engine";
 import type { EffectivePolicy, RawRecord } from "../shared/types";
 
 /**
@@ -94,6 +96,10 @@ function handleRedirectHashTelemetry() {
 // Handle a redirect marker before anything else so the fragment is gone before Google reads it.
 handleRedirectHashTelemetry();
 
+// Minimum gap between mutation-driven sweeps, and maximum age of batched counter deltas (BP-09).
+const SWEEP_THROTTLE_MS = 150;
+const METRICS_FLUSH_INTERVAL_MS = 10_000;
+
 let currentPolicy: EffectivePolicy | null = null;
 
 let bodyObserver: MutationObserver | null = null;
@@ -101,13 +107,100 @@ let bodyObserver: MutationObserver | null = null;
 let rootObserver: MutationObserver | null = null;
 
 let pendingRaf = false;
+let pendingRafId: number | null = null;
+let sweepTimer: ReturnType<typeof window.setTimeout> | null = null;
+let lastSweepAt = -Infinity;
 
 const seenOverviewPages = /* @__PURE__ */ new Set<string>();
+const seenAiModePages = /* @__PURE__ */ new Set<string>();
+const seenAuxPages = /* @__PURE__ */ new Set<string>();
+const seenCategoryPages: SeenCategoryPages = {
+  overview: seenOverviewPages,
+  aimode: seenAiModePages,
+  aux: seenAuxPages
+};
 
 const reportedErrorKeys = /* @__PURE__ */ new Set<string>();
 
+let pendingMetricDeltas: Record<string, number> = {};
+let metricsFlushTimer: ReturnType<typeof window.setTimeout> | null = null;
+
 /**
- * Stop both MutationObservers and cancel the pending sweep flag.
+ * Cancel any pending throttle timer or animation-frame sweep callback.
+ */
+function cancelScheduledSweep(): void {
+  if (sweepTimer !== null) {
+    if (typeof window.clearTimeout === "function") {
+      window.clearTimeout(sweepTimer);
+    }
+    sweepTimer = null;
+  }
+  if (pendingRafId !== null && typeof window.cancelAnimationFrame === "function") {
+    window.cancelAnimationFrame(pendingRafId);
+  }
+  pendingRafId = null;
+  pendingRaf = false;
+}
+
+/**
+ * Queue one sweep on the next animation frame.
+ */
+function queueSweepFrame(): void {
+  pendingRaf = true;
+  const id = window.requestAnimationFrame(() => {
+    pendingRaf = false;
+    pendingRafId = null;
+    runSweepNow();
+  });
+  pendingRafId = typeof id === "number" ? id : null;
+}
+
+/**
+ * Accumulate positive counter deltas and schedule the fallback 10 s flush timer (BP-09).
+ * Batching avoids a storage write on every mutation frame on streaming results pages.
+ * @param deltas - Non-negative integer deltas from sweepDom().
+ */
+function queueMetricDeltas(deltas: Record<string, number>): void {
+  let added = false;
+  for (const [key, rawValue] of Object.entries(deltas)) {
+    if (typeof rawValue === "number" && Number.isFinite(rawValue) && rawValue > 0) {
+      const value = Math.floor(rawValue);
+      if (value > 0) {
+        pendingMetricDeltas[key] = (pendingMetricDeltas[key] ?? 0) + value;
+        added = true;
+      }
+    }
+  }
+  if (added && metricsFlushTimer === null && typeof window.setTimeout === "function") {
+    metricsFlushTimer = window.setTimeout(() => {
+      metricsFlushTimer = null;
+      flushPendingMetrics();
+    }, METRICS_FLUSH_INTERVAL_MS);
+  }
+}
+
+/**
+ * Send any queued counter deltas to the service worker and clear the flush timer.
+ * Swaps the pending map synchronously so back-to-back visibilitychange and pagehide events
+ * never double-send.
+ */
+function flushPendingMetrics(): void {
+  if (metricsFlushTimer !== null) {
+    if (typeof window.clearTimeout === "function") {
+      window.clearTimeout(metricsFlushTimer);
+    }
+    metricsFlushTimer = null;
+  }
+  if (Object.keys(pendingMetricDeltas).length === 0) {
+    return;
+  }
+  const deltas = pendingMetricDeltas;
+  pendingMetricDeltas = {};
+  void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas });
+}
+
+/**
+ * Stop both MutationObservers and cancel any pending sweep callbacks.
  */
 function disconnectObservers() {
   if (bodyObserver) {
@@ -118,7 +211,7 @@ function disconnectObservers() {
     rootObserver.disconnect();
     rootObserver = null;
   }
-  pendingRaf = false;
+  cancelScheduledSweep();
 }
 
 /**
@@ -143,12 +236,13 @@ function checkAiModeUrl(): boolean {
     return false;
   }
   aiModeRedirectStarted = true;
+  flushPendingMetrics();
   window.location.replace(clean);
   return true;
 }
 
 /**
- * Sweep immediately and report aggregate deltas and deduped diagnostics.
+ * Sweep immediately, queue any per-page deltas, and report deduped diagnostics.
  * No-op when there is no policy yet or masterEnabled is false; skipped when the URL check
  * starts an AI Mode redirect instead.
  */
@@ -156,14 +250,16 @@ function runSweepNow() {
   if (!currentPolicy || !currentPolicy.masterEnabled) {
     return;
   }
+  cancelScheduledSweep();
+  lastSweepAt = Date.now();
   // Google's in-page switch to AI Mode always mutates the DOM, so every sweep re-checks the URL.
   if (checkAiModeUrl()) {
     return;
   }
   const pageKey = computeOpaquePageKey();
-  const { deltas, errors } = sweepDom(document, currentPolicy, seenOverviewPages, pageKey);
+  const { deltas, errors } = sweepDom(document, currentPolicy, seenCategoryPages, pageKey);
   if (Object.keys(deltas).length > 0) {
-    void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas });
+    queueMetricDeltas(deltas);
   }
   for (const err of errors) {
     const dedupeKey = `${pageKey}:${err.code}:${err.detail}`;
@@ -179,17 +275,40 @@ function runSweepNow() {
 }
 
 /**
- * Coalesce mutations into at most one sweep per animation frame.
+ * Throttle mutation sweeps to at most once per 150 ms while keeping the first/idle sweep on
+ * the next animation frame and guaranteeing a trailing sweep after bursts settle (BP-09).
+ * @param immediate - Skip throttle cooldown (used when a new policy is applied).
  */
-function scheduleSweep() {
-  if (pendingRaf || !currentPolicy || !currentPolicy.masterEnabled) {
+function scheduleSweep(immediate = false) {
+  if (!currentPolicy || !currentPolicy.masterEnabled) {
     return;
   }
-  pendingRaf = true;
-  window.requestAnimationFrame(() => {
-    pendingRaf = false;
-    runSweepNow();
-  });
+  if (immediate) {
+    if (sweepTimer !== null) {
+      if (typeof window.clearTimeout === "function") {
+        window.clearTimeout(sweepTimer);
+      }
+      sweepTimer = null;
+    }
+    if (!pendingRaf) {
+      queueSweepFrame();
+    }
+    return;
+  }
+  if (pendingRaf || sweepTimer !== null) {
+    return;
+  }
+  const elapsed = Date.now() - lastSweepAt;
+  if (elapsed >= SWEEP_THROTTLE_MS || typeof window.setTimeout !== "function") {
+    queueSweepFrame();
+    return;
+  }
+  sweepTimer = window.setTimeout(() => {
+    sweepTimer = null;
+    if (!pendingRaf && currentPolicy?.masterEnabled) {
+      queueSweepFrame();
+    }
+  }, SWEEP_THROTTLE_MS - elapsed);
 }
 
 /**
@@ -228,12 +347,13 @@ function attachMutationObserver() {
 
 /**
  * Apply a policy: set attributes, restore categories that were turned off, and start sweeping.
- * @param policy - Effective policy; masterEnabled false unhides everything and stops observers.
+ * @param policy - Effective policy; masterEnabled false flushes deltas, unhides everything and stops observers.
  */
 function applyEffectivePolicy(policy: EffectivePolicy): void {
   currentPolicy = policy;
   applyPolicyAttributes(document, policy);
   if (!policy.masterEnabled) {
+    flushPendingMetrics();
     disconnectObservers();
     unhideAllElements(document);
     return;
@@ -248,7 +368,7 @@ function applyEffectivePolicy(policy: EffectivePolicy): void {
     unhideCategoryElements(document, "aux");
   }
   attachMutationObserver();
-  scheduleSweep();
+  scheduleSweep(true);
 }
 
 /**
@@ -346,6 +466,18 @@ window.addEventListener("popstate", () => {
 window.addEventListener("pageshow", () => {
   checkAiModeUrl();
 });
+
+// Flush batched per-page metrics before leaving or backgrounding the tab (BP-09).
+window.addEventListener("pagehide", () => {
+  flushPendingMetrics();
+});
+if (typeof document.addEventListener === "function") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flushPendingMetrics();
+    }
+  });
+}
 
 // Navigation API (Chrome 102+): fires after same-document navigations such as pushState, so
 // AI Mode is caught even before the next DOM mutation. Feature-detected; sweeps cover the rest.

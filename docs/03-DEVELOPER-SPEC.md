@@ -1,7 +1,9 @@
 # 03 — Developer Specification (1-Shot MVP Implementation Blueprint)
 
-**Target:** Phase 1 Minimum Viable Prototype — **RaiseMark Search Guard for K-12**  
-**Stack:** TypeScript 5.x (strict), `esbuild`, Vanilla HTML/CSS (zero frontend frameworks), Vitest + `jsdom`, Playwright (`playwright` npm package)  
+> **Current Implementation Note (2026-11-21):** This document is the original MVP build blueprint. Per [`docs/07-BREAKPOINT-AUDIT-LOG.md`](07-BREAKPOINT-AUDIT-LOG.md) (decisions D6, D7, and D8), the shipped product in `src/` and `dist/` is titled **RaiseMark: AI Search Controls for K-12**, requires Chrome 134+, uses `node --test` + Playwright for verification, and **removes the optional Google Sheets / `script.google.com` analytics subsystem and `chrome.alarms` permission** (`archive/analytics-v1/`). Where this blueprint differs from `docs/07-BREAKPOINT-AUDIT-LOG.md` or `src/`, `docs/07` and `src/` govern.
+
+**Target:** Phase 1 Minimum Viable Prototype — **RaiseMark: AI Search Controls for K-12**  
+**Stack:** TypeScript (strict), `esbuild`, Vanilla HTML/CSS (zero frontend frameworks), `node --test`, Playwright (`playwright` npm package)  
 **MV3 Compliance Rules Enforced:**
 * Strict `manifest_version: 3`, zero MV2 APIs.
 * All PNG icons (`16×16`, `48×48`, `128×128`) generated as real verified PNG files in `dist/icons/`.

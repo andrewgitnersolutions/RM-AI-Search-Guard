@@ -1,7 +1,9 @@
 # 02 — System Architecture & Security Design
 
-**Product:** RaiseMark Search Guard for K-12  
-**Architecture Style:** Hybrid Defense-in-Depth (Chrome Enterprise Native Policy + MV3 Extension Network & DOM Layers + Zero-PII District BYOS Analytics)
+> **Current Implementation Note (2026-11-21):** This document is the original architecture specification. Per [`docs/07-BREAKPOINT-AUDIT-LOG.md`](07-BREAKPOINT-AUDIT-LOG.md) (decisions D6 and D7), the product is now titled **RaiseMark: AI Search Controls for K-12**, and the optional District BYOS Analytics subsystem (`script.google.com` / `chrome.alarms`) described in Sections 2 and 5 below was **removed in Phase 0b** (`archive/analytics-v1/`). The shipped extension is scoped strictly to `google.com` (`storage` + `declarativeNetRequestWithHostAccess` only) and makes **zero external network requests**; see [`PRIVACY.md`](../PRIVACY.md).
+
+**Product:** RaiseMark: AI Search Controls for K-12 *(originally drafted as RaiseMark Search Guard for K-12)*  
+**Architecture Style:** Hybrid Defense-in-Depth (Chrome Enterprise Native Policy + MV3 Extension Network & DOM Layers)
 
 ---
 
@@ -81,10 +83,10 @@ sequenceDiagram
     CS->>SW: Read effective policy (managed -> local -> strict defaults)
     CS->>CS: Set html[data-rmsg-hide-overviews="1"] etc. (activates static-guard.css pre-paint)
     Google-->>CS: DOM nodes stream & hydrate asynchronously
-    CS->>CS: MutationObserver -> rAF batch -> Tier 1 Semantic + Tier 2 Structural matching
-    CS->>CS: Organic Safety Guard checks candidate container (< 3 organic h3 links)
-    CS->>CS: Hide matched containers (idempotent via data-rmsg-hidden="1")
-    CS->>SW: sendMessage(INCREMENT_METRICS, { overviewsHidden, aiModeUiHidden, auxAiHidden })
+    CS->>CS: MutationObserver -> 150 ms throttled rAF sweep -> Tier 1 Semantic + Tier 2 Structural matching
+    CS->>CS: Organic Safety Guard checks candidate container (< 1 organic for overview, < 3 otherwise)
+    CS->>CS: Hide matched containers (idempotent via data-rmsg-hidden="overview|aimode|aux")
+    CS->>SW: Flush batched per-page counts (pagehide / hidden / 10 s): INCREMENT_METRICS (at most 1 per category per page)
 ```
 
 ---

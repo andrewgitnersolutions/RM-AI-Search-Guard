@@ -1,8 +1,7 @@
 // B tests (docs/07 §6.3): the built extension in Chromium against mock Google pages served by
 // route interception (tests/helpers/browser.mjs). No request reaches real Google.
-// Not automated here: B-09 (performance profile), B-10 (needs managed policy), B-13 on a real
-// managed profile (B-13b–d stub the worker's answer instead), and BP-09's churning-page half of
-// B-08 — reported NOT RUN.
+// Not automated here: B-09 (CDP CPU profile benchmark), B-10 (needs managed policy), and B-13 on
+// a real managed profile (B-13b–d stub the worker's answer instead) — reported NOT RUN where skipped.
 import assert from "node:assert/strict";
 import { equivalent } from "../helpers/equivalence.mjs";
 import { launchWithExtension, readTelemetry, settle, visibilityById } from "../helpers/browser.mjs";
@@ -247,24 +246,47 @@ equivalent("B-06b", "history.pushState(…udm=50) with no DOM mutation → clean
     return { afterPush, delta };
   }), { bp: "BP-05" });
 
-equivalent("B-07", "same page reloaded 3× → each category counter +3 exactly", (target) =>
+equivalent("B-07", "same page reloaded 3× with re-render churn → each category counter +3 exactly", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     await page.goto("https://www.google.com/search?q=x&udm=14");
     await settle(page);
+    await page.goto("about:blank");
     const start = (await readTelemetry(b.sw)).lifetimeMetrics;
     for (let i = 0; i < 3; i += 1) {
-      await page.reload();
+      if (i === 0) {
+        await page.goto("https://www.google.com/search?q=x&udm=14");
+      } else {
+        await page.reload();
+      }
+      await settle(page);
+      // Simulate Google re-rendering fresh AI surfaces across multiple sweeps on the same page.
+      await page.evaluate(async () => {
+        const rso = document.getElementById("rso");
+        for (let burst = 0; burst < 3; burst += 1) {
+          const ov = document.createElement("div");
+          ov.setAttribute("data-attrid", "AIOverview");
+          ov.textContent = `Re-rendered overview ${burst}`;
+          const aiBtn = document.createElement("button");
+          aiBtn.className = "plR5qb";
+          aiBtn.textContent = "AI Mode";
+          const labs = document.createElement("a");
+          labs.href = "https://labs.google.com/search";
+          labs.textContent = "Search Labs";
+          rso.append(ov, aiBtn, labs);
+          await new Promise((r) => setTimeout(r, 80));
+        }
+      });
       await settle(page);
     }
+    await page.goto("about:blank");
     const end = (await readTelemetry(b.sw)).lifetimeMetrics;
     const delta = Object.fromEntries(["overviewsHidden", "aiModeUiHidden", "auxAiHidden"].map((k) => [k, end[k] - start[k]]));
     assert.deepEqual(delta, { overviewsHidden: 3, aiModeUiHidden: 3, auxAiHidden: 3 });
     return delta;
   }), { bp: "BP-14" });
 
-// Static page only: BP-09's real check needs a continuously mutating fixture (not built yet).
-equivalent("B-08", "a single search on a static results page produces ≤2 telemetry writes", (target) =>
+equivalent("B-08", "a single search on a churning results page produces ≤2 telemetry writes and flushes all counters on pagehide", (target) =>
   withBrowser(target, async (b) => {
     await b.sw.evaluate(() => {
       globalThis.__writes = 0;
@@ -273,12 +295,88 @@ equivalent("B-08", "a single search on a static results page produces ≤2 telem
       });
     });
     const page = await b.context.newPage();
-    await page.goto("https://www.google.com/search?q=x&udm=50");
+    await page.goto("https://www.google.com/search?q=x&udm=50&fixture=churn");
     await settle(page);
+    await page.evaluate(async () => {
+      const rso = document.getElementById("rso");
+      for (let step = 0; step < 25; step += 1) {
+        const box = document.createElement("div");
+        if (step % 3 === 0) {
+          box.setAttribute("data-attrid", "AIOverview");
+          box.textContent = `Streaming AI chunk ${step}`;
+        } else if (step % 3 === 1) {
+          const btn = document.createElement("button");
+          btn.className = "plR5qb";
+          btn.textContent = "AI Mode";
+          box.append(btn);
+        } else {
+          const lens = document.createElement("div");
+          lens.setAttribute("role", "button");
+          lens.setAttribute("aria-label", "Search by image");
+          box.append(lens);
+        }
+        rso.append(box);
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    });
+    await settle(page);
+    await page.goto("about:blank");
+    const telemetry = await readTelemetry(b.sw);
     const writes = await b.sw.evaluate(() => globalThis.__writes);
     assert.ok(writes <= 2, `${writes} telemetry writes`);
-    return writes;
-  }));
+    assert.equal(telemetry.lifetimeMetrics.aiModeRedirects, 1);
+    assert.equal(telemetry.lifetimeMetrics.overviewsHidden, 1);
+    assert.equal(telemetry.lifetimeMetrics.aiModeUiHidden, 1);
+    assert.equal(telemetry.lifetimeMetrics.auxAiHidden, 1);
+    return { writes, lifetime: telemetry.lifetimeMetrics };
+  }), { bp: "BP-09" });
+
+equivalent("B-08b", "Options skips telemetry-only storage refreshes while IT Diagnostics is hidden and refreshes when opened", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.addInitScript(() => {
+      const real = chrome.runtime.sendMessage.bind(chrome.runtime);
+      window.__snapCalls = 0;
+      chrome.runtime.sendMessage = async (msg) => {
+        if (msg?.type === "GET_DIAGNOSTIC_SNAPSHOT") window.__snapCalls += 1;
+        return real(msg);
+      };
+    });
+    await page.goto(`chrome-extension://${b.extensionId}/ui/options.html`);
+    await page.waitForFunction(() => window.__snapCalls === 1);
+    await page.waitForTimeout(150);
+
+    // Telemetry-only change while Status tab is active must not trigger a snapshot refresh.
+    await b.sw.evaluate(async () => {
+      const cur = (await chrome.storage.local.get("rmsg_telemetry")).rmsg_telemetry ?? {
+        lifetimeMetrics: { overviewsHidden: 0, aiModeUiHidden: 0, aiModeRedirects: 0, omniboxFallbackRedirects: 0, auxAiHidden: 0 },
+        diagnosticLog: [],
+      };
+      cur.lifetimeMetrics.overviewsHidden = 7;
+      await chrome.storage.local.set({ rmsg_telemetry: cur });
+    });
+    await page.waitForTimeout(300);
+    const callsWhileHidden = await page.evaluate(() => window.__snapCalls);
+    assert.equal(callsWhileHidden, 1, "Options re-rendered on telemetry write while Diagnostics tab was hidden");
+
+    // Switching to Diagnostics pulls the stale update once.
+    await page.click("#tab-diagnostics");
+    await page.waitForFunction(() => window.__snapCalls === 2);
+    await page.waitForFunction(() => document.getElementById("metric-overviewsHidden")?.textContent === "7");
+
+    // Telemetry change while Diagnostics is visible must live-refresh immediately.
+    await b.sw.evaluate(async () => {
+      const cur = (await chrome.storage.local.get("rmsg_telemetry")).rmsg_telemetry;
+      cur.lifetimeMetrics.overviewsHidden = 9;
+      await chrome.storage.local.set({ rmsg_telemetry: cur });
+    });
+    await page.waitForFunction(() => window.__snapCalls === 3);
+    await page.waitForFunction(() => document.getElementById("metric-overviewsHidden")?.textContent === "9");
+
+    const callsFinal = await page.evaluate(() => window.__snapCalls);
+    const displayed = await page.evaluate(() => document.getElementById("metric-overviewsHidden")?.textContent);
+    return { callsWhileHidden, callsFinal, displayed };
+  }), { bp: "BP-09" });
 
 equivalent("B-11", "Tier 1/2 matches stripped from an Overview → WARN_AI_SURFACE_VISIBLE logged once", (target) =>
   withBrowser(target, async (b) => {

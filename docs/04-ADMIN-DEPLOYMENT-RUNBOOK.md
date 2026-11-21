@@ -118,7 +118,7 @@ Allows AI Overviews for source-critique lessons while keeping full conversationa
 
 District-wide Google Sheets analytics were removed on 2026-11-20 (owner decision D6): an extension can't hold a secret, so the endpoint couldn't tell real reports from fake ones, and restricting it to district sign-in would have tied every report to a student account. There is nothing to set up for this step.
 
-Each Chromebook still keeps its own aggregate counters (AI Overviews hidden, AI Mode redirects, and so on) and diagnostic codes. IT staff can view them on the device under **Options → IT Diagnostics** and export them with **Export Local Metrics CSV**. Nothing is sent off the device. If an older policy JSON still contains `analyticsEnabled`, `analyticsEndpointUrl`, `analyticsSharedToken` or `analyticsFlushIntervalMinutes`, remove those fields: they are no longer in the policy schema and the extension ignores them.
+Each Chromebook still keeps its own aggregate counters (AI Overviews hidden, AI Mode redirects, and so on) and diagnostic codes. The UI-hiding counters (`OverviewsHidden`, `AiModeUiHidden`, and `AuxAiHidden`) count searches/pages where at least one element of that category was hidden (at most once per page, regardless of Google DOM re-renders) and flush to local storage when leaving or hiding a tab or every 10 seconds. IT staff can view them on the device under **Options → IT Diagnostics** and export them with **Export Local Metrics CSV**. Nothing is sent off the device. If an older policy JSON still contains `analyticsEnabled`, `analyticsEndpointUrl`, `analyticsSharedToken` or `analyticsFlushIntervalMinutes`, remove those fields: they are no longer in the policy schema and the extension ignores them.
 
 ---
 
@@ -145,4 +145,11 @@ Each Chromebook still keeps its own aggregate counters (AI Overviews hidden, AI 
 | `WARN_OMNIBOX_POLICY_MISSING` | Student clicked Chrome's native Omnibox/NTP AI button; extension blocked it, but button is still visible. | Enable `AIModeSettings = 1` in Step 1 for this OU (requires ChromeOS/Chrome 138+). |
 | `WARN_NO_MANAGED_POLICY` | Extension is running on Strict Maximum Lockdown defaults because Admin Console JSON wasn't pushed yet. | Paste valid JSON in **Policy for extensions** and run `chrome://policy` → Reload policies. |
 | `ERR_POLICY_INVALID` | Syntax/type error in Admin Console JSON (e.g., missing `{"Value": ...}` wrapper or string `"true"` instead of boolean `true`). | Re-generate JSON via the **Admin Policy Generator** tab and re-save. |
-| `ERR_SAFETY_GUARD_TRIPPED` | Google changed Search DOM structure; safety guard protected organic results. | Check Chrome Web Store for a selector update or report diagnostic JSON to RaiseMark Support. |
+| `ERR_SAFETY_GUARD_TRIPPED` | Google changed Search DOM structure; safety guard protected organic results. | Check Chrome Web Store for a selector update or report diagnostic JSON to RaiseMark Support (`info@raisemarkai.com`). |
+
+---
+
+## Scope, Best-Effort UI Control & Non-Affiliation Notice
+
+* **Pedagogical UI Control (Not a Content Filter):** RaiseMark: AI Search Controls for K-12 helps districts manage generative AI features on Google Search by grade band. It is **not** a CIPA content filter, web filter, or student-safety monitoring tool. Because Google Search HTML and URL parameters are controlled by Google LLC and may change at any time without notice, UI hiding and URL redirection operate on a best-effort basis with an automatic Organic Results Safety Guard (`isUnsafeToHide`) and a 1-click Google Admin Console kill switch (`"masterEnabled": { "Value": false }`).
+* **Non-Affiliation:** RaiseMark AI is an independent organization and is not affiliated with, endorsed by, or sponsored by Google LLC.

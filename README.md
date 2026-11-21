@@ -55,3 +55,7 @@ The MIT License applies solely to the source code and grants no trademark rights
 You are free to fork, modify, and redistribute the source code under the terms of the MIT License, provided that you:
 1. **Remove all RaiseMark branding, product names, and logos/icons** from any modified or redistributed builds.
 2. **Do not publish or distribute** any fork, clone, or modified version under the "RaiseMark" name or branding on the Chrome Web Store or any other extension marketplace.
+
+### Scope, Best-Effort UI Control & Non-Affiliation Disclaimer
+* **Pedagogical UI Control (Not a Content Filter):** This extension is an instructional pacing and UI preference tool designed to help school districts manage generative AI features on Google Search by grade band. It is **not** a CIPA content filter, web filter, or child-safety monitoring system. Because Google Search HTML and URL parameters are controlled by Google LLC and may change at any time without notice, UI hiding and redirection are provided on a best-effort, `"AS IS"` basis under the [MIT License](LICENSE).
+* **Non-Affiliation:** RaiseMark AI is an independent organization. This project is not affiliated with, endorsed by, or sponsored by Google LLC. Google, Google Search, Google Chrome, and ChromeOS are trademarks of Google LLC.

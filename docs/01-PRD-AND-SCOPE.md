@@ -1,6 +1,8 @@
 # 01 — Product Requirements Document (PRD) & Project Scope
 
-**Product:** RaiseMark Search Guard for K-12  
+> **Current Implementation Note (2026-11-21):** This document is the original Phase 1 design specification. Per [`docs/07-BREAKPOINT-AUDIT-LOG.md`](07-BREAKPOINT-AUDIT-LOG.md) (decisions D6 and D7), the product is now titled **RaiseMark: AI Search Controls for K-12**, and the optional Google Sheets / `script.google.com` district analytics sink described below was **removed prior to release** (`archive/analytics-v1/`). The shipped extension makes **zero external network requests**; see [`PRIVACY.md`](../PRIVACY.md) for current privacy guarantees.
+
+**Product:** RaiseMark: AI Search Controls for K-12 *(originally drafted as RaiseMark Search Guard for K-12)*  
 **Publisher:** RaiseMark AI  
 **Target Platform:** Google Chrome & ChromeOS (Manifest V3)  
 **Distribution:** Public Chrome Web Store + Public Open-Source GitHub Repository (MIT License)

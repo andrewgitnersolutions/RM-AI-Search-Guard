@@ -665,7 +665,7 @@ async function fetchDiagnosticSnapshot() {
     generatedAtDate: getTodayDateBucket()
   };
 }
-function setupAccessibleTabs() {
+function setupAccessibleTabs(onTabActivated) {
   const tablist = document.querySelector('[role="tablist"]');
   if (!tablist) return;
   const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
@@ -694,6 +694,7 @@ function setupAccessibleTabs() {
     if (typeof activeTab.scrollIntoView === "function") {
       activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+    onTabActivated?.(panels[safeIndex].id);
   }
   for (let i = 0; i < tabs.length; i += 1) {
     const tab = tabs[i];
@@ -729,7 +730,17 @@ async function bootOptionsPage() {
   if (!tabStatus) {
     return;
   }
-  setupAccessibleTabs();
+  const diagnosticsPanel = document.getElementById("panel-diagnostics");
+  let diagnosticsStale = false;
+  let refreshSnapshotRef = null;
+  setupAccessibleTabs((panelId) => {
+    if (panelId === "panel-diagnostics" && diagnosticsStale) {
+      diagnosticsStale = false;
+      if (refreshSnapshotRef) {
+        void refreshSnapshotRef();
+      }
+    }
+  });
   const globalAnnouncer = document.getElementById("global-announcer");
   const announce = (message) => {
     if (!globalAnnouncer) return;
@@ -945,6 +956,7 @@ async function bootOptionsPage() {
   }
   let snapshotGeneration = 0;
   async function refreshSnapshot() {
+    diagnosticsStale = false;
     const generation = ++snapshotGeneration;
     const snapshot = await fetchDiagnosticSnapshot();
     if (generation !== snapshotGeneration) {
@@ -952,6 +964,7 @@ async function bootOptionsPage() {
     }
     renderSnapshot(snapshot);
   }
+  refreshSnapshotRef = refreshSnapshot;
   async function persistLocalOverride(partial) {
     if (currentSnapshot?.policy.isManaged) {
       setStatusFeedback("Policy is locked by Google Admin Console and cannot be changed locally.", true);
@@ -1051,8 +1064,19 @@ async function bootOptionsPage() {
     setDiagFeedback("Reset cancelled.");
   });
   if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
-    chrome.storage.onChanged.addListener((_changes, areaName) => {
-      if (areaName === "managed" || areaName === "local") {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === "managed") {
+        void refreshSnapshot();
+        return;
+      }
+      if (areaName === "local") {
+        const changedKeys = Object.keys(changes);
+        const isTelemetryOnly = changedKeys.length > 0 && changedKeys.every((key) => key === STORAGE_KEYS.TELEMETRY);
+        const diagnosticsVisible = diagnosticsPanel !== null && !diagnosticsPanel.hasAttribute("hidden");
+        if (isTelemetryOnly && !diagnosticsVisible) {
+          diagnosticsStale = true;
+          return;
+        }
         void refreshSnapshot();
       }
     });
