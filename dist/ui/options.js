@@ -89,8 +89,19 @@ var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
   LAST_POLICY: "rmsg_last_policy",
-  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
+  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch",
+  UNSUPPORTED_LANG_DATES: "rmsg_unsupported_lang_dates"
 };
+var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
+var MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
+var MAX_EXTRA_SELECTOR_LENGTH = 300;
+function createEmptyExtraHideSelectors() {
+  return {
+    overview: [],
+    aimode: [],
+    aux: []
+  };
+}
 function createEmptyMetrics() {
   return {
     overviewsHidden: 0,
@@ -119,6 +130,46 @@ function isValidGradeBand(value) {
 function isUnlockableInstall(installType) {
   return installType === "normal" || installType === "development";
 }
+function trimCssWhitespace(value) {
+  return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+}
+function parseExtraHideSelectors(raw) {
+  const value = createEmptyExtraHideSelectors();
+  if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
+    return { value, valid: false };
+  }
+  const obj = raw;
+  let valid = true;
+  const allowedKeys = new Set(EXTRA_SELECTOR_CATEGORIES);
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.has(key)) {
+      valid = false;
+    }
+  }
+  for (const category of EXTRA_SELECTOR_CATEGORIES) {
+    if (!(category in obj) || obj[category] === void 0) {
+      continue;
+    }
+    const rawList = obj[category];
+    if (!Array.isArray(rawList) || rawList.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+      valid = false;
+      continue;
+    }
+    for (const item of rawList) {
+      if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+        valid = false;
+        continue;
+      }
+      const trimmed = trimCssWhitespace(item);
+      if (trimmed.length === 0) {
+        valid = false;
+        continue;
+      }
+      value[category].push(trimmed);
+    }
+  }
+  return { value, valid };
+}
 function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
   const evaluatedAt = now.toISOString();
   const errors = [];
@@ -133,6 +184,7 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
       const policy3 = {
         ...toggles2,
         gradeBand: "Unassigned",
+        extraHideSelectors: createEmptyExtraHideSelectors(),
         source: "admin-no-policy",
         isManaged: true,
         invalidFields: [],
@@ -157,6 +209,8 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
     const policy2 = {
       ...toggles2,
       gradeBand: gradeBand2,
+      // Custom hotfix selectors are managed-only (BP-04): ignore any localRaw.extraHideSelectors.
+      extraHideSelectors: createEmptyExtraHideSelectors(),
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
       invalidFields: [],
@@ -186,6 +240,14 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
       gradeBand = "Unassigned";
     }
   }
+  let extraHideSelectors = createEmptyExtraHideSelectors();
+  if ("extraHideSelectors" in managedRaw && managedRaw.extraHideSelectors !== void 0) {
+    const parsedExtras = parseExtraHideSelectors(managedRaw.extraHideSelectors);
+    extraHideSelectors = parsedExtras.value;
+    if (!parsedExtras.valid) {
+      invalidFields.push("extraHideSelectors");
+    }
+  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
@@ -195,6 +257,7 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
   const policy = {
     ...toggles,
     gradeBand,
+    extraHideSelectors,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,
     invalidFields,
@@ -203,7 +266,7 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
   return { policy, errors };
 }
 function formatAdminConsolePolicyJson(config) {
-  return {
+  const formatted = {
     gradeBand: { Value: config.gradeBand },
     masterEnabled: { Value: Boolean(config.masterEnabled) },
     hideAiOverviews: { Value: Boolean(config.hideAiOverviews) },
@@ -212,16 +275,67 @@ function formatAdminConsolePolicyJson(config) {
     forceWebOnlySearch: { Value: Boolean(config.forceWebOnlySearch) },
     hideAuxiliaryAiFeatures: { Value: Boolean(config.hideAuxiliaryAiFeatures) }
   };
+  if (config.extraHideSelectors) {
+    const extraValue = {};
+    for (const category of EXTRA_SELECTOR_CATEGORIES) {
+      const rawList = config.extraHideSelectors[category];
+      if (!Array.isArray(rawList)) {
+        continue;
+      }
+      const cleaned = rawList.filter((item) => typeof item === "string").map((item) => trimCssWhitespace(item)).filter((item) => item.length > 0);
+      if (cleaned.length > 0) {
+        extraValue[category] = cleaned;
+      }
+    }
+    if (Object.keys(extraValue).length > 0) {
+      formatted.extraHideSelectors = { Value: extraValue };
+    }
+  }
+  return formatted;
 }
 function validatePolicyDraft(config) {
   const errors = [];
   if (!isValidGradeBand(config.gradeBand)) {
     errors.push(`Invalid grade band "${String(config.gradeBand)}".`);
   }
+  if (config.extraHideSelectors !== void 0) {
+    if (config.extraHideSelectors === null || typeof config.extraHideSelectors !== "object" || Array.isArray(config.extraHideSelectors)) {
+      errors.push("extraHideSelectors must be an object.");
+    } else {
+      for (const category of EXTRA_SELECTOR_CATEGORIES) {
+        const rawList = config.extraHideSelectors[category];
+        if (rawList === void 0) {
+          continue;
+        }
+        if (!Array.isArray(rawList)) {
+          errors.push(`extraHideSelectors.${category} must be an array.`);
+          continue;
+        }
+        if (rawList.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+          errors.push(`extraHideSelectors.${category} allows at most ${MAX_EXTRA_SELECTORS_PER_CATEGORY} selectors.`);
+        }
+        for (const item of rawList) {
+          if (typeof item !== "string") {
+            errors.push(`extraHideSelectors.${category} must contain strings only.`);
+            break;
+          }
+          if (trimCssWhitespace(item).length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+            errors.push(`extraHideSelectors.${category} exceeds ${MAX_EXTRA_SELECTOR_LENGTH} characters per selector.`);
+            break;
+          }
+        }
+      }
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
 
 // src/ui/policy-generator-core.ts
+var EXTRA_SELECTOR_LABELS = {
+  overview: "AI Overview selectors",
+  aimode: "AI Mode UI selectors",
+  aux: "Auxiliary AI selectors"
+};
 var PRIMARY_BANDS = ["K-2", "3-5", "6-8", "9-12"];
 var ALL_BANDS = ["K-2", "3-5", "6-8", "9-12", "Staff"];
 var TOGGLE_LABELS = {
@@ -242,10 +356,51 @@ function createDefaultBandStates() {
     Staff: { ...GRADE_BAND_PRESETS.Staff.toggles }
   };
 }
-function buildBandAdminJsonString(gradeBand, toggles) {
+function createDefaultExtraRawStates() {
+  return {
+    "K-2": { overview: "", aimode: "", aux: "" },
+    "3-5": { overview: "", aimode: "", aux: "" },
+    "6-8": { overview: "", aimode: "", aux: "" },
+    "9-12": { overview: "", aimode: "", aux: "" },
+    Staff: { overview: "", aimode: "", aux: "" }
+  };
+}
+function parseExtraSelectorsInput(raw) {
+  const selectors = raw.split(/\r?\n/).map((line) => trimCssWhitespace(line)).filter((line) => line.length > 0);
+  if (selectors.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+    return {
+      selectors,
+      error: `At most ${MAX_EXTRA_SELECTORS_PER_CATEGORY} selectors per category are allowed.`
+    };
+  }
+  for (const line of selectors) {
+    if (line.length > MAX_EXTRA_SELECTOR_LENGTH) {
+      return {
+        selectors,
+        error: `Each selector must be at most ${MAX_EXTRA_SELECTOR_LENGTH} characters.`
+      };
+    }
+  }
+  if (typeof document !== "undefined" && typeof document.createDocumentFragment === "function") {
+    const probe = document.createDocumentFragment();
+    for (const line of selectors) {
+      try {
+        probe.querySelector(line);
+      } catch {
+        return {
+          selectors,
+          error: `Invalid CSS selector syntax: "${line.slice(0, 60)}"`
+        };
+      }
+    }
+  }
+  return { selectors, error: null };
+}
+function buildBandAdminJsonString(gradeBand, toggles, extraHideSelectors) {
   const payload = formatAdminConsolePolicyJson({
     gradeBand,
-    ...toggles
+    ...toggles,
+    extraHideSelectors
   });
   return JSON.stringify(payload, null, 2);
 }
@@ -293,10 +448,22 @@ function triggerFileDownload(filename, content, mimeType = "application/json") {
     URL.revokeObjectURL(objectUrl);
   }, 1e3);
 }
+function syncFieldErrorLink(input, errorId, shown) {
+  const existing = (input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((id) => id.length > 0 && id !== errorId);
+  if (shown) {
+    existing.push(errorId);
+  }
+  if (existing.length > 0) {
+    input.setAttribute("aria-describedby", existing.join(" "));
+  } else {
+    input.removeAttribute("aria-describedby");
+  }
+}
 function mountPolicyGenerator(container, options) {
   mountInstanceCounter += 1;
   const idPrefix = `rm-pg-${mountInstanceCounter}`;
   let bandStates = createDefaultBandStates();
+  let extraRawStates = createDefaultExtraRawStates();
   let showStaffBand = false;
   container.replaceChildren();
   const root = document.createElement("div");
@@ -414,6 +581,69 @@ function mountPolicyGenerator(container, options) {
       item.append(label, input);
       togglesContainer.append(item);
     }
+    const advancedDetails = document.createElement("details");
+    advancedDetails.className = "band-advanced";
+    advancedDetails.dataset.advancedBand = band;
+    const advancedSummary = document.createElement("summary");
+    advancedSummary.className = "band-advanced-summary";
+    advancedSummary.textContent = "Advanced: Extra Hide Selectors (Hotfix)";
+    const advancedBody = document.createElement("div");
+    advancedBody.className = "band-advanced-body";
+    const hintId = `${idPrefix}-${band}-extra-hint`;
+    const advancedHint = document.createElement("p");
+    advancedHint.id = hintId;
+    advancedHint.className = "field-hint";
+    advancedHint.textContent = `Optional CSS selectors (one per line, max ${MAX_EXTRA_SELECTORS_PER_CATEGORY} per category, max ${MAX_EXTRA_SELECTOR_LENGTH} chars each). Only emitted in JSON when filled.`;
+    advancedBody.append(advancedHint);
+    const extraTextareas = {};
+    const extraErrors = {};
+    for (const category of EXTRA_SELECTOR_CATEGORIES) {
+      const row = document.createElement("div");
+      row.className = "field-row";
+      const inputId = `${idPrefix}-${band}-extra-${category}`;
+      const errorId = `${inputId}-error`;
+      const label = document.createElement("label");
+      label.htmlFor = inputId;
+      label.className = "field-label";
+      label.textContent = EXTRA_SELECTOR_LABELS[category];
+      const textarea = document.createElement("textarea");
+      textarea.id = inputId;
+      textarea.name = `${band}-extra-${category}`;
+      textarea.className = "rm-textarea";
+      textarea.rows = 2;
+      textarea.setAttribute("autocorrect", "off");
+      textarea.setAttribute("autocapitalize", "none");
+      textarea.spellcheck = false;
+      textarea.setAttribute("aria-invalid", "false");
+      textarea.setAttribute("aria-describedby", hintId);
+      textarea.dataset.gradeBand = band;
+      textarea.dataset.extraCategory = category;
+      const errorEl = document.createElement("p");
+      errorEl.id = errorId;
+      errorEl.className = "field-error";
+      errorEl.hidden = true;
+      textarea.addEventListener("input", () => {
+        extraRawStates[band][category] = textarea.value;
+        renderBandCard(band);
+        if (textarea.getAttribute("aria-invalid") === "true") {
+          const check = parseExtraSelectorsInput(textarea.value);
+          if (!check.error) {
+            textarea.setAttribute("aria-invalid", "false");
+            errorEl.textContent = "";
+            errorEl.hidden = true;
+            syncFieldErrorLink(textarea, errorId, false);
+          }
+        }
+      });
+      textarea.addEventListener("blur", () => {
+        validateExtraCategory(band, category, true);
+      });
+      extraTextareas[category] = textarea;
+      extraErrors[category] = errorEl;
+      row.append(label, textarea, errorEl);
+      advancedBody.append(row);
+    }
+    advancedDetails.append(advancedSummary, advancedBody);
     const pre = document.createElement("pre");
     pre.className = "json-preview";
     const codeEl = document.createElement("code");
@@ -430,15 +660,20 @@ function mountPolicyGenerator(container, options) {
     copySr.textContent = ` for ${band}`;
     copyBtn.append(document.createTextNode("Copy Google Admin Console JSON"), copySr);
     copyBtn.addEventListener("click", async () => {
-      const draftCheck = validatePolicyDraft({ gradeBand: band });
-      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
+      const extraValidation = collectAndValidateBandExtras(band);
+      const draftCheck = validatePolicyDraft({
+        gradeBand: band,
+        extraHideSelectors: extraValidation.selectors
+      });
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       const copied = await copyTextToClipboard(jsonText);
       if (!copied) {
         setStatus(`Could not copy ${band} JSON automatically. Select and copy from the preview box.`, true);
         return;
       }
-      if (!draftCheck.valid) {
-        setStatus(`Copied ${band} JSON (warning: ${draftCheck.errors[0]}).`, true);
+      const warning = extraValidation.firstError ?? draftCheck.errors[0];
+      if (warning) {
+        setStatus(`Copied ${band} JSON (warning: ${warning}).`, true);
       } else {
         setStatus(`Copied Google Admin Console JSON for ${band}.`);
       }
@@ -452,23 +687,70 @@ function mountPolicyGenerator(container, options) {
     dlSr.textContent = ` for ${band}`;
     dlBtn.append(document.createTextNode("Download .json"), dlSr);
     dlBtn.addEventListener("click", () => {
-      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
+      const extraValidation = collectAndValidateBandExtras(band);
+      const draftCheck = validatePolicyDraft({
+        gradeBand: band,
+        extraHideSelectors: extraValidation.selectors
+      });
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
-      setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
+      const warning = extraValidation.firstError ?? draftCheck.errors[0];
+      if (warning) {
+        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json (warning: ${warning}).`, true);
+      } else {
+        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
+      }
     });
     actions.append(copyBtn, dlBtn);
-    article.append(header, reminder, togglesContainer, pre, actions);
+    article.append(header, reminder, togglesContainer, advancedDetails, pre, actions);
     matrix.append(article);
     cardRefs[band] = {
       article,
       reminder,
       codeEl,
       toggleInputs,
-      toggleItems
+      toggleItems,
+      extraTextareas,
+      extraErrors
     };
   }
   root.append(matrix);
   container.append(root);
+  function validateExtraCategory(band, category, announceError) {
+    const refs = cardRefs[band];
+    const textarea = refs.extraTextareas[category];
+    const errorEl = refs.extraErrors[category];
+    const parsed = parseExtraSelectorsInput(extraRawStates[band][category]);
+    const hasError = parsed.error !== null;
+    textarea.setAttribute("aria-invalid", hasError ? "true" : "false");
+    errorEl.textContent = parsed.error ?? "";
+    errorEl.hidden = !hasError;
+    syncFieldErrorLink(textarea, errorEl.id, hasError);
+    if (hasError && announceError) {
+      errorAnnouncer.textContent = "";
+      errorAnnouncer.textContent = `${EXTRA_SELECTOR_LABELS[category]} (${band}): ${parsed.error}`;
+    }
+    return parsed;
+  }
+  function collectAndValidateBandExtras(band) {
+    const selectors = {};
+    let firstError = null;
+    for (const category of EXTRA_SELECTOR_CATEGORIES) {
+      const parsed = validateExtraCategory(band, category, false);
+      selectors[category] = parsed.selectors;
+      if (!firstError && parsed.error) {
+        firstError = parsed.error;
+      }
+    }
+    return { selectors, firstError };
+  }
+  function getBandExtraSelectors(band) {
+    return {
+      overview: parseExtraSelectorsInput(extraRawStates[band].overview).selectors,
+      aimode: parseExtraSelectorsInput(extraRawStates[band].aimode).selectors,
+      aux: parseExtraSelectorsInput(extraRawStates[band].aux).selectors
+    };
+  }
   function renderBandCard(band) {
     const refs = cardRefs[band];
     const toggles = bandStates[band];
@@ -480,7 +762,7 @@ function mountPolicyGenerator(container, options) {
     }
     const showAiModeReminder = toggles.masterEnabled && (toggles.blockAiModeNavigation || toggles.hideAiModeUi);
     refs.reminder.hidden = !showAiModeReminder;
-    refs.codeEl.textContent = buildBandAdminJsonString(band, toggles);
+    refs.codeEl.textContent = buildBandAdminJsonString(band, toggles, getBandExtraSelectors(band));
   }
   function renderAllBands() {
     for (const band of ALL_BANDS) {
@@ -489,6 +771,19 @@ function mountPolicyGenerator(container, options) {
   }
   resetBtn.addEventListener("click", () => {
     bandStates = createDefaultBandStates();
+    extraRawStates = createDefaultExtraRawStates();
+    for (const band of ALL_BANDS) {
+      const refs = cardRefs[band];
+      for (const category of EXTRA_SELECTOR_CATEGORIES) {
+        const textarea = refs.extraTextareas[category];
+        const errorEl = refs.extraErrors[category];
+        textarea.value = "";
+        textarea.setAttribute("aria-invalid", "false");
+        errorEl.textContent = "";
+        errorEl.hidden = true;
+        syncFieldErrorLink(textarea, errorEl.id, false);
+      }
+    }
     renderAllBands();
     setStatus("Reset all grade-band cards to recommended K–12 presets.");
   });
@@ -499,11 +794,20 @@ function mountPolicyGenerator(container, options) {
     staffToggleBtn.textContent = showStaffBand ? "Hide Staff OU Preset" : "Show Staff OU Preset";
   });
   downloadAllBtn.addEventListener("click", () => {
+    let firstWarning = null;
     for (const band of PRIMARY_BANDS) {
-      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
+      const extraValidation = collectAndValidateBandExtras(band);
+      if (!firstWarning && extraValidation.firstError) {
+        firstWarning = `${band}: ${extraValidation.firstError}`;
+      }
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
     }
-    setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
+    if (firstWarning) {
+      setStatus(`Downloaded all 4 grade-band JSON files (warning in ${firstWarning}).`, true);
+    } else {
+      setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
+    }
   });
   renderAllBands();
 }
@@ -541,6 +845,11 @@ function buildZeroPiiDiagnosticBundle(snapshot) {
       blockAiModeNavigation: policy.blockAiModeNavigation,
       forceWebOnlySearch: policy.forceWebOnlySearch,
       hideAuxiliaryAiFeatures: policy.hideAuxiliaryAiFeatures,
+      extraHideSelectors: {
+        overview: [...policy.extraHideSelectors?.overview ?? []],
+        aimode: [...policy.extraHideSelectors?.aimode ?? []],
+        aux: [...policy.extraHideSelectors?.aux ?? []]
+      },
       invalidFields: [...policy.invalidFields]
     },
     metrics: {
@@ -1073,7 +1382,7 @@ async function bootOptionsPage() {
       if (areaName === "local") {
         const changedKeys = Object.keys(changes);
         const isTelemetryOnly = changedKeys.length > 0 && changedKeys.every(
-          (key) => key === STORAGE_KEYS.TELEMETRY || key === STORAGE_KEYS.METRICS_RESET_EPOCH
+          (key) => key === STORAGE_KEYS.TELEMETRY || key === STORAGE_KEYS.METRICS_RESET_EPOCH || key === STORAGE_KEYS.UNSUPPORTED_LANG_DATES
         );
         const diagnosticsVisible = diagnosticsPanel !== null && !diagnosticsPanel.hasAttribute("hidden");
         if (isTelemetryOnly && !diagnosticsVisible) {
@@ -1098,5 +1407,8 @@ if (typeof document !== "undefined") {
 export {
   buildMetricsCsv,
   buildZeroPiiDiagnosticBundle,
-  sortDiagnosticEntries
+  formatAdminConsolePolicyJson,
+  parseExtraSelectorsInput,
+  sortDiagnosticEntries,
+  validatePolicyDraft
 };

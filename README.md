@@ -15,7 +15,7 @@
 * **Strict Fail-Closed Defaults:** Ships with all 6 protections enabled by default (`masterEnabled`, `hideAiOverviews`, `hideAiModeUi`, `blockAiModeNavigation`, `forceWebOnlySearch`, `hideAuxiliaryAiFeatures`) until an admin explicitly loosens toggles per grade-band OU.
 * **Zero PII & Absolute Least Privilege:** Strictly scoped to `https://www.google.com/*` and `https://google.com/*` with only `storage` and `declarativeNetRequestWithHostAccess` permissions. Zero external network requests, zero analytics servers, and zero `tabs`, `webRequest`, `webNavigation`, `identity`, `history`, or `<all_urls>` permissions.
 * **Zero Hosting Cost Forever:** Runs 100% locally in Chrome with no backend servers, subscriptions, or external telemetry dependencies.
-* **Zero District Maintenance Burden:** Multi-tier semantic/ARIA/URL selector engine bundled inside the extension, backed by automated static, unit, and Playwright browser test suites (`npm test`).
+* **Zero District Maintenance Burden:** Multi-tier English + Spanish (`en*` / `es*`) semantic/ARIA/URL selector engine bundled inside the extension, with optional Admin Console `extraHideSelectors` hotfix overrides, visible-surface leak & unsupported-language diagnostics (`WARN_AI_SURFACE_VISIBLE`, `WARN_UNSUPPORTED_UI_LANGUAGE`), and automated static, unit, and Playwright browser test suites (`npm test`).
 
 ---
 

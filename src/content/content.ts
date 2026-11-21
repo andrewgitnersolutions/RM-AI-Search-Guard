@@ -16,11 +16,12 @@
 
 import { cleanAiModeUrl } from "../shared/ai-mode-url";
 import { STORAGE_KEYS } from "../shared/defaults";
+import { getTodayDateBucket } from "../shared/errors";
 import { parsePolicy } from "../shared/policy";
 import { readLocalOverrides, readManagedPolicyRaw, readMetricsResetEpoch } from "../shared/storage";
 import { applyPolicyAttributes, parseRedirectHash, sweepDom, unhideAllElements, unhideCategoryElements } from "./dom-engine";
 import type { SeenCategoryPages } from "./dom-engine";
-import type { EffectivePolicy, RawRecord } from "../shared/types";
+import type { EffectivePolicy, ExtraSelectorCategory, RawRecord } from "../shared/types";
 
 /**
  * Turn every hide category on before the policy is known (BP-02). Google's HTML can stream and
@@ -121,6 +122,7 @@ const seenCategoryPages: SeenCategoryPages = {
 };
 
 const reportedErrorKeys = /* @__PURE__ */ new Set<string>();
+const reportedUnsupportedLangKeys = /* @__PURE__ */ new Set<string>();
 
 let pendingMetricDeltas: Record<string, number> = {};
 let metricsFlushTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -350,6 +352,18 @@ function runSweepNow() {
     queueMetricDeltas(deltas);
   }
   for (const err of errors) {
+    if (err.code === "WARN_UNSUPPORTED_UI_LANGUAGE") {
+      const langKey = `${getTodayDateBucket()}:${err.detail}`;
+      if (!reportedUnsupportedLangKeys.has(langKey)) {
+        reportedUnsupportedLangKeys.add(langKey);
+        void sendRuntimeMessage({
+          type: "LOG_DIAGNOSTIC",
+          code: err.code,
+          detail: err.detail
+        });
+      }
+      continue;
+    }
     const dedupeKey = `${pageKey}:${err.code}:${err.detail}`;
     if (!reportedErrorKeys.has(dedupeKey)) {
       reportedErrorKeys.add(dedupeKey);
@@ -434,10 +448,52 @@ function attachMutationObserver() {
 }
 
 /**
- * Apply a policy: set attributes, restore categories that were turned off, and start sweeping.
+ * Compare two normalized selector lists element-by-element for policy diffing.
+ * @param prev - Previous selector list (or undefined).
+ * @param next - Next selector list (or undefined).
+ * @returns true when both lists have identical entries in the same order.
+ */
+function sameSelectorList(
+  prev: readonly string[] | undefined,
+  next: readonly string[] | undefined
+): boolean {
+  const a = prev ?? [];
+  const b = next ?? [];
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Check whether managed extraHideSelectors changed for one category between two applied policies.
+ * @param prev - Previously applied policy (null on initial bootstrap).
+ * @param next - Newly applied policy.
+ * @param category - Protection category to inspect.
+ * @returns true when a prior policy existed and that category's selector list changed.
+ */
+function extraSelectorsChanged(
+  prev: EffectivePolicy | null,
+  next: EffectivePolicy,
+  category: ExtraSelectorCategory
+): boolean {
+  if (prev === null) {
+    return false;
+  }
+  return !sameSelectorList(prev.extraHideSelectors?.[category], next.extraHideSelectors?.[category]);
+}
+
+/**
+ * Apply a policy: set attributes, restore disabled or selector-updated categories, and start sweeping.
  * @param policy - Effective policy; masterEnabled false flushes deltas, unhides everything and stops observers.
  */
 function applyEffectivePolicy(policy: EffectivePolicy): void {
+  const previousPolicy = currentPolicy;
   currentPolicy = policy;
   applyPolicyAttributes(document, policy);
   if (!policy.masterEnabled) {
@@ -446,17 +502,27 @@ function applyEffectivePolicy(policy: EffectivePolicy): void {
     unhideAllElements(document);
     return;
   }
-  if (!policy.hideAiOverviews) {
+  const overviewExtraChanged = extraSelectorsChanged(previousPolicy, policy, "overview");
+  const aimodeExtraChanged = extraSelectorsChanged(previousPolicy, policy, "aimode");
+  const auxExtraChanged = extraSelectorsChanged(previousPolicy, policy, "aux");
+  // Restore any category whose toggle turned off or whose extraHideSelectors changed so removed
+  // hotfix selectors do not leave safe elements hidden until reload; sweep immediately re-applies
+  // built-in and current selectors when body is present.
+  if (!policy.hideAiOverviews || overviewExtraChanged) {
     unhideCategoryElements(document, "overview");
   }
-  if (!policy.hideAiModeUi) {
+  if (!policy.hideAiModeUi || aimodeExtraChanged) {
     unhideCategoryElements(document, "aimode");
   }
-  if (!policy.hideAuxiliaryAiFeatures) {
+  if (!policy.hideAuxiliaryAiFeatures || auxExtraChanged) {
     unhideCategoryElements(document, "aux");
   }
   attachMutationObserver();
-  scheduleSweep(true);
+  if ((overviewExtraChanged || aimodeExtraChanged || auxExtraChanged) && document.body) {
+    runSweepNow();
+  } else {
+    scheduleSweep(true);
+  }
 }
 
 /**
@@ -530,6 +596,7 @@ if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
         epochVersion += 1;
         currentResetEpoch = nextEpoch;
         clearPendingMetrics();
+        reportedUnsupportedLangKeys.clear();
       }
     }
     if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {

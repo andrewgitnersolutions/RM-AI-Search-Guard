@@ -8,7 +8,7 @@
  */
 
 /* AI Overviews */
-/* FRAGILE(google-dom, last verified NONE, see test L-07): #eKIzJc, AIOverview attrs, aria-label text, .YzCcne, data-mcp=18. */
+/* FRAGILE(google-dom, last verified 2026-11-21): #eKIzJc confirmed on live Google; AIOverview attrs, aria-label, .YzCcne[data-mcpr], data-mcp=18 had 0 live matches on 2026-11-21 and stay as fallbacks. */
 /* BP-08: an Overview container that holds any organic result (a > h3, h3.LC20lb) is left to
    the JS safety guard, which refuses it, instead of being hidden here. Each selector has its own
    rule because a rule using :has() must not share a selector list (BP-10). */
@@ -52,6 +52,17 @@ html[data-rmsg-hide-overviews="1"] div[aria-label="AI Overview"]:not(#main):not(
   padding: 0 !important;
 }
 
+/* FRAGILE(google-dom, last verified 2026-11-21): Spanish heading label from live Google (?hl=es / ?hl=es-419). Standalone rule for BP-10 (:has() guard) and protected-descendant exclusion (PR #7 review). */
+html[data-rmsg-hide-overviews="1"]:lang(es) div[aria-label="Visión general creada por IA"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 html[data-rmsg-hide-overviews="1"] div.YzCcne[data-mcpr]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(:has(a > h3)):not(:has(h3.LC20lb)) {
   display: none !important;
   visibility: hidden !important;
@@ -73,7 +84,7 @@ html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#
 }
 
 /* AI Mode UI (Homepage triggers, Search nav tabs, Dive deeper prompts) */
-/* FRAGILE(google-dom, last verified NONE, see test L-07): udm=50, /aimode and /ai hrefs on Google only (BP-08), .olrp5b, .plR5qb, jsname=B6rgad. */
+/* FRAGILE(google-dom, last verified 2026-11-21): udm=50 hrefs, .olrp5b, .plR5qb, jsname=B6rgad confirmed on live Google; /aimode and /ai hrefs kept as Google-only URL guards (BP-08). */
 /* Nav-tab list items holding an AI Mode link. :has() gets rules of its own (BP-10): one
    unsupported selector drops its whole selector list. Chrome 134+ supports it; this is insurance. */
 html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href^="?"][href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
@@ -147,12 +158,53 @@ html[data-rmsg-hide-aimode="1"] button[jsname="B6rgad"] {
 }
 
 /* Auxiliary AI Features (Search Labs, Google Lens search bar trigger, AI follow-ups) */
-/* FRAGILE(google-dom, last verified NONE, see test L-07): labs.google.com, English aria-label text (BP-03), data-base-lens-url. */
+/* FRAGILE(google-dom, last verified 2026-11-21): Search by image / Búsqueda por imagen, aim-mars-input-plate, Ask anything / Haz una pregunta confirmed on live Google; labs.google.com and data-base-lens-url kept as legacy fallbacks. */
 html[data-rmsg-hide-aux="1"] a[href*="labs.google.com"],
 html[data-rmsg-hide-aux="1"] [aria-label*="Search Labs" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [aria-label*="Search by image" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [data-base-lens-url]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* FRAGILE(google-dom, last verified 2026-11-21): Standalone :has()-guarded rules (BP-10 / PR #7 review) so containers holding core search inputs or organic results are never hidden by static CSS. */
+html[data-rmsg-hide-aux="1"] [data-xid="aim-mars-input-plate"]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aux="1"] [aria-label*="Ask anything" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Búsqueda por imagen" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Haz una pregunta" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;

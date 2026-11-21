@@ -6,9 +6,9 @@
  * Shared with: shared/defaults.ts, shared/policy.ts, ui/options.ts.
  */
 
-import { FEATURE_TOGGLE_KEYS, GRADE_BAND_PRESETS } from "../shared/defaults";
-import { formatAdminConsolePolicyJson, validatePolicyDraft } from "../shared/policy";
-import type { GradeBand, ToggleKey, Toggles } from "../shared/types";
+import { EXTRA_SELECTOR_CATEGORIES, FEATURE_TOGGLE_KEYS, GRADE_BAND_PRESETS, MAX_EXTRA_SELECTORS_PER_CATEGORY, MAX_EXTRA_SELECTOR_LENGTH } from "../shared/defaults";
+import { formatAdminConsolePolicyJson, trimCssWhitespace, validatePolicyDraft } from "../shared/policy";
+import type { ExtraSelectorCategory, GradeBand, ToggleKey, Toggles } from "../shared/types";
 
 /** A grade band that has a generator card (every band but "Unassigned"). */
 export type PresetBand = Exclude<GradeBand, "Unassigned">;
@@ -20,7 +20,15 @@ interface BandCardRefs {
   codeEl: HTMLElement;
   toggleInputs: Record<ToggleKey, HTMLInputElement>;
   toggleItems: Record<ToggleKey, HTMLElement>;
+  extraTextareas: Record<ExtraSelectorCategory, HTMLTextAreaElement>;
+  extraErrors: Record<ExtraSelectorCategory, HTMLElement>;
 }
+
+export const EXTRA_SELECTOR_LABELS: Record<ExtraSelectorCategory, string> = {
+  overview: "AI Overview selectors",
+  aimode: "AI Mode UI selectors",
+  aux: "Auxiliary AI selectors"
+};
 
 export const PRIMARY_BANDS: PresetBand[] = ["K-2", "3-5", "6-8", "9-12"];
 
@@ -55,15 +63,77 @@ export function createDefaultBandStates(): Record<PresetBand, Toggles> {
 }
 
 /**
+ * Create empty per-band raw textarea strings for extraHideSelectors.
+ * @returns Map of band -> { overview, aimode, aux } initialized to "".
+ */
+export function createDefaultExtraRawStates(): Record<PresetBand, Record<ExtraSelectorCategory, string>> {
+  return {
+    "K-2": { overview: "", aimode: "", aux: "" },
+    "3-5": { overview: "", aimode: "", aux: "" },
+    "6-8": { overview: "", aimode: "", aux: "" },
+    "9-12": { overview: "", aimode: "", aux: "" },
+    Staff: { overview: "", aimode: "", aux: "" }
+  };
+}
+
+/**
+ * Parse and validate newline-separated CSS selectors from one extraHideSelectors textarea.
+ * Checks line count (<=20), length (<=300 chars) and native CSS selector syntax via a
+ * detached DocumentFragment probe when DOM APIs exist.
+ * @param raw - Raw textarea string.
+ * @returns Trimmed non-empty selector list and optional validation error message.
+ */
+export function parseExtraSelectorsInput(raw: string): { selectors: string[]; error: string | null } {
+  const selectors = raw
+    .split(/\r?\n/)
+    .map((line) => trimCssWhitespace(line))
+    .filter((line) => line.length > 0);
+  if (selectors.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+    return {
+      selectors,
+      error: `At most ${MAX_EXTRA_SELECTORS_PER_CATEGORY} selectors per category are allowed.`
+    };
+  }
+  for (const line of selectors) {
+    if (line.length > MAX_EXTRA_SELECTOR_LENGTH) {
+      return {
+        selectors,
+        error: `Each selector must be at most ${MAX_EXTRA_SELECTOR_LENGTH} characters.`
+      };
+    }
+  }
+  if (typeof document !== "undefined" && typeof document.createDocumentFragment === "function") {
+    const probe = document.createDocumentFragment();
+    for (const line of selectors) {
+      try {
+        probe.querySelector(line);
+      } catch {
+        return {
+          selectors,
+          error: `Invalid CSS selector syntax: "${line.slice(0, 60)}"`
+        };
+      }
+    }
+  }
+  return { selectors, error: null };
+}
+
+/**
  * Render one band's settings as formatted Admin Console JSON.
  * @param gradeBand - Band label.
  * @param toggles - Feature toggles.
+ * @param extraHideSelectors - Optional per-category custom selectors (omitted when empty).
  * @returns Pretty-printed JSON string.
  */
-export function buildBandAdminJsonString(gradeBand: string, toggles: Toggles): string {
+export function buildBandAdminJsonString(
+  gradeBand: string,
+  toggles: Toggles,
+  extraHideSelectors?: Partial<Record<ExtraSelectorCategory, string[]>>
+): string {
   const payload = formatAdminConsolePolicyJson({
     gradeBand,
-    ...toggles
+    ...toggles,
+    extraHideSelectors
   });
   return JSON.stringify(payload, null, 2);
 }
@@ -153,6 +223,7 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
   mountInstanceCounter += 1;
   const idPrefix = `rm-pg-${mountInstanceCounter}`;
   let bandStates = createDefaultBandStates();
+  let extraRawStates = createDefaultExtraRawStates();
   let showStaffBand = false;
   container.replaceChildren();
   const root = document.createElement("div");
@@ -270,6 +341,70 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
       item.append(label, input);
       togglesContainer.append(item);
     }
+    const advancedDetails = document.createElement("details");
+    advancedDetails.className = "band-advanced";
+    advancedDetails.dataset.advancedBand = band;
+    const advancedSummary = document.createElement("summary");
+    advancedSummary.className = "band-advanced-summary";
+    advancedSummary.textContent = "Advanced: Extra Hide Selectors (Hotfix)";
+    const advancedBody = document.createElement("div");
+    advancedBody.className = "band-advanced-body";
+    const hintId = `${idPrefix}-${band}-extra-hint`;
+    const advancedHint = document.createElement("p");
+    advancedHint.id = hintId;
+    advancedHint.className = "field-hint";
+    advancedHint.textContent = `Optional CSS selectors (one per line, max ${MAX_EXTRA_SELECTORS_PER_CATEGORY} per category, max ${MAX_EXTRA_SELECTOR_LENGTH} chars each). Only emitted in JSON when filled.`;
+    advancedBody.append(advancedHint);
+    const extraTextareas = {} as Record<ExtraSelectorCategory, HTMLTextAreaElement>;
+    const extraErrors = {} as Record<ExtraSelectorCategory, HTMLElement>;
+    for (const category of EXTRA_SELECTOR_CATEGORIES) {
+      const row = document.createElement("div");
+      row.className = "field-row";
+      const inputId = `${idPrefix}-${band}-extra-${category}`;
+      const errorId = `${inputId}-error`;
+      const label = document.createElement("label");
+      label.htmlFor = inputId;
+      label.className = "field-label";
+      label.textContent = EXTRA_SELECTOR_LABELS[category];
+      const textarea = document.createElement("textarea");
+      textarea.id = inputId;
+      textarea.name = `${band}-extra-${category}`;
+      textarea.className = "rm-textarea";
+      textarea.rows = 2;
+      textarea.setAttribute("autocorrect", "off");
+      textarea.setAttribute("autocapitalize", "none");
+      textarea.spellcheck = false;
+      textarea.setAttribute("aria-invalid", "false");
+      textarea.setAttribute("aria-describedby", hintId);
+      textarea.dataset.gradeBand = band;
+      textarea.dataset.extraCategory = category;
+      const errorEl = document.createElement("p");
+      errorEl.id = errorId;
+      errorEl.className = "field-error";
+      errorEl.hidden = true;
+      textarea.addEventListener("input", () => {
+        extraRawStates[band][category] = textarea.value;
+        renderBandCard(band);
+        // Clear existing error state as soon as input becomes valid; never nag on every keystroke.
+        if (textarea.getAttribute("aria-invalid") === "true") {
+          const check = parseExtraSelectorsInput(textarea.value);
+          if (!check.error) {
+            textarea.setAttribute("aria-invalid", "false");
+            errorEl.textContent = "";
+            errorEl.hidden = true;
+            syncFieldErrorLink(textarea, errorId, false);
+          }
+        }
+      });
+      textarea.addEventListener("blur", () => {
+        validateExtraCategory(band, category, true);
+      });
+      extraTextareas[category] = textarea;
+      extraErrors[category] = errorEl;
+      row.append(label, textarea, errorEl);
+      advancedBody.append(row);
+    }
+    advancedDetails.append(advancedSummary, advancedBody);
     const pre = document.createElement("pre");
     pre.className = "json-preview";
     const codeEl = document.createElement("code");
@@ -286,15 +421,20 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
     copySr.textContent = ` for ${band}`;
     copyBtn.append(document.createTextNode("Copy Google Admin Console JSON"), copySr);
     copyBtn.addEventListener("click", async () => {
-      const draftCheck = validatePolicyDraft({ gradeBand: band });
-      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
+      const extraValidation = collectAndValidateBandExtras(band);
+      const draftCheck = validatePolicyDraft({
+        gradeBand: band,
+        extraHideSelectors: extraValidation.selectors
+      });
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       const copied = await copyTextToClipboard(jsonText);
       if (!copied) {
         setStatus(`Could not copy ${band} JSON automatically. Select and copy from the preview box.`, true);
         return;
       }
-      if (!draftCheck.valid) {
-        setStatus(`Copied ${band} JSON (warning: ${draftCheck.errors[0]}).`, true);
+      const warning = extraValidation.firstError ?? draftCheck.errors[0];
+      if (warning) {
+        setStatus(`Copied ${band} JSON (warning: ${warning}).`, true);
       } else {
         setStatus(`Copied Google Admin Console JSON for ${band}.`);
       }
@@ -308,23 +448,87 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
     dlSr.textContent = ` for ${band}`;
     dlBtn.append(document.createTextNode("Download .json"), dlSr);
     dlBtn.addEventListener("click", () => {
-      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
+      const extraValidation = collectAndValidateBandExtras(band);
+      const draftCheck = validatePolicyDraft({
+        gradeBand: band,
+        extraHideSelectors: extraValidation.selectors
+      });
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
-      setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
+      const warning = extraValidation.firstError ?? draftCheck.errors[0];
+      if (warning) {
+        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json (warning: ${warning}).`, true);
+      } else {
+        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
+      }
     });
     actions.append(copyBtn, dlBtn);
-    article.append(header, reminder, togglesContainer, pre, actions);
+    article.append(header, reminder, togglesContainer, advancedDetails, pre, actions);
     matrix.append(article);
     cardRefs[band] = {
       article,
       reminder,
       codeEl,
       toggleInputs,
-      toggleItems
+      toggleItems,
+      extraTextareas,
+      extraErrors
     };
   }
   root.append(matrix);
   container.append(root);
+  /**
+   * Validate one extra-selector textarea, sync aria-invalid / aria-describedby, and optionally announce.
+   * @param band - Grade band card.
+   * @param category - Selector category.
+   * @param announceError - Whether to push validation message to the polite live region.
+   * @returns Parsed selectors and optional error message.
+   */
+  function validateExtraCategory(band: PresetBand, category: ExtraSelectorCategory, announceError: boolean) {
+    const refs = cardRefs[band];
+    const textarea = refs.extraTextareas[category];
+    const errorEl = refs.extraErrors[category];
+    const parsed = parseExtraSelectorsInput(extraRawStates[band][category]);
+    const hasError = parsed.error !== null;
+    textarea.setAttribute("aria-invalid", hasError ? "true" : "false");
+    errorEl.textContent = parsed.error ?? "";
+    errorEl.hidden = !hasError;
+    syncFieldErrorLink(textarea, errorEl.id, hasError);
+    if (hasError && announceError) {
+      errorAnnouncer.textContent = "";
+      errorAnnouncer.textContent = `${EXTRA_SELECTOR_LABELS[category]} (${band}): ${parsed.error}`;
+    }
+    return parsed;
+  }
+  /**
+   * Validate all three extra-selector categories on a card and gather their parsed arrays.
+   * @param band - Grade band card.
+   * @returns Per-category selector arrays and the first validation error, if any.
+   */
+  function collectAndValidateBandExtras(band: PresetBand) {
+    const selectors = {} as Record<ExtraSelectorCategory, string[]>;
+    let firstError: string | null = null;
+    for (const category of EXTRA_SELECTOR_CATEGORIES) {
+      const parsed = validateExtraCategory(band, category, false);
+      selectors[category] = parsed.selectors;
+      if (!firstError && parsed.error) {
+        firstError = parsed.error;
+      }
+    }
+    return { selectors, firstError };
+  }
+  /**
+   * Read parsed extra selectors for one band without toggling validation UI state.
+   * @param band - Grade band card.
+   * @returns Per-category selector arrays.
+   */
+  function getBandExtraSelectors(band: PresetBand): Record<ExtraSelectorCategory, string[]> {
+    return {
+      overview: parseExtraSelectorsInput(extraRawStates[band].overview).selectors,
+      aimode: parseExtraSelectorsInput(extraRawStates[band].aimode).selectors,
+      aux: parseExtraSelectorsInput(extraRawStates[band].aux).selectors
+    };
+  }
   function renderBandCard(band: PresetBand): void {
     const refs = cardRefs[band];
     const toggles = bandStates[band];
@@ -336,7 +540,7 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
     }
     const showAiModeReminder = toggles.masterEnabled && (toggles.blockAiModeNavigation || toggles.hideAiModeUi);
     refs.reminder.hidden = !showAiModeReminder;
-    refs.codeEl.textContent = buildBandAdminJsonString(band, toggles);
+    refs.codeEl.textContent = buildBandAdminJsonString(band, toggles, getBandExtraSelectors(band));
   }
   function renderAllBands() {
     for (const band of ALL_BANDS) {
@@ -345,6 +549,19 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
   }
   resetBtn.addEventListener("click", () => {
     bandStates = createDefaultBandStates();
+    extraRawStates = createDefaultExtraRawStates();
+    for (const band of ALL_BANDS) {
+      const refs = cardRefs[band];
+      for (const category of EXTRA_SELECTOR_CATEGORIES) {
+        const textarea = refs.extraTextareas[category];
+        const errorEl = refs.extraErrors[category];
+        textarea.value = "";
+        textarea.setAttribute("aria-invalid", "false");
+        errorEl.textContent = "";
+        errorEl.hidden = true;
+        syncFieldErrorLink(textarea, errorEl.id, false);
+      }
+    }
     renderAllBands();
     setStatus("Reset all grade-band cards to recommended K\u201312 presets.");
   });
@@ -355,11 +572,20 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
     staffToggleBtn.textContent = showStaffBand ? "Hide Staff OU Preset" : "Show Staff OU Preset";
   });
   downloadAllBtn.addEventListener("click", () => {
+    let firstWarning: string | null = null;
     for (const band of PRIMARY_BANDS) {
-      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
+      const extraValidation = collectAndValidateBandExtras(band);
+      if (!firstWarning && extraValidation.firstError) {
+        firstWarning = `${band}: ${extraValidation.firstError}`;
+      }
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
     }
-    setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
+    if (firstWarning) {
+      setStatus(`Downloaded all 4 grade-band JSON files (warning in ${firstWarning}).`, true);
+    } else {
+      setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
+    }
   });
   renderAllBands();
 }

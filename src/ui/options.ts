@@ -9,8 +9,8 @@
 
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS, createInitialTelemetryState } from "../shared/defaults";
 import { getTodayDateBucket } from "../shared/errors";
-import { parsePolicy } from "../shared/policy";
-import { mountPolicyGenerator } from "./policy-generator-core";
+import { parsePolicy, formatAdminConsolePolicyJson, validatePolicyDraft } from "../shared/policy";
+import { mountPolicyGenerator, parseExtraSelectorsInput } from "./policy-generator-core";
 import type { DiagnosticEntry, DiagnosticSnapshot, RawRecord, TelemetryState, ToggleKey } from "../shared/types";
 
 // Reset needs a second click within this window.
@@ -58,6 +58,11 @@ function buildZeroPiiDiagnosticBundle(snapshot: DiagnosticSnapshot) {
       blockAiModeNavigation: policy.blockAiModeNavigation,
       forceWebOnlySearch: policy.forceWebOnlySearch,
       hideAuxiliaryAiFeatures: policy.hideAuxiliaryAiFeatures,
+      extraHideSelectors: {
+        overview: [...(policy.extraHideSelectors?.overview ?? [])],
+        aimode: [...(policy.extraHideSelectors?.aimode ?? [])],
+        aux: [...(policy.extraHideSelectors?.aux ?? [])]
+      },
       invalidFields: [...policy.invalidFields]
     },
     metrics: {
@@ -639,7 +644,10 @@ async function bootOptionsPage() {
         const isTelemetryOnly =
           changedKeys.length > 0 &&
           changedKeys.every(
-            (key) => key === STORAGE_KEYS.TELEMETRY || key === STORAGE_KEYS.METRICS_RESET_EPOCH
+            (key) =>
+              key === STORAGE_KEYS.TELEMETRY ||
+              key === STORAGE_KEYS.METRICS_RESET_EPOCH ||
+              key === STORAGE_KEYS.UNSUPPORTED_LANG_DATES
           );
         const diagnosticsVisible =
           diagnosticsPanel !== null && !diagnosticsPanel.hasAttribute("hidden");
@@ -669,5 +677,8 @@ if (typeof document !== "undefined") {
 export {
   buildMetricsCsv,
   buildZeroPiiDiagnosticBundle,
-  sortDiagnosticEntries
+  formatAdminConsolePolicyJson,
+  parseExtraSelectorsInput,
+  sortDiagnosticEntries,
+  validatePolicyDraft
 };

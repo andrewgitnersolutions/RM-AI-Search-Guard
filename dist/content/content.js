@@ -75,8 +75,24 @@
     LOCAL_OVERRIDES: "rmsg_local_overrides",
     TELEMETRY: "rmsg_telemetry",
     LAST_POLICY: "rmsg_last_policy",
-    METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
+    METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch",
+    UNSUPPORTED_LANG_DATES: "rmsg_unsupported_lang_dates"
   };
+  var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
+  var MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
+  var MAX_EXTRA_SELECTOR_LENGTH = 300;
+  function createEmptyExtraHideSelectors() {
+    return {
+      overview: [],
+      aimode: [],
+      aux: []
+    };
+  }
+
+  // src/shared/errors.ts
+  function getTodayDateBucket(now = /* @__PURE__ */ new Date()) {
+    return now.toISOString().slice(0, 10);
+  }
 
   // src/shared/policy.ts
   function isValidGradeBand(value) {
@@ -84,6 +100,46 @@
   }
   function isUnlockableInstall(installType) {
     return installType === "normal" || installType === "development";
+  }
+  function trimCssWhitespace(value) {
+    return value.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+  }
+  function parseExtraHideSelectors(raw) {
+    const value = createEmptyExtraHideSelectors();
+    if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
+      return { value, valid: false };
+    }
+    const obj = raw;
+    let valid = true;
+    const allowedKeys = new Set(EXTRA_SELECTOR_CATEGORIES);
+    for (const key of Object.keys(obj)) {
+      if (!allowedKeys.has(key)) {
+        valid = false;
+      }
+    }
+    for (const category of EXTRA_SELECTOR_CATEGORIES) {
+      if (!(category in obj) || obj[category] === void 0) {
+        continue;
+      }
+      const rawList = obj[category];
+      if (!Array.isArray(rawList) || rawList.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+        valid = false;
+        continue;
+      }
+      for (const item of rawList) {
+        if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+          valid = false;
+          continue;
+        }
+        const trimmed = trimCssWhitespace(item);
+        if (trimmed.length === 0) {
+          valid = false;
+          continue;
+        }
+        value[category].push(trimmed);
+      }
+    }
+    return { value, valid };
   }
   function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
     const evaluatedAt = now.toISOString();
@@ -99,6 +155,7 @@
         const policy3 = {
           ...toggles2,
           gradeBand: "Unassigned",
+          extraHideSelectors: createEmptyExtraHideSelectors(),
           source: "admin-no-policy",
           isManaged: true,
           invalidFields: [],
@@ -123,6 +180,8 @@
       const policy2 = {
         ...toggles2,
         gradeBand: gradeBand2,
+        // Custom hotfix selectors are managed-only (BP-04): ignore any localRaw.extraHideSelectors.
+        extraHideSelectors: createEmptyExtraHideSelectors(),
         source: appliedLocalOverride ? "local-unmanaged" : "defaults",
         isManaged: false,
         invalidFields: [],
@@ -152,6 +211,14 @@
         gradeBand = "Unassigned";
       }
     }
+    let extraHideSelectors = createEmptyExtraHideSelectors();
+    if ("extraHideSelectors" in managedRaw && managedRaw.extraHideSelectors !== void 0) {
+      const parsedExtras = parseExtraHideSelectors(managedRaw.extraHideSelectors);
+      extraHideSelectors = parsedExtras.value;
+      if (!parsedExtras.valid) {
+        invalidFields.push("extraHideSelectors");
+      }
+    }
     if (invalidFields.length > 0) {
       errors.push({
         code: "ERR_POLICY_INVALID",
@@ -161,6 +228,7 @@
     const policy = {
       ...toggles,
       gradeBand,
+      extraHideSelectors,
       source: invalidFields.length > 0 ? "managed-degraded" : "managed",
       isManaged: true,
       invalidFields,
@@ -219,6 +287,27 @@
   }
 
   // src/shared/selectors.ts
+  function resolveUiLanguage(rawLang) {
+    if (typeof rawLang !== "string") {
+      return { language: "en", normalizedTag: "", supported: true };
+    }
+    const cleaned = rawLang.trim().toLowerCase();
+    if (!cleaned) {
+      return { language: "en", normalizedTag: "", supported: true };
+    }
+    const primarySubtag = cleaned.split(/[-_\s]/)[0].replace(/[^a-z0-9-]/g, "").slice(0, 16);
+    if (primarySubtag === "en") {
+      return { language: "en", normalizedTag: "en", supported: true };
+    }
+    if (primarySubtag === "es") {
+      return { language: "es", normalizedTag: "es", supported: true };
+    }
+    return {
+      language: "en",
+      normalizedTag: primarySubtag || "unknown",
+      supported: false
+    };
+  }
   var SELECTORS = {
     safetyGuard: {
       protectedTags: ["HTML", "BODY", "HEAD", "MAIN"],
@@ -244,16 +333,29 @@
       maxAncestorDepth: 8,
       searchInputSelector: 'textarea[name="q"], input[name="q"]'
     },
-    // FRAGILE(google-dom, last verified NONE, see test L-07): Tier 1 attributes, label text (English only, BP-03) and /aimode, udm=50 hrefs.
+    // FRAGILE(google-dom, last verified 2026-11-21): Tier 1 semantic attrs, localized en/es labels
+    // collected from live Google (?hl=en, ?hl=es -> es-US, ?hl=es-419), and Google-only AI Mode hrefs.
+    // Legacy attrs [data-attrid="AIOverview"], [data-async-type="aiOverview"], [aria-label="AI Overview"],
+    // div.Fzsovc, and [data-base-lens-url] had 0 live matches on 2026-11-21 and stay as fallbacks.
     tier1: {
       aiOverviews: {
         directSelectors: [
           '[data-attrid="AIOverview"]',
-          '[data-async-type="aiOverview"]',
-          '[aria-label="AI Overview"]'
+          '[data-async-type="aiOverview"]'
         ],
+        localizedDirectSelectors: {
+          // FRAGILE(google-dom, last verified 2026-11-21): legacy exact aria-label fallback (0 matches on hl=en 2026-11-21; live uses div[role="heading"] > strong.WJFise).
+          en: ['[aria-label="AI Overview"]'],
+          // FRAGILE(google-dom, last verified 2026-11-21): Spanish heading text from live Google (?hl=es / ?hl=es-419).
+          es: ['[aria-label="Visión general creada por IA"]']
+        },
         headingSelectors: ["h1", "h2", '[role="heading"]', "div.Fzsovc"],
-        headingTexts: ["ai overview"],
+        headingTexts: {
+          // FRAGILE(google-dom, last verified 2026-11-21): observed on live Google (?hl=en) in div[role="heading"][aria-level="2"] > strong.WJFise.
+          en: ["ai overview"],
+          // FRAGILE(google-dom, last verified 2026-11-21): observed verbatim on live Google (?hl=es and ?hl=es-419).
+          es: ["visión general creada por ia"]
+        },
         // No [data-hveid] (BP-08): Google puts it on most result blocks, so the nearest one can
         // be a wrapper that also holds organic results.
         containerAncestors: [
@@ -296,32 +398,81 @@
         // BP-09 Option D: anchors outside nav listitems are checked separately and skipped when
         // trimmed text exceeds 40 chars, avoiding regex normalization on long organic-result links.
         maxAnchorTextLength: 40,
-        exactTexts: ["ai mode", "dive deeper in ai mode", "ask ai mode"],
+        exactTexts: {
+          // FRAGILE(google-dom, last verified 2026-11-21): "AI Mode" observed on live Google (?hl=en) nav tab and search-bar button.
+          en: ["ai mode", "dive deeper in ai mode", "ask ai mode"],
+          // FRAGILE(google-dom, last verified 2026-11-21): "Modo IA" observed verbatim on live Google (?hl=es and ?hl=es-419) nav tab and search-bar button.
+          es: ["modo ia"]
+        },
         navItemAncestor: '[role="listitem"]'
       },
       auxiliaryAi: {
         directSelectors: [
           'a[href*="labs.google.com"]',
-          '[aria-label*="Search Labs" i]',
-          '[aria-label*="Search by image" i]',
           "[data-base-lens-url]",
-          '[aria-label*="Ask a follow up" i]',
-          '[placeholder*="Ask a follow up" i]'
+          // FRAGILE(google-dom, last verified 2026-11-21): embedded follow-up input plate inside #eKIzJc on live Google (EN/ES/ES-419).
+          '[data-xid="aim-mars-input-plate"]'
         ],
+        localizedDirectSelectors: {
+          en: [
+            // FRAGILE(google-dom, last verified 2026-11-21): Search Labs did not render in test account; retained from prior DOM capture.
+            '[aria-label*="Search Labs" i]',
+            // FRAGILE(google-dom, last verified 2026-11-21): observed verbatim on live Google (?hl=en) Lens button.
+            '[aria-label*="Search by image" i]',
+            // FRAGILE(google-dom, last verified 2026-11-21): legacy follow-up wording (0 matches on hl=en 2026-11-21; replaced by "Ask anything").
+            '[aria-label*="Ask a follow up" i]',
+            '[placeholder*="Ask a follow up" i]',
+            // FRAGILE(google-dom, last verified 2026-11-21): observed verbatim on live Google (?hl=en) follow-up textarea; :not([name="q"]) protects search input.
+            '[aria-label*="Ask anything" i]:not([name="q"])',
+            '[placeholder*="Ask anything" i]:not([name="q"])'
+          ],
+          es: [
+            // FRAGILE(google-dom, last verified 2026-11-21): observed verbatim on live Google (?hl=es and ?hl=es-419) Lens button.
+            '[aria-label*="Búsqueda por imagen" i]',
+            // FRAGILE(google-dom, last verified 2026-11-21): observed verbatim on live Google (?hl=es and ?hl=es-419) follow-up textarea; :not([name="q"]) protects search input.
+            '[aria-label*="Haz una pregunta" i]:not([name="q"])',
+            '[placeholder*="Haz una pregunta" i]:not([name="q"])'
+          ]
+        },
         paaCardSelectors: [
           '[jsname="yEVEwb"]',
           '[data-sgrd="true"]',
           "[data-q]",
           "div.related-question-pair"
         ],
-        aiAttributionMarkers: ["ai overview", "generative ai", "ai-generated"]
+        aiAttributionMarkers: {
+          en: ["ai overview", "generative ai", "ai-generated"],
+          // FRAGILE(google-dom, last verified 2026-11-21): only observed Spanish AI badge/heading verbatim on live Google; "Generative AI" / "AI-generated" did not render on es PAA headers.
+          es: ["visión general creada por ia"]
+        }
       }
     },
-    // FRAGILE(google-dom, last verified NONE, see test L-07): Tier 2 generated class names and jsname values (BP-04).
     tier2: {
-      aiOverviews: ["#eKIzJc", "div.YzCcne[data-mcpr]", 'div[data-mcp="18"]'],
-      aiModeUi: ["div.olrp5b", "button.plR5qb", 'button[jsname="B6rgad"]'],
-      auxiliaryAi: ['div[jsname="R5mgy"]']
+      aiOverviews: [
+        // FRAGILE(google-dom, last verified 2026-11-21): confirmed on live Google (?hl=en, ?hl=es, ?hl=es-419; 1 match, canonical AIO root).
+        "#eKIzJc",
+        // FRAGILE(google-dom, last verified 2026-11-21): 0 matches on live Google 2026-11-21; kept as legacy fallback (never drop [data-mcpr] because bare div.YzCcne matches PAA skeletons).
+        "div.YzCcne[data-mcpr]",
+        // FRAGILE(google-dom, last verified 2026-11-21): 0 matches on live Google 2026-11-21; kept as legacy fallback.
+        'div[data-mcp="18"]'
+      ],
+      aiModeUi: [
+        // FRAGILE(google-dom, last verified 2026-11-21): confirmed on live Google (?hl=en, ?hl=es, ?hl=es-419; 1 match wrapping AI Mode nav tab).
+        "div.olrp5b",
+        // FRAGILE(google-dom, last verified 2026-11-21): confirmed on live Google (?hl=en, ?hl=es, ?hl=es-419; 1 match on homepage and SERP search bar).
+        "button.plR5qb",
+        // FRAGILE(google-dom, last verified 2026-11-21): confirmed on live Google (?hl=en, ?hl=es, ?hl=es-419; 1 match on homepage and SERP search bar).
+        'button[jsname="B6rgad"]'
+      ],
+      auxiliaryAi: [
+        // FRAGILE(google-dom, last verified 2026-11-21): confirmed on live Google (?hl=en, ?hl=es, ?hl=es-419; 1 match for Google Lens button).
+        'div[jsname="R5mgy"]'
+      ]
+    },
+    leakDetector: {
+      // Limit leak scanning to headings, tabs and buttons so organic article titles aren't flagged (BP-04).
+      candidateSelector: 'h1, h2, [role="heading"], [role="tab"], button',
+      maxLabelTextLength: 60
     }
   };
 
@@ -329,16 +480,51 @@
   var PROTECTED_TAG_SET = new Set(SELECTORS.safetyGuard.protectedTags);
   var PROTECTED_SELECTOR_COMBINED = SELECTORS.safetyGuard.protectedSelectors.join(", ");
   var CONTAINER_ANCESTOR_COMBINED = SELECTORS.tier1.aiOverviews.containerAncestors.join(", ");
-  var OVERVIEW_HEADING_TEXT_SET = new Set(SELECTORS.tier1.aiOverviews.headingTexts);
-  var AI_MODE_EXACT_TEXT_SET = new Set(SELECTORS.tier1.aiModeUi.exactTexts);
-  var AI_ATTRIBUTION_MARKER_SET = new Set(SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers);
-  var OVERVIEW_DIRECT_COMBINED = SELECTORS.tier1.aiOverviews.directSelectors.join(", ");
+  function buildLocaleSets(lang) {
+    const overviewHeadingTexts = new Set(SELECTORS.tier1.aiOverviews.headingTexts.en);
+    const aiModeExactTexts = new Set(SELECTORS.tier1.aiModeUi.exactTexts.en);
+    const aiAttributionMarkers = new Set(SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers.en);
+    const overviewDirectSelectors = [
+      ...SELECTORS.tier1.aiOverviews.directSelectors,
+      ...SELECTORS.tier1.aiOverviews.localizedDirectSelectors.en
+    ];
+    const auxDirectSelectors = [
+      ...SELECTORS.tier1.auxiliaryAi.directSelectors,
+      ...SELECTORS.tier1.auxiliaryAi.localizedDirectSelectors.en
+    ];
+    if (lang === "es") {
+      for (const text of SELECTORS.tier1.aiOverviews.headingTexts.es) {
+        overviewHeadingTexts.add(text);
+      }
+      for (const text of SELECTORS.tier1.aiModeUi.exactTexts.es) {
+        aiModeExactTexts.add(text);
+      }
+      for (const text of SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers.es) {
+        aiAttributionMarkers.add(text);
+      }
+      overviewDirectSelectors.push(...SELECTORS.tier1.aiOverviews.localizedDirectSelectors.es);
+      auxDirectSelectors.push(...SELECTORS.tier1.auxiliaryAi.localizedDirectSelectors.es);
+    }
+    return {
+      overviewHeadingTexts,
+      aiModeExactTexts,
+      aiAttributionMarkers,
+      overviewDirectCombined: overviewDirectSelectors.join(", "),
+      auxDirectCombined: auxDirectSelectors.join(", ")
+    };
+  }
+  var LOCALE_SETS = {
+    en: buildLocaleSets("en"),
+    es: buildLocaleSets("es")
+  };
+  var OVERVIEW_HEADING_TEXT_SET = LOCALE_SETS.en.overviewHeadingTexts;
+  var AI_MODE_EXACT_TEXT_SET = LOCALE_SETS.en.aiModeExactTexts;
+  var AI_ATTRIBUTION_MARKER_SET = LOCALE_SETS.en.aiAttributionMarkers;
   var OVERVIEW_HEADING_COMBINED = SELECTORS.tier1.aiOverviews.headingSelectors.join(", ");
   var OVERVIEW_TIER2_COMBINED = SELECTORS.tier2.aiOverviews.join(", ");
   var AI_MODE_DIRECT_COMBINED = SELECTORS.tier1.aiModeUi.directSelectors.join(", ");
   var AI_MODE_TEXT_COMBINED = SELECTORS.tier1.aiModeUi.textCandidateSelectors.join(", ");
   var AI_MODE_TIER2_COMBINED = SELECTORS.tier2.aiModeUi.join(", ");
-  var AUX_DIRECT_COMBINED = SELECTORS.tier1.auxiliaryAi.directSelectors.join(", ");
   var AUX_PAA_COMBINED = SELECTORS.tier1.auxiliaryAi.paaCardSelectors.join(", ");
   var AUX_TIER2_COMBINED = SELECTORS.tier2.auxiliaryAi.join(", ");
   function normalizeText(text) {
@@ -629,10 +815,32 @@
     }
     return headingEl;
   }
-  function collectAiOverviewCandidates(doc, errors, guardCache) {
+  function collectExtraSelectorCandidates(doc, selectors, errors) {
+    if (!selectors || selectors.length === 0) {
+      return [];
+    }
     const candidates = [];
-    if (OVERVIEW_DIRECT_COMBINED) {
-      for (const el of safeQueryAll(doc, OVERVIEW_DIRECT_COMBINED, errors)) {
+    for (const selector of selectors) {
+      if (typeof selector !== "string") {
+        continue;
+      }
+      const trimmed = trimCssWhitespace(selector);
+      if (!trimmed) {
+        continue;
+      }
+      for (const el of safeQueryAll(doc, trimmed, errors)) {
+        if (!isAlreadyHidden(el)) {
+          candidates.push(el);
+        }
+      }
+    }
+    return candidates;
+  }
+  function collectAiOverviewCandidates(doc, errors, guardCache, lang = "en", extraSelectors) {
+    const candidates = [];
+    const localeSet = LOCALE_SETS[lang];
+    if (localeSet.overviewDirectCombined) {
+      for (const el of safeQueryAll(doc, localeSet.overviewDirectCombined, errors)) {
         if (!isAlreadyHidden(el)) {
           candidates.push(el);
         }
@@ -643,7 +851,7 @@
         if (isAlreadyHidden(headingEl)) {
           continue;
         }
-        if (OVERVIEW_HEADING_TEXT_SET.has(normalizeText(headingEl.textContent))) {
+        if (localeSet.overviewHeadingTexts.has(normalizeText(headingEl.textContent))) {
           candidates.push(findOverviewHeadingContainer(headingEl, doc, guardCache));
         }
       }
@@ -654,6 +862,9 @@
           candidates.push(el);
         }
       }
+    }
+    if (extraSelectors && extraSelectors.length > 0) {
+      candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
     }
     return candidates;
   }
@@ -670,8 +881,9 @@
     }
     return el;
   }
-  function collectAiModeUiCandidates(doc, errors, guardCache) {
+  function collectAiModeUiCandidates(doc, errors, guardCache, lang = "en", extraSelectors) {
     const candidates = [];
+    const localeSet = LOCALE_SETS[lang];
     if (AI_MODE_DIRECT_COMBINED) {
       for (const el of safeQueryAll(doc, AI_MODE_DIRECT_COMBINED, errors)) {
         if (!isAlreadyHidden(el)) {
@@ -684,7 +896,7 @@
         if (isAlreadyHidden(el)) {
           continue;
         }
-        if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(el.textContent))) {
+        if (localeSet.aiModeExactTexts.has(normalizeText(el.textContent))) {
           candidates.push(promoteAiModeTarget(el, doc, guardCache));
         }
       }
@@ -702,7 +914,7 @@
       if (trimmed.length === 0 || trimmed.length > SELECTORS.tier1.aiModeUi.maxAnchorTextLength) {
         continue;
       }
-      if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(trimmed))) {
+      if (localeSet.aiModeExactTexts.has(normalizeText(trimmed))) {
         candidates.push(promoteAiModeTarget(anchor, doc, guardCache));
       }
     }
@@ -713,17 +925,21 @@
         }
       }
     }
+    if (extraSelectors && extraSelectors.length > 0) {
+      candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
+    }
     return candidates;
   }
-  function hasAiAttributionBadge(card) {
+  function hasAiAttributionBadge(card, lang = "en") {
+    const markers = LOCALE_SETS[lang].aiAttributionMarkers;
     const ariaLabel = normalizeText(card.getAttribute("aria-label"));
-    if (ariaLabel && AI_ATTRIBUTION_MARKER_SET.has(ariaLabel)) {
+    if (ariaLabel && markers.has(ariaLabel)) {
       return true;
     }
     const labelNodes = card.querySelectorAll('span, div, p, [role="heading"], h3, h4');
     for (const node of labelNodes) {
       const nodeAria = normalizeText(node.getAttribute("aria-label"));
-      if (nodeAria && AI_ATTRIBUTION_MARKER_SET.has(nodeAria)) {
+      if (nodeAria && markers.has(nodeAria)) {
         return true;
       }
       if (node.children.length === 0) {
@@ -732,17 +948,18 @@
           continue;
         }
         const text = normalizeText(rawText);
-        if (AI_ATTRIBUTION_MARKER_SET.has(text)) {
+        if (markers.has(text)) {
           return true;
         }
       }
     }
     return false;
   }
-  function collectAuxAiCandidates(doc, errors) {
+  function collectAuxAiCandidates(doc, errors, lang = "en", extraSelectors) {
     const candidates = [];
-    if (AUX_DIRECT_COMBINED) {
-      for (const el of safeQueryAll(doc, AUX_DIRECT_COMBINED, errors)) {
+    const localeSet = LOCALE_SETS[lang];
+    if (localeSet.auxDirectCombined) {
+      for (const el of safeQueryAll(doc, localeSet.auxDirectCombined, errors)) {
         if (!isAlreadyHidden(el)) {
           candidates.push(el);
         }
@@ -750,7 +967,7 @@
     }
     if (AUX_PAA_COMBINED) {
       for (const card of safeQueryAll(doc, AUX_PAA_COMBINED, errors)) {
-        if (!isAlreadyHidden(card) && hasAiAttributionBadge(card)) {
+        if (!isAlreadyHidden(card) && hasAiAttributionBadge(card, lang)) {
           candidates.push(card);
         }
       }
@@ -762,13 +979,76 @@
         }
       }
     }
+    if (extraSelectors && extraSelectors.length > 0) {
+      candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
+    }
     return candidates;
+  }
+  function isElementVisible(el) {
+    if (!el.isConnected || isAlreadyHidden(el)) {
+      return false;
+    }
+    const maybeCheck = el;
+    if (typeof maybeCheck.checkVisibility === "function") {
+      try {
+        return maybeCheck.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+      } catch {
+      }
+    }
+    const htmlEl = el;
+    if (htmlEl.style?.getPropertyValue?.("display") === "none") {
+      return false;
+    }
+    if ("offsetParent" in htmlEl && htmlEl.offsetParent === null && htmlEl.tagName !== "BODY") {
+      return false;
+    }
+    return true;
+  }
+  function detectVisibleAiSurfaceLeaks(doc, policy, lang, errors) {
+    if (!policy.masterEnabled || !policy.hideAiOverviews && !policy.hideAiModeUi) {
+      return;
+    }
+    const localeSet = LOCALE_SETS[lang];
+    let flaggedOverview = false;
+    let flaggedAiMode = false;
+    for (const el of safeQueryAll(doc, SELECTORS.leakDetector.candidateSelector, errors)) {
+      if (isAlreadyHidden(el)) {
+        continue;
+      }
+      const rawText = el.textContent;
+      if (!rawText) {
+        continue;
+      }
+      const trimmed = rawText.trim();
+      if (!trimmed || trimmed.length > SELECTORS.leakDetector.maxLabelTextLength) {
+        continue;
+      }
+      const normalized = normalizeText(trimmed);
+      if (policy.hideAiOverviews && !flaggedOverview && localeSet.overviewHeadingTexts.has(normalized) && isElementVisible(el)) {
+        flaggedOverview = true;
+        errors.push({ code: "WARN_AI_SURFACE_VISIBLE", detail: "overview" });
+      }
+      if (policy.hideAiModeUi && !flaggedAiMode && localeSet.aiModeExactTexts.has(normalized) && isElementVisible(el)) {
+        flaggedAiMode = true;
+        errors.push({ code: "WARN_AI_SURFACE_VISIBLE", detail: "aimode" });
+      }
+      if ((!policy.hideAiOverviews || flaggedOverview) && (!policy.hideAiModeUi || flaggedAiMode)) {
+        break;
+      }
+    }
   }
   function sweepDom(doc, policy, seenPages, pageKey) {
     const deltas = {};
     const errors = [];
     if (!policy.masterEnabled) {
       return { deltas, errors };
+    }
+    const uiLang = resolveUiLanguage(doc.documentElement?.lang);
+    if (!uiLang.supported) {
+      errors.push({
+        code: "WARN_UNSUPPORTED_UI_LANGUAGE",
+        detail: uiLang.normalizedTag
+      });
     }
     const resolvedPageKey = pageKey ?? (doc.location && doc.location.href ? doc.location.href : "default");
     const reportedUnsafe = /* @__PURE__ */ new Set();
@@ -783,7 +1063,13 @@
       restoreUnsafeHiddenElements("aux", doc, errors, reportedUnsafe, guardCache);
     }
     if (policy.hideAiOverviews) {
-      const overviewCandidates = collectAiOverviewCandidates(doc, errors, guardCache);
+      const overviewCandidates = collectAiOverviewCandidates(
+        doc,
+        errors,
+        guardCache,
+        uiLang.language,
+        policy.extraHideSelectors?.overview
+      );
       const hiddenOverviews = processCategoryCandidates(
         overviewCandidates,
         "overview",
@@ -798,7 +1084,13 @@
       }
     }
     if (policy.hideAiModeUi) {
-      const aiModeCandidates = collectAiModeUiCandidates(doc, errors, guardCache);
+      const aiModeCandidates = collectAiModeUiCandidates(
+        doc,
+        errors,
+        guardCache,
+        uiLang.language,
+        policy.extraHideSelectors?.aimode
+      );
       const hiddenAiMode = processCategoryCandidates(
         aiModeCandidates,
         "aimode",
@@ -813,7 +1105,12 @@
       }
     }
     if (policy.hideAuxiliaryAiFeatures) {
-      const auxCandidates = collectAuxAiCandidates(doc, errors);
+      const auxCandidates = collectAuxAiCandidates(
+        doc,
+        errors,
+        uiLang.language,
+        policy.extraHideSelectors?.aux
+      );
       const hiddenAux = processCategoryCandidates(
         auxCandidates,
         "aux",
@@ -827,6 +1124,7 @@
         deltas.auxAiHidden = 1;
       }
     }
+    detectVisibleAiSurfaceLeaks(doc, policy, uiLang.language, errors);
     return { deltas, errors };
   }
 
@@ -894,6 +1192,7 @@
     aux: seenAuxPages
   };
   var reportedErrorKeys = /* @__PURE__ */ new Set();
+  var reportedUnsupportedLangKeys = /* @__PURE__ */ new Set();
   var pendingMetricDeltas = {};
   var metricsFlushTimer = null;
   var currentResetEpoch = null;
@@ -1050,6 +1349,18 @@
       queueMetricDeltas(deltas);
     }
     for (const err of errors) {
+      if (err.code === "WARN_UNSUPPORTED_UI_LANGUAGE") {
+        const langKey = `${getTodayDateBucket()}:${err.detail}`;
+        if (!reportedUnsupportedLangKeys.has(langKey)) {
+          reportedUnsupportedLangKeys.add(langKey);
+          void sendRuntimeMessage({
+            type: "LOG_DIAGNOSTIC",
+            code: err.code,
+            detail: err.detail
+          });
+        }
+        continue;
+      }
       const dedupeKey = `${pageKey}:${err.code}:${err.detail}`;
       if (!reportedErrorKeys.has(dedupeKey)) {
         reportedErrorKeys.add(dedupeKey);
@@ -1122,7 +1433,27 @@
       rootObserver.observe(document.documentElement, { childList: true });
     }
   }
+  function sameSelectorList(prev, next) {
+    const a = prev ?? [];
+    const b = next ?? [];
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  function extraSelectorsChanged(prev, next, category) {
+    if (prev === null) {
+      return false;
+    }
+    return !sameSelectorList(prev.extraHideSelectors?.[category], next.extraHideSelectors?.[category]);
+  }
   function applyEffectivePolicy(policy) {
+    const previousPolicy = currentPolicy;
     currentPolicy = policy;
     applyPolicyAttributes(document, policy);
     if (!policy.masterEnabled) {
@@ -1131,17 +1462,24 @@
       unhideAllElements(document);
       return;
     }
-    if (!policy.hideAiOverviews) {
+    const overviewExtraChanged = extraSelectorsChanged(previousPolicy, policy, "overview");
+    const aimodeExtraChanged = extraSelectorsChanged(previousPolicy, policy, "aimode");
+    const auxExtraChanged = extraSelectorsChanged(previousPolicy, policy, "aux");
+    if (!policy.hideAiOverviews || overviewExtraChanged) {
       unhideCategoryElements(document, "overview");
     }
-    if (!policy.hideAiModeUi) {
+    if (!policy.hideAiModeUi || aimodeExtraChanged) {
       unhideCategoryElements(document, "aimode");
     }
-    if (!policy.hideAuxiliaryAiFeatures) {
+    if (!policy.hideAuxiliaryAiFeatures || auxExtraChanged) {
       unhideCategoryElements(document, "aux");
     }
     attachMutationObserver();
-    scheduleSweep(true);
+    if ((overviewExtraChanged || aimodeExtraChanged || auxExtraChanged) && document.body) {
+      runSweepNow();
+    } else {
+      scheduleSweep(true);
+    }
   }
   async function loadEffectivePolicy() {
     const fromSw = await sendRuntimeMessage({
@@ -1185,6 +1523,7 @@
           epochVersion += 1;
           currentResetEpoch = nextEpoch;
           clearPendingMetrics();
+          reportedUnsupportedLangKeys.clear();
         }
       }
       if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {

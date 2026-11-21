@@ -263,6 +263,108 @@ export async function incrementTelemetryMetrics(
   });
 }
 
+const MAX_UNSUPPORTED_LANG_DATES = 200;
+const FORBIDDEN_DATE_MAP_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Normalize the stored language-to-UTC-date suppression map for WARN_UNSUPPORTED_UI_LANGUAGE.
+ * @param raw - Untrusted value from chrome.storage.local.
+ * @returns Clean map of sanitized language subtag to YYYY-MM-DD UTC date bucket.
+ */
+function sanitizeUnsupportedLangDates(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return out;
+  }
+  let count = 0;
+  for (const [key, val] of Object.entries(raw as RawRecord)) {
+    if (count >= MAX_UNSUPPORTED_LANG_DATES) {
+      break;
+    }
+    if (
+      key.length > 0 &&
+      key.length <= 240 &&
+      !FORBIDDEN_DATE_MAP_KEYS.has(key) &&
+      typeof val === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(val)
+    ) {
+      Object.defineProperty(out, key, {
+        value: val,
+        enumerable: true,
+        writable: true,
+        configurable: true
+      });
+      count += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Read the per-language UTC date suppression map for WARN_UNSUPPORTED_UI_LANGUAGE.
+ * @returns Map of language subtag to YYYY-MM-DD date bucket (empty outside Chrome or if absent).
+ * Storage read failures propagate to the caller.
+ */
+async function readUnsupportedLangDates(): Promise<Record<string, string>> {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) {
+    return {};
+  }
+  const result = await chrome.storage.local.get(STORAGE_KEYS.UNSUPPORTED_LANG_DATES);
+  return sanitizeUnsupportedLangDates(result?.[STORAGE_KEYS.UNSUPPORTED_LANG_DATES]);
+}
+
+/**
+ * Build an updated per-language UTC date suppression map, pruning past-day entries and bounding size.
+ * @param existing - Current sanitized map.
+ * @param lang - Sanitized language tag detail.
+ * @param dateBucket - Current YYYY-MM-DD UTC date bucket.
+ * @returns New bounded map with lang mapped to dateBucket.
+ */
+function recordUnsupportedLangDate(
+  existing: Record<string, string>,
+  lang: string,
+  dateBucket: string
+): Record<string, string> {
+  const next: Record<string, string> = {};
+  if (!lang || lang.length > 240 || FORBIDDEN_DATE_MAP_KEYS.has(lang)) {
+    for (const [k, v] of Object.entries(existing)) {
+      if (v >= dateBucket) {
+        Object.defineProperty(next, k, {
+          value: v,
+          enumerable: true,
+          writable: true,
+          configurable: true
+        });
+      }
+    }
+    return next;
+  }
+  const kept: Array<[string, string]> = [];
+  for (const [k, v] of Object.entries(existing)) {
+    if (k !== lang && v >= dateBucket && !FORBIDDEN_DATE_MAP_KEYS.has(k)) {
+      kept.push([k, v]);
+    }
+  }
+  while (kept.length >= MAX_UNSUPPORTED_LANG_DATES) {
+    kept.shift();
+  }
+  for (const [k, v] of kept) {
+    Object.defineProperty(next, k, {
+      value: v,
+      enumerable: true,
+      writable: true,
+      configurable: true
+    });
+  }
+  Object.defineProperty(next, lang, {
+    value: dateBucket,
+    enumerable: true,
+    writable: true,
+    configurable: true
+  });
+  return next;
+}
+
 /**
  * Log a diagnostic code: add a new log entry or merge into a matching one.
  * Same code + detail merges into one entry; when full, the least recently seen entry is evicted.
@@ -279,6 +381,25 @@ export async function recordDiagnosticEntry(code: ErrorCode, detail: string = ""
     const existingIndex = state.diagnosticLog.findIndex(
       (entry) => entry.code === code && entry.detail === cleanDetail
     );
+    let nextLangDates: Record<string, string> | null = null;
+    // BP-03: WARN_UNSUPPORTED_UI_LANGUAGE suppression is persisted independently of the bounded
+    // diagnosticLog so evicting 50+ other diagnostics cannot re-trigger a same-day warning across tabs.
+    if (code === "WARN_UNSUPPORTED_UI_LANGUAGE") {
+      const langDates = await readUnsupportedLangDates();
+      if (Object.prototype.hasOwnProperty.call(langDates, cleanDetail) && langDates[cleanDetail] === dateBucket) {
+        return state;
+      }
+      // Upgrade fallback: profiles upgraded from an earlier build may already have today's entry in
+      // diagnosticLog without UNSUPPORTED_LANG_DATES populated yet; backfill it without re-logging.
+      if (existingIndex >= 0 && state.diagnosticLog[existingIndex].lastSeenDate === dateBucket) {
+        if (typeof chrome !== "undefined" && chrome.storage?.local) {
+          const backfilled = recordUnsupportedLangDate(langDates, cleanDetail, dateBucket);
+          await chrome.storage.local.set({ [STORAGE_KEYS.UNSUPPORTED_LANG_DATES]: backfilled });
+        }
+        return state;
+      }
+      nextLangDates = recordUnsupportedLangDate(langDates, cleanDetail, dateBucket);
+    }
     if (existingIndex >= 0) {
       const existing = state.diagnosticLog[existingIndex];
       existing.count += 1;
@@ -297,14 +418,24 @@ export async function recordDiagnosticEntry(code: ErrorCode, detail: string = ""
       }
       state.diagnosticLog.push(newEntry);
     }
-    await writeTelemetryState(state);
+    if (nextLangDates !== null) {
+      if (typeof chrome === "undefined" || !chrome.storage?.local) {
+        throw new Error("chrome.storage.local is unavailable");
+      }
+      await chrome.storage.local.set({
+        [STORAGE_KEYS.TELEMETRY]: state,
+        [STORAGE_KEYS.UNSUPPORTED_LANG_DATES]: nextLangDates
+      });
+    } else {
+      await writeTelemetryState(state);
+    }
     return state;
   });
 }
 
 /**
- * Replace telemetry with a fresh state (counters and log) and advance the reset epoch so
- * open tabs discard unflushed pre-reset batches and any in-flight batch is ignored.
+ * Replace telemetry with a fresh state (counters and log), advance the reset epoch so open tabs
+ * discard unflushed pre-reset batches, and clear daily language warning suppression.
  * @returns The fresh state.
  */
 export async function resetLocalTelemetry(): Promise<TelemetryState> {
@@ -316,7 +447,8 @@ export async function resetLocalTelemetry(): Promise<TelemetryState> {
     const nextEpoch = (await readMetricsResetEpoch()) + 1;
     await chrome.storage.local.set({
       [STORAGE_KEYS.TELEMETRY]: fresh,
-      [STORAGE_KEYS.METRICS_RESET_EPOCH]: nextEpoch
+      [STORAGE_KEYS.METRICS_RESET_EPOCH]: nextEpoch,
+      [STORAGE_KEYS.UNSUPPORTED_LANG_DATES]: {}
     });
     return fresh;
   });

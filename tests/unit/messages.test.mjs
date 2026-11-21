@@ -93,7 +93,7 @@ equivalent("U-13b", "content scripts get only the content-safe policy (toggles, 
   const fromTab = await sw.send({ type: "GET_EFFECTIVE_POLICY" }, GOOGLE_TAB_SENDER);
   const fromPage = await sw.send({ type: "GET_EFFECTIVE_POLICY" }, OPTIONS_SENDER);
   const tabKeys = Object.keys(fromTab).sort();
-  assert.deepEqual(tabKeys, ["blockAiModeNavigation", "forceWebOnlySearch", "gradeBand", "hideAiModeUi", "hideAiOverviews", "hideAuxiliaryAiFeatures", "isManaged", "masterEnabled"]);
+  assert.deepEqual(tabKeys, ["blockAiModeNavigation", "extraHideSelectors", "forceWebOnlySearch", "gradeBand", "hideAiModeUi", "hideAiOverviews", "hideAuxiliaryAiFeatures", "isManaged", "masterEnabled"]);
   assert.equal(fromPage.source, "managed", "extension page sees the full policy");
   const unknown = await sw.send({ type: "NOT_A_TYPE" }, OPTIONS_SENDER);
   assert.equal(unknown?.error, "bad_message");
