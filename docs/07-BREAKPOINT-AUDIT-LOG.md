@@ -596,7 +596,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 **To-do:**
 - [x] Add a "What this extension does not cover" section to `docs/04` with the companion settings above. No code changes.
 
-**2026-11-21 (Phase 5):** Added `## What This Extension Does Not Cover` to `docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md` covering Incognito (`IncognitoModeAvailability = 1`), ChromeOS Guest mode (`DeviceGuestModeEnabled = false`) and desktop Chrome Guest mode (`BrowserGuestModeEnabled = false`), non-managed browsers/profiles/devices, non-`google.com` country TLDs, Gemini (`gemini.google.com` via Additional Google services + `GeminiSettings = 1` / `GenAiDefaultSettings`), and Chrome's native Omnibox/NTP AI Mode button (`AIModeSettings = 1` on Chrome 138+).
+**2026-11-21 (Phase 5):** Added `## What This Extension Does Not Cover` to `docs/04-ADMIN-DEPLOYMENT-RUNBOOK.md` covering Incognito (`IncognitoModeAvailability = 1`), ChromeOS Guest mode (`DeviceGuestModeEnabled = false`) and desktop Chrome Guest mode (`BrowserGuestModeEnabled = false`), non-managed browsers/profiles/devices, non-`google.com` country TLDs, Gemini (`gemini.google.com` via `Generative AI → Gemini app → Service status` + `GeminiSettings = 1` / `GenAiDefaultSettings`), and Chrome's native Omnibox/NTP AI Mode button (`AIModeSettings = 1` on Chrome 138+).
 
 ---
 
