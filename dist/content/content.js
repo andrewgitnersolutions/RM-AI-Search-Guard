@@ -1,5 +1,51 @@
 "use strict";
 (() => {
+  // src/shared/ai-mode-url.ts
+  var AI_MODE_SESSION_PARAMS = ["aep", "arv", "mstk", "csuir"];
+  function applyAiModeQueryTransform(params, forceWebOnlySearch) {
+    for (const key of AI_MODE_SESSION_PARAMS) {
+      params.delete(key);
+    }
+    if (forceWebOnlySearch) {
+      params.set("udm", "14");
+    } else {
+      params.delete("udm");
+    }
+  }
+  function cleanAiModeUrl(href, policy) {
+    if (!policy.masterEnabled || !policy.blockAiModeNavigation) {
+      return null;
+    }
+    let url;
+    try {
+      url = new URL(href);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== "https:" || url.hostname !== "www.google.com" && url.hostname !== "google.com") {
+      return null;
+    }
+    url.hash = "";
+    const params = url.searchParams;
+    const path = url.pathname.toLowerCase();
+    if (path === "/search" && params.getAll("udm").includes("50")) {
+      const fromOmnibox = params.has("aep") || params.getAll("sourceid").some((v) => v.toLowerCase().startsWith("chrome"));
+      applyAiModeQueryTransform(params, policy.forceWebOnlySearch);
+      url.hash = fromOmnibox ? "#rm_sg_omnibox" : "#rm_sg_aimode";
+      return url.href;
+    }
+    if (/^\/(ai|aimode)(\/|$)/.test(path)) {
+      if ((params.get("q") ?? "") !== "") {
+        url.pathname = "/search";
+        applyAiModeQueryTransform(params, policy.forceWebOnlySearch);
+        url.hash = "#rm_sg_aimode";
+        return url.href;
+      }
+      return "https://www.google.com/#rm_sg_aimode";
+    }
+    return null;
+  }
+
   // src/shared/defaults.ts
   var STRICT_LOCKDOWN_TOGGLES = {
     masterEnabled: true,
@@ -177,8 +223,13 @@
         "#searchform"
       ],
       organicResultSelector: "a > h3, h3.LC20lb",
-      // BP-08 proposes 1 for the overview category; unchanged in Phase 0.
+      // Refuse to hide anything holding this many organic results. AI Overview candidates are held
+      // to 1 (BP-08): an Overview card never legitimately contains a real result, so a candidate
+      // that does is a wrapper and hiding it would remove real results.
       organicResultThreshold: 3,
+      overviewOrganicResultThreshold: 1,
+      // How far findOverviewHeadingContainer may walk up from an "AI Overview" heading (BP-08).
+      maxAncestorDepth: 8,
       searchInputSelector: 'textarea[name="q"], input[name="q"]'
     },
     // FRAGILE(google-dom, last verified NONE, see test L-07): Tier 1 attributes, label text (English only, BP-03) and /aimode, udm=50 hrefs.
@@ -191,19 +242,35 @@
         ],
         headingSelectors: ["h1", "h2", '[role="heading"]', "div.Fzsovc"],
         headingTexts: ["ai overview"],
+        // No [data-hveid] (BP-08): Google puts it on most result blocks, so the nearest one can
+        // be a wrapper that also holds organic results.
         containerAncestors: [
           "[data-mcpr]",
           "[data-attrid]",
           "[data-async-type]",
-          "[data-hveid]",
           "div#eKIzJc"
         ]
       },
       aiModeUi: {
+        // Google destinations only (BP-08): relative links or the two google.com hosts. A link to
+        // another site whose URL merely contains "udm=50" or "/aimode" is an organic result.
+        // Keep in sync with static-guard.css.
         directSelectors: [
-          'a[href*="udm=50"]',
-          'a[href*="/aimode"]',
-          'a[href^="https://www.google.com/ai"]'
+          'a[href^="/search"][href*="udm=50"]',
+          'a[href^="https://www.google.com/search"][href*="udm=50"]',
+          'a[href^="https://google.com/search"][href*="udm=50"]',
+          'a[href^="/aimode"]',
+          'a[href^="https://www.google.com/aimode"]',
+          'a[href^="https://google.com/aimode"]',
+          'a[href="/ai"]',
+          'a[href^="/ai?"]',
+          'a[href^="/ai/"]',
+          'a[href="https://www.google.com/ai"]',
+          'a[href^="https://www.google.com/ai?"]',
+          'a[href^="https://www.google.com/ai/"]',
+          'a[href="https://google.com/ai"]',
+          'a[href^="https://google.com/ai?"]',
+          'a[href^="https://google.com/ai/"]'
         ],
         textCandidateSelectors: [
           '[role="tab"]',
@@ -286,7 +353,7 @@
     }
     return null;
   }
-  function isUnsafeToHide(el, doc) {
+  function isUnsafeToHide(el, doc, category) {
     if (PROTECTED_TAG_SET.has(el.tagName.toUpperCase())) {
       return true;
     }
@@ -320,7 +387,8 @@
     }
     try {
       const organicResults = el.querySelectorAll(SELECTORS.safetyGuard.organicResultSelector);
-      if (organicResults.length >= SELECTORS.safetyGuard.organicResultThreshold) {
+      const threshold = category === "overview" ? SELECTORS.safetyGuard.overviewOrganicResultThreshold : SELECTORS.safetyGuard.organicResultThreshold;
+      if (organicResults.length >= threshold) {
         return true;
       }
     } catch {
@@ -387,7 +455,7 @@
     if (htmlEl.style) {
       const prevDisplay = htmlEl.style.getPropertyValue("display");
       const prevPriority = htmlEl.style.getPropertyPriority("display");
-      if (prevDisplay && prevDisplay !== "none") {
+      if (prevDisplay) {
         el.setAttribute("data-rmsg-prev-display", prevDisplay);
         if (prevPriority) {
           el.setAttribute("data-rmsg-prev-display-priority", prevPriority);
@@ -409,7 +477,7 @@
       if (isAlreadyHidden(candidate)) {
         continue;
       }
-      if (isUnsafeToHide(candidate, doc)) {
+      if (isUnsafeToHide(candidate, doc, category)) {
         if (!reportedUnsafe.has(candidate)) {
           reportedUnsafe.add(candidate);
           errors.push({
@@ -436,11 +504,13 @@
   }
   function findOverviewHeadingContainer(headingEl, doc) {
     let cursor = headingEl.parentElement;
-    while (cursor) {
+    let depth = 0;
+    while (cursor && depth < SELECTORS.safetyGuard.maxAncestorDepth) {
+      depth += 1;
       if (safeMatches(cursor, CONTAINER_ANCESTOR_COMBINED)) {
         return cursor;
       }
-      if (isUnsafeToHide(cursor, doc)) {
+      if (isUnsafeToHide(cursor, doc, "overview")) {
         if (cursor === headingEl.parentElement) {
           return cursor;
         }
@@ -448,7 +518,7 @@
       }
       cursor = cursor.parentElement;
     }
-    if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc)) {
+    if (headingEl.parentElement && !isUnsafeToHide(headingEl.parentElement, doc, "overview")) {
       return headingEl.parentElement;
     }
     return headingEl;
@@ -471,12 +541,12 @@
   }
   function promoteAiModeTarget(el, doc) {
     const navItem = el.closest(SELECTORS.tier1.aiModeUi.navItemAncestor);
-    if (navItem && !isUnsafeToHide(navItem, doc)) {
+    if (navItem && !isUnsafeToHide(navItem, doc, "aimode")) {
       return navItem;
     }
     if (el.tagName.toUpperCase() === "SPAN") {
       const interactiveAncestor = el.closest('a, button, [role="tab"], [role="button"]');
-      if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc)) {
+      if (interactiveAncestor && !isUnsafeToHide(interactiveAncestor, doc, "aimode")) {
         return interactiveAncestor;
       }
     }
@@ -484,11 +554,7 @@
   }
   function collectAiModeUiCandidates(doc, errors) {
     const candidates = [];
-    const directSelectors = [
-      ...SELECTORS.tier1.aiModeUi.directSelectors,
-      // FRAGILE(google-dom, last verified NONE, see test L-07): bare google.com host variant of the /ai link selector.
-      'a[href^="https://google.com/ai"]'
-    ];
+    const directSelectors = SELECTORS.tier1.aiModeUi.directSelectors;
     for (const selector of directSelectors) {
       for (const el of safeQueryAll(doc, selector, errors)) {
         candidates.push(promoteAiModeTarget(el, doc));
@@ -660,8 +726,24 @@
     }
     pendingRaf = false;
   }
+  var aiModeRedirectStarted = false;
+  function checkAiModeUrl() {
+    if (aiModeRedirectStarted || !currentPolicy) {
+      return false;
+    }
+    const clean = cleanAiModeUrl(window.location.href, currentPolicy);
+    if (clean === null) {
+      return false;
+    }
+    aiModeRedirectStarted = true;
+    window.location.replace(clean);
+    return true;
+  }
   function runSweepNow() {
     if (!currentPolicy || !currentPolicy.masterEnabled) {
+      return;
+    }
+    if (checkAiModeUrl()) {
       return;
     }
     const pageKey = computeOpaquePageKey();
@@ -766,6 +848,7 @@
       return null;
     }
     applyEffectivePolicy(policy);
+    checkAiModeUrl();
     return policy;
   }
   async function bootstrapContentGuard() {
@@ -795,5 +878,17 @@
   window.addEventListener("hashchange", () => {
     handleRedirectHashTelemetry();
   });
+  window.addEventListener("popstate", () => {
+    checkAiModeUrl();
+  });
+  window.addEventListener("pageshow", () => {
+    checkAiModeUrl();
+  });
+  var navigationApi = window.navigation;
+  if (navigationApi && typeof navigationApi.addEventListener === "function") {
+    navigationApi.addEventListener("navigatesuccess", () => {
+      checkAiModeUrl();
+    });
+  }
   void bootstrapContentGuard();
 })();

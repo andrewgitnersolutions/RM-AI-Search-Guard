@@ -411,7 +411,7 @@ async function resetLocalTelemetry() {
 }
 
 // src/background/dnr-rules.ts
-var ALL_MANAGED_RULE_IDS = [101, 102, 110, 111, 120, 130];
+var ALL_MANAGED_RULE_IDS = [101, 102, 110, 111, 112, 120, 130];
 var ACTION_REDIRECT = "redirect";
 var ACTION_ALLOW = "allow";
 var RESOURCE_MAIN_FRAME = "main_frame";
@@ -489,6 +489,24 @@ function buildDynamicRules(policy) {
       action: {
         type: ACTION_REDIRECT,
         redirect: {
+          transform: {
+            path: "/search",
+            queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
+            fragment: "#rm_sg_aimode"
+          }
+        }
+      },
+      condition: {
+        regexFilter: "^https://(www\\.)?google\\.com/(ai|aimode)(/[^?#]*)?\\?([^#]*&)?q=[^&#]",
+        resourceTypes: [RESOURCE_MAIN_FRAME]
+      }
+    });
+    rules.push({
+      id: 112,
+      priority: 45,
+      action: {
+        type: ACTION_REDIRECT,
+        redirect: {
           url: "https://www.google.com/#rm_sg_aimode"
         }
       },
@@ -549,6 +567,55 @@ async function syncDynamicRules(policy) {
       return { activeRuleCount: 0, error: detail };
     }
   });
+}
+
+// src/background/messages.ts
+var PRIVILEGED_MESSAGE_TYPES = /* @__PURE__ */ new Set(["SET_LOCAL_OVERRIDES", "RESET_LOCAL_METRICS", "GET_DIAGNOSTIC_SNAPSHOT"]);
+var BAD_MESSAGE = { ok: false, error: "bad_message" };
+var FORBIDDEN = { ok: false, error: "forbidden" };
+var ERROR_CODE_SET = new Set(ALL_ERROR_CODES);
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isFromExtensionPage(sender) {
+  const id = typeof chrome !== "undefined" ? chrome.runtime?.id : void 0;
+  if (!id || !sender || sender.id !== id) {
+    return false;
+  }
+  return typeof sender.url === "string" && sender.url.startsWith(`chrome-extension://${id}/`);
+}
+function validateMessage(message) {
+  if (!isPlainObject(message) || typeof message.type !== "string") {
+    return false;
+  }
+  switch (message.type) {
+    case "GET_EFFECTIVE_POLICY":
+    case "GET_DIAGNOSTIC_SNAPSHOT":
+    case "RESET_LOCAL_METRICS":
+      return true;
+    case "INCREMENT_METRICS":
+      return isPlainObject(message.deltas);
+    case "RECORD_REDIRECT":
+      return message.source === "omnibox" || message.source === "aimode";
+    case "LOG_DIAGNOSTIC":
+      return typeof message.code === "string" && ERROR_CODE_SET.has(message.code) && (message.detail === void 0 || typeof message.detail === "string");
+    case "SET_LOCAL_OVERRIDES":
+      return isPlainObject(message.toggles);
+    default:
+      return false;
+  }
+}
+function toContentPolicy(policy) {
+  return {
+    masterEnabled: policy.masterEnabled,
+    hideAiOverviews: policy.hideAiOverviews,
+    hideAiModeUi: policy.hideAiModeUi,
+    blockAiModeNavigation: policy.blockAiModeNavigation,
+    forceWebOnlySearch: policy.forceWebOnlySearch,
+    hideAuxiliaryAiFeatures: policy.hideAuxiliaryAiFeatures,
+    gradeBand: policy.gradeBand,
+    isManaged: policy.isManaged
+  };
 }
 
 // src/background/service-worker.ts
@@ -628,11 +695,18 @@ async function syncRuntimeStateNow(options) {
   }
   return { policy, activeRuleCount: dnrResult.activeRuleCount };
 }
-async function handleRuntimeMessage(message) {
+async function handleRuntimeMessage(message, sender) {
+  if (!validateMessage(message)) {
+    return BAD_MESSAGE;
+  }
+  const fromExtensionPage = isFromExtensionPage(sender);
+  if (PRIVILEGED_MESSAGE_TYPES.has(message.type) && !fromExtensionPage) {
+    return FORBIDDEN;
+  }
   switch (message.type) {
     case "GET_EFFECTIVE_POLICY": {
       const { policy } = await resolvePolicyFromStorage();
-      return policy;
+      return fromExtensionPage ? policy : toContentPolicy(policy);
     }
     case "INCREMENT_METRICS": {
       await incrementTelemetryMetrics(message.deltas);
@@ -686,6 +760,10 @@ async function handleRuntimeMessage(message) {
       return updatedPolicy;
     }
     case "RESET_LOCAL_METRICS": {
+      const { policy, installType } = await resolvePolicyFromStorage();
+      if (policy.isManaged || !isUnlockableInstall(installType)) {
+        return { ok: false, reason: "locked" };
+      }
       return await resetLocalTelemetry();
     }
   }
@@ -728,10 +806,10 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `storage.onChanged: ${detail}`);
   }
 });
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
-      const result = await handleRuntimeMessage(message);
+      const result = await handleRuntimeMessage(message, sender);
       sendResponse(result);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
