@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "RaiseMark: AI Search Controls for K-12",
+  "short_name": "RaiseMark",
+  "version": "1.0.0",
+  "minimum_chrome_version": "134",
+  "description": "Grade-level Google Admin Console controls to hide AI Overviews, remove AI Mode, and protect student search on Google.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "RaiseMark: AI Search Controls for K-12",
+    "default_popup": "ui/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png"
+    }
+  },
+  "options_page": "ui/options.html",
+  "storage": {
+    "managed_schema": "schema.json"
+  },
+  "permissions": [
+    "storage",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://www.google.com/*",
+    "https://google.com/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/*",
+        "https://google.com/*"
+      ],
+      "css": [
+        "content/static-guard.css"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

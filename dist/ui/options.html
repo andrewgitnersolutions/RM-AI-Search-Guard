@@ -1,269 +1,254 @@
-<!doctype html> <!-- Declare HTML5 document type -->
-<html lang="en"> <!-- Root HTML element with English language for screen readers -->
-<head> <!-- Document metadata and local asset links -->
-  <meta charset="utf-8"> <!-- Use UTF-8 encoding -->
-  <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- Responsive viewport configuration -->
-  <title>IT Options &amp; Policy Hub | RaiseMark AI Search Guard</title> <!-- Browser tab title for the IT Options Hub -->
-  <link rel="stylesheet" href="./shared.css"> <!-- Load bundled local stylesheet (no external fonts or CDNs) -->
-</head> <!-- End document head -->
-<body> <!-- Main document body -->
-  <a href="#main-content" class="skip-link visually-hidden">Skip to main content</a> <!-- Keyboard accessibility skip link -->
+<!doctype html>
+<!-- Options hub shell (extension page): Status, Diagnostics and Policy Generator tabs, wired by options.js. No inline scripts (CSP script-src 'self'). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IT Options &amp; Policy Hub | RaiseMark: AI Search Controls for K-12</title>
+  <link rel="stylesheet" href="./shared.css">
+</head>
+<body>
+  <a href="#main-content" class="skip-link visually-hidden">Skip to main content</a>
 
-  <header class="app-header"> <!-- Top brand and version banner -->
-    <div class="app-header-inner"> <!-- Centered max-width header container -->
-      <div class="brand-lockup"> <!-- Logo and product title group -->
-        <svg class="brand-icon" aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"> <!-- Decorative inline shield SVG -->
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path> <!-- Shield outline path -->
-          <path d="m9 12 2 2 4-4"></path> <!-- Checkmark path inside shield -->
-        </svg> <!-- End brand SVG -->
-        <div> <!-- Title and subtitle stack -->
-          <h1 class="brand-title">RaiseMark AI Search Guard</h1> <!-- Primary page heading -->
-          <p class="brand-subtitle">Enterprise K-12 Google Search Protection, Diagnostics &amp; Admin Policy Hub</p> <!-- Descriptive product subtitle -->
-        </div> <!-- End title stack -->
-      </div> <!-- End brand lockup -->
-      <span id="ext-version-badge" class="rm-pill rm-pill-header">v1.0.0</span> <!-- Extension version badge updated dynamically from manifest -->
-    </div> <!-- End header inner container -->
-  </header> <!-- End page header -->
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="brand-lockup">
+        <svg class="brand-icon" aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          <path d="m9 12 2 2 4-4"></path>
+        </svg>
+        <div>
+          <h1 class="brand-title">RaiseMark: AI Search Controls for K-12</h1>
+          <p class="brand-subtitle">Enterprise K-12 Google Search Protection, Diagnostics &amp; Admin Policy Hub</p>
+        </div>
+      </div>
+      <span id="ext-version-badge" class="rm-pill rm-pill-header">v1.0.0</span>
+    </div>
+  </header>
 
-  <main id="main-content" class="app-main" tabindex="-1"> <!-- Main interactive workspace landmark -->
-    <div id="global-announcer" aria-live="polite" class="visually-hidden"></div> <!-- ARIA live region for screen reader status announcements -->
+  <main id="main-content" class="app-main" tabindex="-1">
+    <div id="global-announcer" aria-live="polite" class="visually-hidden"></div>
 
-    <div class="tabs-bar"> <!-- Horizontal tab navigation container -->
-      <div role="tablist" aria-label="Search Guard IT Hub Sections"> <!-- Accessible ARIA tablist -->
-        <button type="button" role="tab" id="tab-status" aria-selected="true" tabindex="0">Status &amp; Local Testing</button> <!-- Tab 1: Active by default -->
-        <button type="button" role="tab" id="tab-diagnostics" aria-selected="false" tabindex="-1">IT Diagnostics &amp; Analytics</button> <!-- Tab 2: Diagnostics and telemetry -->
-        <button type="button" role="tab" id="tab-generator" aria-selected="false" tabindex="-1">4-Band Admin Policy Generator</button> <!-- Tab 3: Google Admin JSON generator -->
-      </div> <!-- End tablist -->
-    </div> <!-- End tabs bar -->
+    <div class="tabs-bar">
+      <div role="tablist" aria-label="RaiseMark IT Hub Sections">
+        <button type="button" role="tab" id="tab-status" aria-selected="true" tabindex="0">Status &amp; Local Testing</button>
+        <button type="button" role="tab" id="tab-diagnostics" aria-selected="false" tabindex="-1">IT Diagnostics</button>
+        <button type="button" role="tab" id="tab-generator" aria-selected="false" tabindex="-1">4-Band Admin Policy Generator</button>
+      </div>
+    </div>
 
-    <div class="tab-panels"> <!-- Container for all three tab panels -->
+    <div class="tab-panels">
       <!-- Tab 1: Status & Local Testing -->
-      <section id="panel-status" role="tabpanel" aria-labelledby="tab-status"> <!-- Tab 1 panel: policy status and toggle controls -->
-        <div class="tabpanel-inner"> <!-- Centered content wrapper -->
-          <div id="policy-source-banner" class="policy-banner policy-banner-unmanaged"> <!-- Banner indicating managed vs unmanaged policy source -->
-            <div> <!-- Banner text column -->
-              <div id="policy-source-title" class="policy-banner-title">Loading effective policy…</div> <!-- Policy source headline updated by options.js -->
-              <p id="policy-source-detail" class="rm-section-subtitle">Checking Google Admin Console managed policy and local overrides.</p> <!-- Policy source explanation -->
-            </div> <!-- End banner text column -->
-            <div class="policy-banner-meta"> <!-- Status pill badges -->
-              <span id="policy-mode-badge" class="rm-pill rm-pill-amber">Checking…</span> <!-- Managed vs local test mode pill -->
-              <span id="active-grade-band-pill" class="rm-pill rm-pill-navy">Grade Band: Unassigned</span> <!-- Active OU grade band pill -->
-              <span id="active-rule-count-pill" class="rm-pill rm-pill-slate">0 active network rules</span> <!-- Active declarativeNetRequest rule count pill -->
-            </div> <!-- End banner meta pills -->
-          </div> <!-- End policy source banner -->
+      <section id="panel-status" role="tabpanel" aria-labelledby="tab-status">
+        <div class="tabpanel-inner">
+          <div id="policy-source-banner" class="policy-banner policy-banner-unmanaged">
+            <div>
+              <div id="policy-source-title" class="policy-banner-title">Loading effective policy…</div>
+              <p id="policy-source-detail" class="rm-section-subtitle">Checking Google Admin Console managed policy and local overrides.</p>
+            </div>
+            <div class="policy-banner-meta">
+              <span id="policy-mode-badge" class="rm-pill rm-pill-amber">Checking…</span>
+              <span id="active-grade-band-pill" class="rm-pill rm-pill-navy">Grade Band: Unassigned</span>
+              <span id="active-rule-count-pill" class="rm-pill rm-pill-slate">0 active network rules</span>
+            </div>
+          </div>
 
-          <section class="rm-card" aria-labelledby="grade-band-heading"> <!-- Card for OU grade-band assignment -->
-            <h2 id="grade-band-heading" class="rm-section-title">Grade Band Assignment</h2> <!-- Card heading -->
-            <p class="rm-section-subtitle">Used strictly for local diagnostics and optional anonymous grade-band rollups.</p> <!-- Privacy clarification -->
-            <div class="field-row mt-sm"> <!-- Form row for grade-band dropdown -->
-              <label for="grade-band-select" class="field-label">Active Grade Band Label</label> <!-- Accessible select label -->
-              <select id="grade-band-select" name="gradeBand" class="rm-select rm-select-compact"> <!-- Grade-band selector (disabled when managed) -->
-                <option value="K-2">K-2</option> <!-- Early elementary option -->
-                <option value="3-5">3-5</option> <!-- Upper elementary option -->
-                <option value="6-8">6-8</option> <!-- Middle school option -->
-                <option value="9-12">9-12</option> <!-- High school option -->
-                <option value="Staff">Staff</option> <!-- Staff OU option -->
-                <option value="Unassigned">Unassigned</option> <!-- Default unassigned option -->
-              </select> <!-- End grade-band select -->
-            </div> <!-- End field row -->
-          </section> <!-- End grade-band card -->
+          <section class="rm-card" aria-labelledby="grade-band-heading">
+            <h2 id="grade-band-heading" class="rm-section-title">Grade Band Assignment</h2>
+            <p class="rm-section-subtitle">Used strictly for local diagnostics and optional anonymous grade-band rollups.</p>
+            <div class="field-row mt-sm">
+              <label for="grade-band-select" class="field-label">Active Grade Band Label</label>
+              <select id="grade-band-select" name="gradeBand" class="rm-select rm-select-compact">
+                <option value="K-2">K-2</option>
+                <option value="3-5">3-5</option>
+                <option value="6-8">6-8</option>
+                <option value="9-12">9-12</option>
+                <option value="Staff">Staff</option>
+                <option value="Unassigned">Unassigned</option>
+              </select>
+            </div>
+          </section>
 
-          <section class="rm-card" aria-labelledby="toggles-heading"> <!-- Card containing the 6 protection switches -->
-            <div class="rm-card-header"> <!-- Card header -->
-              <div> <!-- Header text wrapper -->
-                <h2 id="toggles-heading" class="rm-section-title">Protection Controls</h2> <!-- Card title -->
-                <p id="toggles-subtitle" class="rm-section-subtitle">On unmanaged devices, switches save locally for IT testing and take effect immediately.</p> <!-- Subtitle updated when locked by Admin policy -->
-              </div> <!-- End header text wrapper -->
-            </div> <!-- End card header -->
+          <section class="rm-card" aria-labelledby="toggles-heading">
+            <div class="rm-card-header">
+              <div>
+                <h2 id="toggles-heading" class="rm-section-title">Protection Controls</h2>
+                <p id="toggles-subtitle" class="rm-section-subtitle">On unmanaged devices, switches save locally for IT testing and take effect immediately.</p>
+              </div>
+            </div>
 
-            <fieldset aria-labelledby="toggles-heading"> <!-- Group protection switches semantically -->
-              <legend class="visually-hidden">Six Search Guard Protection Controls</legend> <!-- Screen-reader legend -->
-              <div class="toggle-list"> <!-- Vertical list of toggle rows -->
-                <div class="toggle-row"> <!-- Row 1: masterEnabled -->
-                  <div class="toggle-row-main"> <!-- Flex row for label and switch -->
-                    <div class="toggle-row-copy"> <!-- Label and description -->
-                      <label for="toggle-masterEnabled" class="toggle-row-label">Master Protection Switch</label> <!-- Switch label -->
-                      <p id="desc-masterEnabled" class="toggle-row-desc">Enable or disable all Search Guard network redirects and DOM hiding for this browser without uninstalling.</p> <!-- Switch description -->
-                    </div> <!-- End copy -->
-                    <div class="toggle-row-control"> <!-- Lock badge and switch input -->
-                      <span class="lock-indicator" data-lock-badge hidden>Locked</span> <!-- Shown when enforced by Google Admin Console -->
-                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-masterEnabled" data-toggle-key="masterEnabled" aria-describedby="desc-masterEnabled"> <!-- Accessible toggle switch -->
-                    </div> <!-- End control -->
-                  </div> <!-- End toggle-row-main -->
-                </div> <!-- End Row 1 -->
+            <fieldset aria-labelledby="toggles-heading">
+              <legend class="visually-hidden">Six RaiseMark Protection Controls</legend>
+              <div class="toggle-list">
+                <div class="toggle-row">
+                  <div class="toggle-row-main">
+                    <div class="toggle-row-copy">
+                      <label for="toggle-masterEnabled" class="toggle-row-label">Master Protection Switch</label>
+                      <p id="desc-masterEnabled" class="toggle-row-desc">Enable or disable all RaiseMark network redirects and DOM hiding for this browser without uninstalling.</p>
+                    </div>
+                    <div class="toggle-row-control">
+                      <span class="lock-indicator" data-lock-badge hidden>Locked</span>
+                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-masterEnabled" data-toggle-key="masterEnabled" aria-describedby="desc-masterEnabled">
+                    </div>
+                  </div>
+                </div>
 
-                <div class="toggle-row"> <!-- Row 2: hideAiOverviews -->
-                  <div class="toggle-row-main"> <!-- Flex row -->
-                    <div class="toggle-row-copy"> <!-- Label and description -->
-                      <label for="toggle-hideAiOverviews" class="toggle-row-label">Hide Google AI Overviews</label> <!-- Switch label -->
-                      <p id="desc-hideAiOverviews" class="toggle-row-desc">Suppress AI Overview summary boxes on Google Search results pages before paint.</p> <!-- Switch description -->
-                    </div> <!-- End copy -->
-                    <div class="toggle-row-control"> <!-- Lock badge and switch -->
-                      <span class="lock-indicator" data-lock-badge hidden>Locked</span> <!-- Managed lock indicator -->
-                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-hideAiOverviews" data-toggle-key="hideAiOverviews" aria-describedby="desc-hideAiOverviews"> <!-- Accessible toggle switch -->
-                    </div> <!-- End control -->
-                  </div> <!-- End toggle-row-main -->
-                </div> <!-- End Row 2 -->
+                <div class="toggle-row">
+                  <div class="toggle-row-main">
+                    <div class="toggle-row-copy">
+                      <label for="toggle-hideAiOverviews" class="toggle-row-label">Hide Google AI Overviews</label>
+                      <p id="desc-hideAiOverviews" class="toggle-row-desc">Suppress AI Overview summary boxes on Google Search results pages before paint.</p>
+                    </div>
+                    <div class="toggle-row-control">
+                      <span class="lock-indicator" data-lock-badge hidden>Locked</span>
+                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-hideAiOverviews" data-toggle-key="hideAiOverviews" aria-describedby="desc-hideAiOverviews">
+                    </div>
+                  </div>
+                </div>
 
-                <div class="toggle-row"> <!-- Row 3: hideAiModeUi -->
-                  <div class="toggle-row-main"> <!-- Flex row -->
-                    <div class="toggle-row-copy"> <!-- Label and description -->
-                      <label for="toggle-hideAiModeUi" class="toggle-row-label">Hide AI Mode Buttons &amp; Tabs</label> <!-- Switch label -->
-                      <p id="desc-hideAiModeUi" class="toggle-row-desc">Hide AI Mode triggers on the Google homepage, Search navigation bar, and "Dive deeper in AI Mode" prompts.</p> <!-- Switch description -->
-                    </div> <!-- End copy -->
-                    <div class="toggle-row-control"> <!-- Lock badge and switch -->
-                      <span class="lock-indicator" data-lock-badge hidden>Locked</span> <!-- Managed lock indicator -->
-                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-hideAiModeUi" data-toggle-key="hideAiModeUi" aria-describedby="desc-hideAiModeUi"> <!-- Accessible toggle switch -->
-                    </div> <!-- End control -->
-                  </div> <!-- End toggle-row-main -->
-                </div> <!-- End Row 3 -->
+                <div class="toggle-row">
+                  <div class="toggle-row-main">
+                    <div class="toggle-row-copy">
+                      <label for="toggle-hideAiModeUi" class="toggle-row-label">Hide AI Mode Buttons &amp; Tabs</label>
+                      <p id="desc-hideAiModeUi" class="toggle-row-desc">Hide AI Mode triggers on the Google homepage, Search navigation bar, and "Dive deeper in AI Mode" prompts.</p>
+                    </div>
+                    <div class="toggle-row-control">
+                      <span class="lock-indicator" data-lock-badge hidden>Locked</span>
+                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-hideAiModeUi" data-toggle-key="hideAiModeUi" aria-describedby="desc-hideAiModeUi">
+                    </div>
+                  </div>
+                </div>
 
-                <div class="toggle-row"> <!-- Row 4: blockAiModeNavigation -->
-                  <div class="toggle-row-main"> <!-- Flex row -->
-                    <div class="toggle-row-copy"> <!-- Label and description -->
-                      <label for="toggle-blockAiModeNavigation" class="toggle-row-label">Block &amp; Redirect AI Mode URLs</label> <!-- Switch label -->
-                      <p id="desc-blockAiModeNavigation" class="toggle-row-desc">Silently redirect direct AI Mode URLs (?udm=50, google.com/ai, google.com/aimode) back to standard Google Search while preserving the student query.</p> <!-- Switch description -->
-                    </div> <!-- End copy -->
-                    <div class="toggle-row-control"> <!-- Lock badge and switch -->
-                      <span class="lock-indicator" data-lock-badge hidden>Locked</span> <!-- Managed lock indicator -->
-                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-blockAiModeNavigation" data-toggle-key="blockAiModeNavigation" aria-describedby="desc-blockAiModeNavigation"> <!-- Accessible toggle switch -->
-                    </div> <!-- End control -->
-                  </div> <!-- End toggle-row-main -->
-                </div> <!-- End Row 4 -->
+                <div class="toggle-row">
+                  <div class="toggle-row-main">
+                    <div class="toggle-row-copy">
+                      <label for="toggle-blockAiModeNavigation" class="toggle-row-label">Block &amp; Redirect AI Mode URLs</label>
+                      <p id="desc-blockAiModeNavigation" class="toggle-row-desc">Silently redirect direct AI Mode URLs (?udm=50, google.com/ai, google.com/aimode) back to standard Google Search while preserving the student query.</p>
+                    </div>
+                    <div class="toggle-row-control">
+                      <span class="lock-indicator" data-lock-badge hidden>Locked</span>
+                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-blockAiModeNavigation" data-toggle-key="blockAiModeNavigation" aria-describedby="desc-blockAiModeNavigation">
+                    </div>
+                  </div>
+                </div>
 
-                <div class="toggle-row"> <!-- Row 5: forceWebOnlySearch -->
-                  <div class="toggle-row-main"> <!-- Flex row -->
-                    <div class="toggle-row-copy"> <!-- Label and description -->
-                      <label for="toggle-forceWebOnlySearch" class="toggle-row-label">Force Classic Web-Only Search (udm=14)</label> <!-- Switch label -->
-                      <p id="desc-forceWebOnlySearch" class="toggle-row-desc">Redirect standard Google searches to classic Web-only results (udm=14) while preserving Images, Videos, Shopping, and News tabs.</p> <!-- Switch description -->
-                    </div> <!-- End copy -->
-                    <div class="toggle-row-control"> <!-- Lock badge and switch -->
-                      <span class="lock-indicator" data-lock-badge hidden>Locked</span> <!-- Managed lock indicator -->
-                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-forceWebOnlySearch" data-toggle-key="forceWebOnlySearch" aria-describedby="desc-forceWebOnlySearch callout-udm14-status"> <!-- Accessible toggle switch -->
-                    </div> <!-- End control -->
-                  </div> <!-- End toggle-row-main -->
-                  <div id="callout-udm14-status" class="rm-callout rm-callout-amber"> <!-- Trade-off callout shown when udm=14 is enabled -->
-                    <span>Note: Google's Web-only mode (<code>udm=14</code>) also hides Knowledge Panels, Calculator, and Dictionary cards.</span> <!-- Informational note for school IT -->
-                  </div> <!-- End udm=14 callout -->
-                </div> <!-- End Row 5 -->
+                <div class="toggle-row">
+                  <div class="toggle-row-main">
+                    <div class="toggle-row-copy">
+                      <label for="toggle-forceWebOnlySearch" class="toggle-row-label">Force Classic Web-Only Search (udm=14)</label>
+                      <p id="desc-forceWebOnlySearch" class="toggle-row-desc">Redirect standard Google searches to classic Web-only results (udm=14) while preserving Images, Videos, Shopping, and News tabs.</p>
+                    </div>
+                    <div class="toggle-row-control">
+                      <span class="lock-indicator" data-lock-badge hidden>Locked</span>
+                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-forceWebOnlySearch" data-toggle-key="forceWebOnlySearch" aria-describedby="desc-forceWebOnlySearch callout-udm14-status">
+                    </div>
+                  </div>
+                  <div id="callout-udm14-status" class="rm-callout rm-callout-amber">
+                    <span>Note: Google's Web-only mode (<code>udm=14</code>) also hides Knowledge Panels, Calculator, and Dictionary cards.</span>
+                  </div>
+                </div>
 
-                <div class="toggle-row"> <!-- Row 6: hideAuxiliaryAiFeatures -->
-                  <div class="toggle-row-main"> <!-- Flex row -->
-                    <div class="toggle-row-copy"> <!-- Label and description -->
-                      <label for="toggle-hideAuxiliaryAiFeatures" class="toggle-row-label">Hide Auxiliary AI Features</label> <!-- Switch label -->
-                      <p id="desc-hideAuxiliaryAiFeatures" class="toggle-row-desc">Hide Search Labs triggers, Google Lens search-bar buttons, AI follow-up input bars, and AI-generated prompt cards.</p> <!-- Switch description -->
-                    </div> <!-- End copy -->
-                    <div class="toggle-row-control"> <!-- Lock badge and switch -->
-                      <span class="lock-indicator" data-lock-badge hidden>Locked</span> <!-- Managed lock indicator -->
-                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-hideAuxiliaryAiFeatures" data-toggle-key="hideAuxiliaryAiFeatures" aria-describedby="desc-hideAuxiliaryAiFeatures"> <!-- Accessible toggle switch -->
-                    </div> <!-- End control -->
-                  </div> <!-- End toggle-row-main -->
-                </div> <!-- End Row 6 -->
-              </div> <!-- End toggle-list -->
-            </fieldset> <!-- End protection controls fieldset -->
+                <div class="toggle-row">
+                  <div class="toggle-row-main">
+                    <div class="toggle-row-copy">
+                      <label for="toggle-hideAuxiliaryAiFeatures" class="toggle-row-label">Hide Auxiliary AI Features</label>
+                      <p id="desc-hideAuxiliaryAiFeatures" class="toggle-row-desc">Hide Search Labs triggers, Google Lens search-bar buttons, AI follow-up input bars, and AI-generated prompt cards.</p>
+                    </div>
+                    <div class="toggle-row-control">
+                      <span class="lock-indicator" data-lock-badge hidden>Locked</span>
+                      <input type="checkbox" role="switch" class="rm-switch" id="toggle-hideAuxiliaryAiFeatures" data-toggle-key="hideAuxiliaryAiFeatures" aria-describedby="desc-hideAuxiliaryAiFeatures">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </fieldset>
 
-            <p id="status-save-feedback" class="status-line mt-sm" role="status"></p> <!-- Live feedback line when local test settings save -->
-          </section> <!-- End protection controls card -->
-        </div> <!-- End tabpanel-inner -->
-      </section> <!-- End Tab 1 panel -->
+            <p id="status-save-feedback" class="status-line mt-sm" role="status"></p>
+          </section>
+        </div>
+      </section>
 
-      <!-- Tab 2: IT Diagnostics & Analytics -->
-      <section id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden="until-found"> <!-- Tab 2 panel: local counters, analytics status, and diagnostic log -->
-        <div class="tabpanel-inner"> <!-- Centered content wrapper -->
-          <section aria-labelledby="metrics-heading"> <!-- Metrics summary grid section -->
-            <h2 id="metrics-heading" class="visually-hidden">Local Protection Metrics</h2> <!-- Screen-reader heading for metrics grid -->
-            <div class="metrics-grid"> <!-- Responsive 6-card metrics grid -->
-              <div class="metric-card"> <!-- Metric 1: AI Overviews Hidden -->
-                <span class="metric-label">AI Overviews Hidden</span> <!-- Metric label -->
-                <span id="metric-overviewsHidden" class="metric-value">0</span> <!-- Live counter updated by options.js -->
-              </div> <!-- End metric card 1 -->
-              <div class="metric-card"> <!-- Metric 2: AI Mode UI Hidden -->
-                <span class="metric-label">AI Mode UI Hidden</span> <!-- Metric label -->
-                <span id="metric-aiModeUiHidden" class="metric-value">0</span> <!-- Live counter updated by options.js -->
-              </div> <!-- End metric card 2 -->
-              <div class="metric-card"> <!-- Metric 3: AI Mode URLs Redirected -->
-                <span class="metric-label">AI Mode URLs Redirected</span> <!-- Metric label -->
-                <span id="metric-aiModeRedirects" class="metric-value">0</span> <!-- Live counter updated by options.js -->
-              </div> <!-- End metric card 3 -->
-              <div class="metric-card"> <!-- Metric 4: Omnibox Fallbacks Caught -->
-                <span class="metric-label">Omnibox Fallbacks Caught</span> <!-- Metric label -->
-                <span id="metric-omniboxFallbackRedirects" class="metric-value">0</span> <!-- Live counter updated by options.js -->
-              </div> <!-- End metric card 4 -->
-              <div class="metric-card"> <!-- Metric 5: Auxiliary AI Hidden -->
-                <span class="metric-label">Auxiliary AI Hidden</span> <!-- Metric label -->
-                <span id="metric-auxAiHidden" class="metric-value">0</span> <!-- Live counter updated by options.js -->
-              </div> <!-- End metric card 5 -->
-              <div id="metric-card-errors" class="metric-card"> <!-- Metric 6: Errors / Warnings -->
-                <span class="metric-label">Errors / Warnings</span> <!-- Metric label -->
-                <span id="metric-errorsWarnings" class="metric-value">0</span> <!-- Live counter updated by options.js -->
-              </div> <!-- End metric card 6 -->
-            </div> <!-- End metrics grid -->
-          </section> <!-- End metrics section -->
+      <!-- Tab 2: IT Diagnostics -->
+      <section id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden="until-found">
+        <div class="tabpanel-inner">
+          <section aria-labelledby="metrics-heading">
+            <h2 id="metrics-heading" class="visually-hidden">Local Protection Metrics</h2>
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span class="metric-label">AI Overviews Hidden</span>
+                <span id="metric-overviewsHidden" class="metric-value">0</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">AI Mode UI Hidden</span>
+                <span id="metric-aiModeUiHidden" class="metric-value">0</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">AI Mode URLs Redirected</span>
+                <span id="metric-aiModeRedirects" class="metric-value">0</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Omnibox Fallbacks Caught</span>
+                <span id="metric-omniboxFallbackRedirects" class="metric-value">0</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Auxiliary AI Hidden</span>
+                <span id="metric-auxAiHidden" class="metric-value">0</span>
+              </div>
+              <div id="metric-card-errors" class="metric-card">
+                <span class="metric-label">Errors / Warnings</span>
+                <span id="metric-errorsWarnings" class="metric-value">0</span>
+              </div>
+            </div>
+          </section>
 
-          <section id="analytics-status-bar" class="analytics-status-bar" aria-labelledby="analytics-sync-heading"> <!-- Optional Google Sheets telemetry sync status bar -->
-            <div> <!-- Sync status text column -->
-              <h2 id="analytics-sync-heading" class="rm-section-title">District Google Sheets Analytics Sync</h2> <!-- Section heading -->
-              <div class="analytics-status-details"> <!-- Inline status metadata -->
-                <span id="analytics-config-badge" class="rm-pill rm-pill-slate">Disabled (Local-Only)</span> <!-- Enabled vs disabled status pill -->
-                <span>Last attempt: <strong id="analytics-last-attempt">Never</strong></span> <!-- Timestamp of last sync attempt -->
-                <span>Last success: <strong id="analytics-last-success">Never</strong></span> <!-- Timestamp of last successful sync -->
-                <span>Pending batches: <strong id="analytics-pending-count">0</strong></span> <!-- Count of queued aggregate batches -->
-                <span id="analytics-last-message"></span> <!-- Last sync status or error detail -->
-              </div> <!-- End status details -->
-            </div> <!-- End sync status column -->
-            <div class="btn-row"> <!-- Action button container -->
-              <button type="button" id="btn-test-flush" class="rm-btn rm-btn-primary" hidden>Test Flush Now</button> <!-- Manual telemetry flush trigger (visible only when analytics is configured) -->
-            </div> <!-- End button row -->
-          </section> <!-- End analytics status bar -->
+          <section class="rm-card" aria-labelledby="diag-actions-heading">
+            <div class="rm-card-header">
+              <div>
+                <h2 id="diag-actions-heading" class="rm-section-title">Diagnostic Tools (Zero PII)</h2>
+                <p class="rm-section-subtitle">Exports contain strictly policy state, aggregate counts, and diagnostic codes — never student identities or search queries.</p>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button type="button" id="btn-refresh-diag" class="rm-btn">Refresh Diagnostics</button>
+              <button type="button" id="btn-copy-diag-json" class="rm-btn rm-btn-navy">Copy Diagnostic JSON</button>
+              <button type="button" id="btn-export-csv" class="rm-btn">Export Local Metrics CSV</button>
+              <button type="button" id="btn-reset-metrics" class="rm-btn rm-btn-danger">Reset Local Counters</button>
+              <button type="button" id="btn-cancel-reset" class="rm-btn rm-btn-sm" hidden>Cancel Reset</button>
+            </div>
+            <p id="diag-action-status" class="status-line mt-sm" role="status"></p>
+          </section>
 
-          <section class="rm-card" aria-labelledby="diag-actions-heading"> <!-- Card for zero-PII diagnostic export and reset actions -->
-            <div class="rm-card-header"> <!-- Card header -->
-              <div> <!-- Header text wrapper -->
-                <h2 id="diag-actions-heading" class="rm-section-title">Diagnostic Tools (Zero PII)</h2> <!-- Card heading -->
-                <p class="rm-section-subtitle">Exports contain strictly policy state, aggregate daily counts, and diagnostic codes — never student identities or search queries.</p> <!-- Explicit zero-PII guarantee -->
-              </div> <!-- End header text wrapper -->
-            </div> <!-- End card header -->
-            <div class="btn-row"> <!-- Diagnostic action buttons -->
-              <button type="button" id="btn-refresh-diag" class="rm-btn">Refresh Diagnostics</button> <!-- Reload telemetry and policy from background worker -->
-              <button type="button" id="btn-copy-diag-json" class="rm-btn rm-btn-navy">Copy Diagnostic JSON</button> <!-- Copy sanitized JSON snapshot to clipboard -->
-              <button type="button" id="btn-export-csv" class="rm-btn">Export Local Metrics CSV</button> <!-- Download local daily aggregate metrics as CSV -->
-              <button type="button" id="btn-reset-metrics" class="rm-btn rm-btn-danger">Reset Local Counters</button> <!-- Two-step confirmation button to clear local counters -->
-              <button type="button" id="btn-cancel-reset" class="rm-btn rm-btn-sm" hidden>Cancel Reset</button> <!-- Cancel button shown during two-step reset confirmation -->
-            </div> <!-- End button row -->
-            <p id="diag-action-status" class="status-line mt-sm" role="status"></p> <!-- Feedback line for export/copy/reset actions -->
-          </section> <!-- End diagnostic tools card -->
-
-          <div tabindex="0" role="region" aria-labelledby="diag-table-caption" class="table-wrapper"> <!-- Keyboard-scrollable table container -->
-            <table class="diag-table"> <!-- Diagnostic errors and warnings table -->
-              <caption id="diag-table-caption">Actionable Errors &amp; Warnings</caption> <!-- Accessible table caption -->
-              <thead> <!-- Table column headers -->
-                <tr> <!-- Header row -->
-                  <th scope="col">Severity &amp; Code</th> <!-- Column 1: severity badge and error code -->
-                  <th scope="col">Count</th> <!-- Column 2: occurrence count -->
-                  <th scope="col">Last Seen</th> <!-- Column 3: most recent timestamp -->
-                  <th scope="col">Detail</th> <!-- Column 4: diagnostic detail -->
-                  <th scope="col">How to Fix</th> <!-- Column 5: remediation guidance for IT admins -->
-                </tr> <!-- End header row -->
-              </thead> <!-- End table head -->
-              <tbody id="diag-table-body"> <!-- Table body populated dynamically by options.js -->
-                <tr> <!-- Initial loading placeholder row -->
-                  <td colspan="5" class="diag-empty-cell">Loading diagnostic log…</td> <!-- Loading message -->
-                </tr> <!-- End placeholder row -->
-              </tbody> <!-- End table body -->
-            </table> <!-- End diagnostic table -->
-          </div> <!-- End table wrapper -->
-        </div> <!-- End tabpanel-inner -->
-      </section> <!-- End Tab 2 panel -->
+          <div tabindex="0" role="region" aria-labelledby="diag-table-caption" class="table-wrapper">
+            <table class="diag-table">
+              <caption id="diag-table-caption">Actionable Errors &amp; Warnings</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Severity &amp; Code</th>
+                  <th scope="col">Count</th>
+                  <th scope="col">Last Seen</th>
+                  <th scope="col">Detail</th>
+                  <th scope="col">How to Fix</th>
+                </tr>
+              </thead>
+              <tbody id="diag-table-body">
+                <tr>
+                  <td colspan="5" class="diag-empty-cell">Loading diagnostic log…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
       <!-- Tab 3: 4-Band Admin Policy Generator -->
-      <section id="panel-generator" role="tabpanel" aria-labelledby="tab-generator" hidden="until-found"> <!-- Tab 3 panel: Google Admin Console JSON generator -->
-        <div class="tabpanel-inner"> <!-- Centered content wrapper -->
-          <div id="options-policy-generator-root"></div> <!-- Mount point populated by options.js with the 4-band generator UI -->
-        </div> <!-- End tabpanel-inner -->
-      </section> <!-- End Tab 3 panel -->
-    </div> <!-- End tab-panels -->
-  </main> <!-- End main workspace -->
+      <section id="panel-generator" role="tabpanel" aria-labelledby="tab-generator" hidden="until-found">
+        <div class="tabpanel-inner">
+          <div id="options-policy-generator-root"></div>
+        </div>
+      </section>
+    </div>
+  </main>
 
-  <script type="module" src="./options.js"></script> <!-- Load options ES module script (local file enforced by CSP) -->
-</body> <!-- End document body -->
-</html> <!-- End HTML document -->
+  <script type="module" src="./options.js"></script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+/* Zero-flash static hiding rules for Google Search.
+ * Runs in: content script stylesheet on google.com, injected at document_start.
+ * Every rule is gated by html[data-rmsg-hide-*="1"], which content.js sets from policy, so
+ * removing the attributes (masterEnabled off) restores unmodified Google Search.
+ * Must never: hide core search landmarks; the :not(...) chains mirror the safety guard's
+ * protected IDs as CSS-layer defense in depth.
+ * Shared with: src/shared/selectors.ts (same Tier 1/2 selectors; keep the two in sync).
+ */
+
+/* AI Overviews */
+/* FRAGILE(google-dom, last verified NONE, see test L-07): #eKIzJc, AIOverview attrs, aria-label text, .YzCcne, data-mcp=18. */
+html[data-rmsg-hide-overviews="1"] div#eKIzJc:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-overviews="1"] div[data-attrid="AIOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-overviews="1"] div[data-async-type="aiOverview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-overviews="1"] div[aria-label="AI Overview"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-overviews="1"] div.YzCcne[data-mcpr]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-overviews="1"] div[data-mcp="18"]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* AI Mode UI (Homepage triggers, Search nav tabs, Dive deeper prompts) */
+/* FRAGILE(google-dom, last verified NONE, see test L-07): udm=50 and /aimode hrefs, .olrp5b, .plR5qb, jsname=B6rgad. */
+/* The :has() selector shares this rule list with the others (BP-10); fine on Chrome 134+. */
+html[data-rmsg-hide-aimode="1"] div[role="listitem"]:has(a[href*="udm=50"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-aimode="1"] a[href*="udm=50"],
+html[data-rmsg-hide-aimode="1"] a[href*="/aimode"],
+html[data-rmsg-hide-aimode="1"] div.olrp5b:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-aimode="1"] button.plR5qb,
+html[data-rmsg-hide-aimode="1"] button[jsname="B6rgad"] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Auxiliary AI Features (Search Labs, Google Lens search bar trigger, AI follow-ups) */
+/* FRAGILE(google-dom, last verified NONE, see test L-07): labs.google.com, English aria-label text (BP-03), data-base-lens-url. */
+html[data-rmsg-hide-aux="1"] a[href*="labs.google.com"],
+html[data-rmsg-hide-aux="1"] [aria-label*="Search Labs" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-aux="1"] [aria-label*="Search by image" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-aux="1"] [data-base-lens-url]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
+html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Elements explicitly vetted by the Organic Results Safety Guard and hidden by dom-engine.ts */
+[data-rmsg-hidden] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}

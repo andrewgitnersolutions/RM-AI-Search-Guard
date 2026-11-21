@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- B-05 fixture: the AI Overview's nearest data-hveid wrapper also holds one organic result.
+     Only the Overview card should be hidden. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>x - Google Search</title>
+</head>
+<body>
+  <div id="main">
+    <form role="search" id="search-form"><textarea name="q" id="q">x</textarea></form>
+    <div id="rso">
+      <div data-hveid="CAEQAA" id="hveid-wrapper">
+        <div id="ov-card"><h2 id="ov-card-heading">AI Overview</h2><p>Generated text.</p></div>
+        <div class="g" id="wrapped-organic"><a href="https://example.com/x"><h3 class="LC20lb">Organic in wrapper</h3></a></div>
+      </div>
+      <div class="g" id="r2"><a href="https://example.com/2"><h3 class="LC20lb">Result two</h3></a></div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "gradeBand": {
+      "title": "Grade Band Label",
+      "description": "Grade-band label for this Organizational Unit (shown in the Options page and IT diagnostics; never sent anywhere).",
+      "type": "string",
+      "enum": ["K-2", "3-5", "6-8", "9-12", "Staff", "Unassigned"]
+    },
+    "masterEnabled": {
+      "title": "Master Protection Switch",
+      "description": "Enable or disable all RaiseMark protections for this OU without uninstalling the extension. Defaults to true.",
+      "type": "boolean"
+    },
+    "hideAiOverviews": {
+      "title": "Hide Google AI Overviews",
+      "description": "Suppress AI Overview summary boxes on Google Search results pages. Defaults to true.",
+      "type": "boolean"
+    },
+    "hideAiModeUi": {
+      "title": "Hide AI Mode Buttons & Tabs",
+      "description": "Hide AI Mode buttons on the Google homepage, Search navigation bar, and 'Dive deeper in AI Mode' prompts. Defaults to true.",
+      "type": "boolean"
+    },
+    "blockAiModeNavigation": {
+      "title": "Block & Redirect AI Mode URLs",
+      "description": "Silently redirect direct AI Mode URLs (?udm=50, google.com/ai, google.com/aimode) back to standard Google Search while preserving the query. Defaults to true.",
+      "type": "boolean"
+    },
+    "forceWebOnlySearch": {
+      "title": "Force Classic Web-Only Search (udm=14)",
+      "description": "Redirect standard Google searches to classic Web-only results (udm=14) while preserving Images, Videos, Shopping, and News tabs. Note: udm=14 also hides Knowledge Panels, Calculator, and Dictionary cards. Defaults to true.",
+      "type": "boolean"
+    },
+    "hideAuxiliaryAiFeatures": {
+      "title": "Hide Auxiliary AI Features (Labs, Lens, AI Follow-Ups)",
+      "description": "Hide Search Labs triggers, Google Lens search-bar buttons, AI follow-up input bars, and AI-generated prompt cards. Defaults to true.",
+      "type": "boolean"
+    }
+  }
+}

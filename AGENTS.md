@@ -14,8 +14,8 @@ A Manifest V3 Chrome extension for K-12 school districts. It hides Google Search
 
 ## Current state (update this section when it changes)
 
-- **`src/` doesn't exist yet.** Owner decision D1 (2026-11-20): rebuild a `src/` + esbuild build first (audit log §5, Phase 0). Until Phase 0 lands, `dist/` is the only code. Don't start break-point fixes before the Phase 0 equivalence gate passes.
-- After Phase 0: **`src/` is the source of truth and `dist/` is build output.** Never hand-edit `dist/`; change `src/` and rebuild.
+- **Phase 0 is done** (0a rebuild, 0b analytics removed, 0c rename; PR #3, 2026-11-21). The equivalence gate passed. **Next: Phase 1** (docs/07 §5: BP-01, BP-02, BP-06, BP-10, plus BP-17 if the owner keeps it there).
+- **`src/` is the source of truth and `dist/` is build output.** Never hand-edit `dist/`; change `src/` and rebuild. TypeScript runs with `strict: true`; `npm run typecheck` must pass.
 - **Workflow (2026-11-20):** edit `src/` → `npm run build` (writes to the gitignored `build/`) → run the S/U/B tests against `build/` → `npm run promote` copies `build/` to `dist/`. Never write to `dist/` any other way.
 - Open owner decisions: see the decisions table in docs/07 §2. Don't act on an unresolved decision; use its stated default only if the owner said to.
 
@@ -50,6 +50,7 @@ Apply to every file you touch, in the same change as the code. Comments live in 
 
 - Test tools (D8, 2026-11-20): `node --test` runs the S and U tests; Playwright runs the B tests against `build/` with mock Google pages via route interception, never real Google. L and M tests are manual.
 - The test plan is docs/07 §6. Run the static checks (S-xx) and unit tests (U-xx) after every change; run the browser/live/managed tests named in the "Done when" of the break point you're fixing.
+- In Claude Code cloud sessions, run the B tests with `RM_CHROMIUM_PATH=/opt/pw-browsers/chromium` (the pinned Playwright's own browser isn't installed there).
 - Report every test you couldn't run as **NOT RUN**, with the reason. Never mark an unrun test as passed.
 - When you fix a break point, tick its to-dos in docs/07, add a dated line under it saying what changed and which tests passed, and update `docs/04` if admins or students will see different behavior.
 

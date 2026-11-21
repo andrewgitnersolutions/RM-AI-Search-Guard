@@ -68,6 +68,9 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 | BP-14 | Low | Metrics | AI Mode / Aux counters inflate on every Google re-render |
 | BP-15 | Low | Maintainability | Four copies of shared logic, no tests, stale release zip, no project repo |
 | BP-16 | Info | Coverage | Surfaces the extension can't cover (Incognito, Guest, other browsers, ccTLDs, Gemini app): admin runbook gaps |
+| BP-17 | Medium | Policy / sync | Overlapping async policy loads can finish out of order, so an older result (stale DNR rules, a stale tab policy, a lost toggle edit) wins |
+| BP-18 | Low | Content | Unhiding doesn't fully restore the page: an original inline `display:none` is lost, and marker CSS isn't gated by policy |
+| BP-19 | Low | Network | `/ai?q=…` and `/aimode?q=…` redirect to the homepage and drop the student's query |
 
 ---
 
@@ -285,6 +288,9 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 
 **Done when:** a fixture with an organic result linking to `https://example.com/blog/aimode-review` still shows it, and a fixture where the AI Overview's nearest `data-hveid` wrapper also holds one organic result hides only the Overview card.
 
+**Added 2026-11-21 (CodeRabbit review of PR #3, not yet verified):** the `static-guard.css` overview rules hide any matching `div[data-attrid="AIOverview"]` etc. outright, so the CSS path never runs `isUnsafeToHide()`. A matching container that also holds ≥3 organic results is hidden by CSS even though the JS guard would refuse it.
+- [ ] Confirm with a fixture (an `AIOverview` div wrapping 3 organic results). If confirmed, make the CSS path respect the guard (e.g. `:not(:has(a > h3 ~ …))`-style exclusions, or limit CSS to candidates the JS guard has marked) without weakening `isUnsafeToHide`.
+
 ---
 
 ### BP-09 — Sweep cost and storage churn (Medium)
@@ -476,6 +482,89 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 
 ---
 
+### BP-17 — Overlapping async policy loads finish out of order (Medium)
+
+**Found:** CodeRabbit review of PR #3 (2026-11-21); carried over unchanged from the original `dist/`. Verified against `src/` 2026-11-21.
+
+**Where:**
+- `src/background/service-worker.ts` `syncRuntimeState()`: resolves policy, awaits the queued diagnostic writes, then queues `syncDynamicRules()`. Only the DNR update is serialized, not resolve + install. An older sync (e.g. `onStartup`) can still be awaiting its diagnostics while a newer managed-policy sync queues its rules. The older one then installs **stale** rules last. Example: an older `masterEnabled:false` result removes the rules a newer enabled policy just installed.
+- `src/background/service-worker.ts` `SET_LOCAL_OVERRIDES`: `readLocalOverrides()` runs outside the storage queue and only `writeLocalOverrides()` is queued, so two quick toggle clicks can each merge into the same old object and one edit is lost.
+- `src/content/content.ts` `chrome.storage.onChanged` → `loadEffectivePolicy()` → `applyEffectivePolicy()`, and `bootstrapContentGuard()`: no load sequence number. If two loads overlap and the older (disabled) one finishes last, the tab unhides everything and disconnects its observers until the next reload or storage change (fail-open).
+- `src/ui/options.ts` storage-change refresh (`fetchDiagnosticSnapshot()` → `renderSnapshot()`): an older snapshot can replace the controls, counters and `currentSnapshot` after a newer one.
+
+**Options:**
+
+| Option | Strengths | Drawbacks |
+|---|---|---|
+| A. Generation counter per flow: bump a number when a load starts; apply a result only if its number is still the latest. In the service worker, also run resolve + install as **one** serialized operation (its own chain, not nested inside the storage queue, or it deadlocks on the queued diagnostic writes). Do the toggle read-merge-write as one queued op. | Small, local changes; the newest policy always wins. | One counter per flow to keep correct. |
+| B. Debounce storage events. | Fewer overlapping loads. | Doesn't remove the race, only narrows it. |
+
+**Recommendation:** **A.** Use the same sequence check for the content script's bootstrap and storage-change loads, so every policy source follows one rule (this touches BP-02's bootstrap code; do them together).
+
+**To-do:**
+- [ ] Service worker: one serialized `syncRuntimeState` chain (resolve + diagnostics + DNR install), or a generation check that drops a stale install.
+- [ ] Service worker: `SET_LOCAL_OVERRIDES` read + sanitize + merge + write as one queued operation. Keep BP-01's lock check in front of it.
+- [ ] Content script: `policyLoadSeq` used by both bootstrap and `storage.onChanged`; apply only the latest result.
+- [ ] Options: refresh generation in the storage-change path; a lone refresh still renders normally.
+
+**Done when:** U-17 (two overlapping syncs with the older one resolving last end with the newer policy's rules installed), U-18 (two concurrent `SET_LOCAL_OVERRIDES` keep both edits) and B-15 (an older disabled load finishing after a newer enabled load leaves the tab protected) pass.
+
+**Proposed phase:** 1, with BP-01/BP-02 (same code paths). The owner can move it.
+
+---
+
+### BP-18 — Unhiding doesn't fully restore the page (Low)
+
+**Found:** CodeRabbit review of PR #3 (2026-11-21); carried over unchanged from the original `dist/`. Verified against `src/` 2026-11-21.
+
+**Where:**
+- `src/content/dom-engine.ts` `hideElement()`: saves the element's original inline `display` only when it is non-empty **and not `"none"`**. If Google had the element hidden inline (`display:none`), `restoreElementVisibility()` removes the property, and the element Google meant to hide becomes visible when a toggle is turned off.
+- `src/content/static-guard.css` `[data-rmsg-hidden] { display:none !important … }` is global: it isn't gated by the matching `html[data-rmsg-hide-*]` policy attribute. Today the JS removes markers in the same step it removes the attribute (`applyEffectivePolicy` → `unhideCategoryElements`), so this only bites if a marker survives (a cloned node, a failed restore). It's defense in depth, not a live leak.
+
+**Options:**
+
+| Option | Strengths | Drawbacks |
+|---|---|---|
+| A. Save every non-empty original inline `display` value and priority, including `"none"`; keep removing the property when nothing was set. Gate the marker rule per category: `html[data-rmsg-hide-overviews="1"] [data-rmsg-hidden="overview"]` (and `aimode`, `aux`). | Restores exactly what was there; CSS and policy can't disagree. | Three marker rules instead of one. |
+| B. Leave as is. | — | Toggling a category off can reveal elements Google hid. |
+
+**Recommendation:** **A.**
+
+**To-do:**
+- [ ] `hideElement()`: drop the `prevDisplay !== "none"` exclusion; `restoreElementVisibility()` already restores the saved value with its priority.
+- [ ] `static-guard.css`: replace the global `[data-rmsg-hidden]` rule with three policy-gated rules.
+
+**Done when:** B-16 (an element with inline `display:none` that gets hidden and then unhidden by turning its toggle off is still `display:none`; removing a policy attribute un-hides a marked element even if the marker stays) passes.
+
+**Proposed phase:** 2, with BP-08 (hiding correctness).
+
+---
+
+### BP-19 — `/ai?q=…` and `/aimode?q=…` drop the query (Low)
+
+**Found:** CodeRabbit review of PR #3 (2026-11-21); carried over unchanged from the original `dist/`. Verified against `src/` 2026-11-21.
+
+**Where:** `src/background/dnr-rules.ts` rule 111 redirects `^https://(www\.)?google\.com/(ai|aimode)(/|\?|$)` to the fixed URL `https://www.google.com/#rm_sg_aimode`, so `/aimode?q=fractions` lands on the homepage and the student has to retype the search. U-06 and L-02 currently **expect** this (`/ai` and `/aimode` → `/`), and `docs/04` describes it the same way, so changing it is a behavior change admins will see.
+
+**Options:**
+
+| Option | Strengths | Drawbacks |
+|---|---|---|
+| A. Redirect with a transform instead of a fixed URL: path `/search`, the existing AI Mode query transform (so `q` is kept, `udm=14` added when `forceWebOnlySearch` is on), fragment `#rm_sg_aimode`. Queryless `/ai` and `/aimode` still go to the homepage (a second rule, or a query-presence regex). | The student keeps their search; matches how `udm=50` is handled. | Two rules instead of one; U-06, L-02 and `docs/04` change. |
+| B. Keep sending everything to the homepage. | Simplest; current documented behavior. | Small usability cost. |
+
+**Recommendation:** **A**, owner to confirm (it changes documented behavior).
+
+**To-do:**
+- [ ] Owner decision: A or B.
+- [ ] If A: split rule 111 (with query → `/search` + transform; without → homepage), update U-06's expectations, L-02 and `docs/04`.
+
+**Done when:** U-19 (`/aimode?q=fractions` → `/search?q=fractions…` with the `#rm_sg_aimode` marker, `/ai` → `/`, ≤2 hops) passes, if A is chosen.
+
+**Proposed phase:** 2, with BP-05 (redirects).
+
+---
+
 ## 4. Re-commenting standard (D2 = lean, resolved 2026-11-20)
 
 `AGENTS.md` at the repo root is the living copy of this standard; if the two disagree, `AGENTS.md` wins. With D1 = B, comments are written in `src/` as each module is rebuilt (Phase 0) and kept current with every later change. R-01 then compares `src/` before and after any comment-only pass. **Comments only; behavior must not change in this step.** Diff each file and confirm only comment/whitespace changes.
@@ -494,8 +583,8 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 | Phase | Break points | Why this order |
 |---|---|---|
 | 0. Setup | **Rebuild `src/` (D1 = B) in three separate commits, in this order** (sequencing clarified 2026-11-20 after CodeRabbit review of PR #1):<br>**0a. Behavior-preserving rebuild (analytics and old name still in).** Split the `dist/` bundles into the modules named in `docs/03` §1 (`shared/defaults, errors, policy, selectors, storage`; `background/service-worker, dnr-rules, analytics`; `content/dom-engine, content`; `ui/popup, options, policy-generator-core`). Add `package.json`, `tsconfig.json`, `scripts/build.mjs` (esbuild → gitignored `build/`) and `scripts/promote.mjs` (`build/` → `dist/`). The Apps Script template stays an inline string in the options module exactly as today: **don't create `templates/apps-script/`**, because analytics is removed in 0b. Keep the original `dist/` as gitignored `baseline-dist/`. **Equivalence gate (0a only):** the rebuilt output must behave identically to `baseline-dist/`, analytics included. Compare code with comments and whitespace stripped where bundling allows. Run every U-test and the Playwright B smoke tests against **both** `baseline-dist/` and `build/`: results must be identical, **failures included**. U-tests that describe not-yet-fixed break points are expected to fail on both and don't block promotion; only a *difference* between the two builds blocks it. Then promote and commit.<br>**0b. Remove analytics (D6).** Separate commit. The equivalence gate doesn't apply to these removed behaviors, which are the only allowed differences from 0a: alarm scheduling and flushing; the `TRIGGER_TEST_FLUSH` message; the 4 analytics policy fields and their validation; `ERR_ANALYTICS_ENDPOINT_INVALID` / `ERR_ANALYTICS_FLUSH_FAILED`; pending-bucket and flush-status telemetry fields; the Options analytics status bar and Test Flush button; the generator's analytics section and Copy Code.gs button; the manifest's `alarms` permission and `script.google.com` / `script.googleusercontent.com` hosts. Every other test result must match 0a. S-03 applies from this commit on.<br>**0c. Rename (D7).** Separate commit; extension strings only (manifest `name`/`short_name`/`default_title`, popup, Options, CSS header). Tests must match 0b.<br>**Workflow for every later change:** edit `src/` → `npm run build` writes to `build/` → run S-, U- and B-tests against `build/` (load it unpacked) → `npm run promote` copies `build/` into `dist/` only when the **promotion rule** holds. `dist/` changes only through promote.<br>**Promotion rule (known failures):** at the end of 0a, record every failing test in `tests/known-failures.json` with the break point and phase that will fix it. Before any promotion, (1) every test assigned to the current phase and every test not on the list must pass, and (2) each listed test must fail exactly as recorded (a *changed* failure blocks promotion just like a new one). When a phase fixes a break point, remove its tests from the list in the same commit. The list must be empty after Phase 4. | Every later fix needs one source of truth and a test harness. Proving equivalence before removing anything means any behavior change in 0b/0c is deliberate and visible. |
-| 1. Make protection hold | BP-01, BP-02, BP-06, BP-10 | Highest risk to students; small, contained changes. |
-| 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13 | Depends on BP-01's "is locked" decision. |
+| 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (proposed) | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
+| 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18 and BP-19 (proposed) | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 | Touch the same sweep/metrics paths, so do them together. |
 | 4. Longevity | BP-03, BP-04, BP-11 | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
 | 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above | Comment once, after the code is stable. |
@@ -539,11 +628,14 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-09 | ~~Flush with mock fetch: 3 pending days → exactly 1 POST; on `{status:"ok"}` the sent counts are subtracted, and counts that arrived during the request are kept~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-10 | ~~Flush failure paths (HTTP 500, non-JSON, `{status:"error"}`, timeout) → backoff grows 15m→30m→1h…, capped at 24h; `ERR_ANALYTICS_FLUSH_FAILED` logged~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | Regression |
 | U-11 | ~~Alarm is created as repeating (`periodInMinutes` set); a thrown flush leaves the alarm in place; changing the interval recreates it, same interval doesn't~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-12 |
-| U-12 | Message gating: privileged types (`SET_LOCAL_OVERRIDES`, `RESET_LOCAL_METRICS`, `GET_DIAGNOSTIC_SNAPSHOT`; `TRIGGER_TEST_FLUSH` no longer exists after D6) from a google.com tab sender are refused; from an extension-page sender, accepted; unknown `LOG_DIAGNOSTIC` code → `bad_message` with no log entry; missing `deltas` → `bad_message` | BP-13 |
+| U-12 (split into U-12a–f in the tests, 2026-11-21, so each behavior is tracked on its own) | Message gating: privileged types (`SET_LOCAL_OVERRIDES`, `RESET_LOCAL_METRICS`, `GET_DIAGNOSTIC_SNAPSHOT`; `TRIGGER_TEST_FLUSH` no longer exists after D6) from a google.com tab sender are refused; from an extension-page sender, accepted; unknown `LOG_DIAGNOSTIC` code → `bad_message` with no log entry; missing `deltas` → `bad_message` | BP-13 |
 | U-13 | Content-safe policy sent to content scripts has no `analyticsEndpointUrl` or `analyticsSharedToken` | BP-13 |
-| U-14 | `RESET_LOCAL_METRICS` refused when locked (with a reason), accepted on unlocked development/normal installs. (The former Test Flush rate-limit assertion was removed with analytics in D6.) | BP-07 |
+| U-14 (split into U-14a locked / U-14b unlocked in the tests, 2026-11-21) | `RESET_LOCAL_METRICS` refused when locked (with a reason), accepted on unlocked development/normal installs. (The former Test Flush rate-limit assertion was removed with analytics in D6.) | BP-07 |
 | U-15 | Diagnostic log: same code+detail dedupes and counts; 51st distinct entry evicts the oldest | Regression |
 | U-16 | ~~Code.gs in `vm` with mock `SpreadsheetApp`/`LockService`: `doPost` appends one row and never calls `getValues()`; token mismatch → `UNAUTHORIZED`; bad payload rejected; `rollup_()` totals match a fixed sample~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
+| U-17 | Two overlapping `syncRuntimeState` runs where the older resolves last → the newer policy's DNR rules are installed | BP-17 |
+| U-18 | Two concurrent `SET_LOCAL_OVERRIDES` (different toggles) → both edits stored | BP-17 |
+| U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (only if BP-19 option A is chosen) | BP-19 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
 
@@ -565,6 +657,8 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-12 | Options page (unmanaged): no "Locked" badges; Cancel Reset only after the first Reset click; Test Flush only when analytics is on; Staff card only after "Show Staff OU Preset"; tabs switch; Ctrl+F finds text in hidden tabs | BP-06 |
 | B-13 | Popup: unmanaged view on unpacked install; managed view when the service worker reports locked; managed view (not unmanaged) when the service worker is unreachable | BP-01 |
 | B-14 | Policy generator: each band's JSON parses, uses `{"key":{"Value":…}}` wrappers, and matches `schema.json` types; `extraHideSelectors` only emitted when filled | Regression, BP-04 |
+| B-15 | Policy loads overlap and the older (disabled) one resolves last → the tab stays protected | BP-17 |
+| B-16 | An element with inline `display:none` that is hidden and then unhidden by turning its toggle off stays `display:none`; removing a policy attribute unhides a marked element | BP-18 |
 
 ### 6.4 Live Google tests (Browser, real google.com, manual)
 

@@ -11,3 +11,7 @@ node_modules/
 npm-debug.log*
 .env
 .env.*
+
+# Phase 0 build staging and baseline snapshot
+build/
+baseline-dist/
