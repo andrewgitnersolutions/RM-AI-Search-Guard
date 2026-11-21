@@ -163,8 +163,7 @@ html[data-rmsg-hide-aux="1"] a[href*="labs.google.com"],
 html[data-rmsg-hide-aux="1"] [aria-label*="Search Labs" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [aria-label*="Search by image" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
 html[data-rmsg-hide-aux="1"] [data-base-lens-url]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform),
-html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Búsqueda por imagen" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
+html[data-rmsg-hide-aux="1"] [aria-label*="Ask a follow up" i]:not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;
@@ -186,6 +185,16 @@ html[data-rmsg-hide-aux="1"] [data-xid="aim-mars-input-plate"]:not([name="q"]):n
 }
 
 html[data-rmsg-hide-aux="1"] [aria-label*="Ask anything" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-rmsg-hide-aux="1"]:lang(es) [aria-label*="Búsqueda por imagen" i]:not([name="q"]):not(#main):not(#cnt):not(#rcnt):not(#center_col):not(#search):not(#rso):not(#botstuff):not(#top_nav):not(#searchform):not(form[role="search"]):not(textarea[name="q"]):not(input[name="q"]):not(:has(#main)):not(:has(#cnt)):not(:has(#rcnt)):not(:has(#center_col)):not(:has(#search)):not(:has(#rso)):not(:has(#botstuff)):not(:has(#top_nav)):not(:has(#searchform)):not(:has(form[role="search"])):not(:has(textarea[name="q"])):not(:has(input[name="q"])):not(:has(a > h3)):not(:has(h3.LC20lb)) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;

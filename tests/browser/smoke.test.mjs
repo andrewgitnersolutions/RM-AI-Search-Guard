@@ -758,15 +758,24 @@ equivalent("B-17", "Spanish Google SERP (es-419 and es-US): hides Spanish AI Ove
       q2.name = "q";
       q2.value = "x";
       ov.append(q2);
-      rcnt.append(plate, ov);
+      const lensWrap = document.createElement("div");
+      lensWrap.id = "protected-es-lens";
+      lensWrap.setAttribute("aria-label", "Búsqueda por imagen");
+      const q3 = document.createElement("textarea");
+      q3.name = "q";
+      q3.value = "x";
+      lensWrap.append(q3);
+      rcnt.append(plate, ov, lensWrap);
     });
     await settle(page);
     const protectedVis = await page.evaluate(() => ({
       plate: document.getElementById("protected-plate")?.checkVisibility() ?? false,
       esOv: document.getElementById("protected-es-ov")?.checkVisibility() ?? false,
+      esLens: document.getElementById("protected-es-lens")?.checkVisibility() ?? false,
     }));
     assert.equal(protectedVis.plate, true, "plate containing textarea[name=q] must remain visible");
     assert.equal(protectedVis.esOv, true, "Spanish overview containing textarea[name=q] must remain visible");
+    assert.equal(protectedVis.esLens, true, "Spanish image-search wrapper containing textarea[name=q] must remain visible");
 
     const telemetry = await readTelemetry(b.sw);
     const codes = telemetry.diagnosticLog.map((e) => e.code);
