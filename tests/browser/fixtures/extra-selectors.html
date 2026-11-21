@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- B-10 fixture (BP-04): Tests managed extraHideSelectors across overview, aimode and aux,
+     alongside an unsafe extra selector that wraps an organic result and an invalid selector. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>x - Google Search</title>
+</head>
+<body>
+  <div id="main">
+    <form role="search" id="search-form"><textarea name="q" id="q">x</textarea></form>
+    <div id="rso">
+      <div id="ov-attr" data-attrid="AIOverview">Built-in Overview.</div>
+      <div class="test-ai" id="extra-ov">Custom Overview surface</div>
+      <div class="test-aimode" id="extra-aimode">Custom AI Mode surface</div>
+      <div class="test-aux" id="extra-aux">Custom Aux surface</div>
+      <div class="test-ai-unsafe" id="extra-unsafe">
+        <div class="g" id="unsafe-organic"><a href="https://example.com/safe"><h3 class="LC20lb">Safe organic inside extra</h3></a></div>
+      </div>
+      <div class="g" id="r1"><a href="https://example.com/1"><h3 class="LC20lb">Result one</h3></a></div>
+      <div class="g" id="r2"><a href="https://example.com/2"><h3 class="LC20lb">Result two</h3></a></div>
+      <div class="g" id="r3"><a href="https://example.com/3"><h3 class="LC20lb">Result three</h3></a></div>
+      <div class="g" id="r4"><a href="https://example.com/4"><h3 class="LC20lb">Result four</h3></a></div>
+      <div class="g" id="r5"><a href="https://example.com/5"><h3 class="LC20lb">Result five</h3></a></div>
+    </div>
+  </div>
+</body>
+</html>

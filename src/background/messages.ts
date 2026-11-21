@@ -8,7 +8,7 @@
  */
 
 import { ALL_ERROR_CODES } from "../shared/errors";
-import type { EffectivePolicy, ErrorCode, GradeBand, RawRecord, Toggles } from "../shared/types";
+import type { EffectivePolicy, ErrorCode, ExtraHideSelectors, GradeBand, RawRecord, Toggles } from "../shared/types";
 
 /** Every message the service worker understands, after validateMessage(). */
 export type RuntimeMessage =
@@ -21,7 +21,11 @@ export type RuntimeMessage =
   | { type: "SET_LOCAL_OVERRIDES"; toggles: RawRecord };
 
 /** The policy a content script receives: what it needs to hide and redirect, nothing more. */
-export type ContentPolicy = Toggles & { gradeBand: GradeBand; isManaged: boolean };
+export type ContentPolicy = Toggles & {
+  gradeBand: GradeBand;
+  isManaged: boolean;
+  extraHideSelectors: ExtraHideSelectors;
+};
 
 /**
  * Messages that change settings, wipe counters or expose diagnostics. Only extension pages
@@ -97,8 +101,8 @@ export function validateMessage(message: unknown): message is RuntimeMessage {
 /**
  * Reduce the effective policy to what a content script needs.
  * @param policy - Full effective policy.
- * @returns The six toggles, gradeBand and isManaged. Source, invalidFields and evaluatedAt stay
- * in the worker and on extension pages.
+ * @returns The six toggles, gradeBand, isManaged and cloned extraHideSelectors. Source,
+ * invalidFields and evaluatedAt stay in the worker and on extension pages.
  */
 export function toContentPolicy(policy: EffectivePolicy): ContentPolicy {
   return {
@@ -109,6 +113,11 @@ export function toContentPolicy(policy: EffectivePolicy): ContentPolicy {
     forceWebOnlySearch: policy.forceWebOnlySearch,
     hideAuxiliaryAiFeatures: policy.hideAuxiliaryAiFeatures,
     gradeBand: policy.gradeBand,
-    isManaged: policy.isManaged
+    isManaged: policy.isManaged,
+    extraHideSelectors: {
+      overview: [...policy.extraHideSelectors.overview],
+      aimode: [...policy.extraHideSelectors.aimode],
+      aux: [...policy.extraHideSelectors.aux]
+    }
   };
 }

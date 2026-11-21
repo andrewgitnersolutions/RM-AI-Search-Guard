@@ -7,8 +7,12 @@
  * Shared with: shared/selectors.ts, content/content.ts.
  */
 
-import { SELECTORS } from "../shared/selectors";
-import type { PolicyError, Toggles } from "../shared/types";
+import { SELECTORS, resolveUiLanguage } from "../shared/selectors";
+import type { SupportedUiLanguage } from "../shared/selectors";
+import type { ExtraHideSelectors, PolicyError, Toggles } from "../shared/types";
+
+/** Policy toggles plus optional managed extraHideSelectors (BP-04). */
+export type SweepPolicy = Toggles & { extraHideSelectors?: ExtraHideSelectors };
 
 /** Which policy toggle an element was hidden under (stored in data-rmsg-hidden). */
 export type HideCategory = "overview" | "aimode" | "aux";
@@ -33,21 +37,65 @@ export const PROTECTED_SELECTOR_COMBINED = SELECTORS.safetyGuard.protectedSelect
 
 export const CONTAINER_ANCESTOR_COMBINED = SELECTORS.tier1.aiOverviews.containerAncestors.join(", ");
 
-export const OVERVIEW_HEADING_TEXT_SET = new Set(SELECTORS.tier1.aiOverviews.headingTexts);
+/**
+ * Build per-language active label sets and combined direct selector strings once at module load
+ * so DOM sweeps allocate nothing extra. Every supported non-English locale includes English
+ * fallbacks so mixed-language Google markup still matches (BP-03).
+ * @param lang - Resolved UI language.
+ * @returns Combined direct selectors and lowercase label sets for that language.
+ */
+function buildLocaleSets(lang: SupportedUiLanguage) {
+  const overviewHeadingTexts = new Set(SELECTORS.tier1.aiOverviews.headingTexts.en);
+  const aiModeExactTexts = new Set(SELECTORS.tier1.aiModeUi.exactTexts.en);
+  const aiAttributionMarkers = new Set(SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers.en);
+  const overviewDirectSelectors = [
+    ...SELECTORS.tier1.aiOverviews.directSelectors,
+    ...SELECTORS.tier1.aiOverviews.localizedDirectSelectors.en
+  ];
+  const auxDirectSelectors = [
+    ...SELECTORS.tier1.auxiliaryAi.directSelectors,
+    ...SELECTORS.tier1.auxiliaryAi.localizedDirectSelectors.en
+  ];
+  if (lang === "es") {
+    for (const text of SELECTORS.tier1.aiOverviews.headingTexts.es) {
+      overviewHeadingTexts.add(text);
+    }
+    for (const text of SELECTORS.tier1.aiModeUi.exactTexts.es) {
+      aiModeExactTexts.add(text);
+    }
+    for (const text of SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers.es) {
+      aiAttributionMarkers.add(text);
+    }
+    overviewDirectSelectors.push(...SELECTORS.tier1.aiOverviews.localizedDirectSelectors.es);
+    auxDirectSelectors.push(...SELECTORS.tier1.auxiliaryAi.localizedDirectSelectors.es);
+  }
+  return {
+    overviewHeadingTexts,
+    aiModeExactTexts,
+    aiAttributionMarkers,
+    overviewDirectCombined: overviewDirectSelectors.join(", "),
+    auxDirectCombined: auxDirectSelectors.join(", ")
+  };
+}
 
-export const AI_MODE_EXACT_TEXT_SET = new Set(SELECTORS.tier1.aiModeUi.exactTexts);
+const LOCALE_SETS: Record<SupportedUiLanguage, ReturnType<typeof buildLocaleSets>> = {
+  en: buildLocaleSets("en"),
+  es: buildLocaleSets("es")
+};
 
-export const AI_ATTRIBUTION_MARKER_SET = new Set(SELECTORS.tier1.auxiliaryAi.aiAttributionMarkers);
+export const OVERVIEW_HEADING_TEXT_SET = LOCALE_SETS.en.overviewHeadingTexts;
+
+export const AI_MODE_EXACT_TEXT_SET = LOCALE_SETS.en.aiModeExactTexts;
+
+export const AI_ATTRIBUTION_MARKER_SET = LOCALE_SETS.en.aiAttributionMarkers;
 
 // Combined built-in selector lists so each sweep issues one querySelectorAll per group instead
 // of looping per selector string (BP-09).
-const OVERVIEW_DIRECT_COMBINED = SELECTORS.tier1.aiOverviews.directSelectors.join(", ");
 const OVERVIEW_HEADING_COMBINED = SELECTORS.tier1.aiOverviews.headingSelectors.join(", ");
 const OVERVIEW_TIER2_COMBINED = SELECTORS.tier2.aiOverviews.join(", ");
 const AI_MODE_DIRECT_COMBINED = SELECTORS.tier1.aiModeUi.directSelectors.join(", ");
 const AI_MODE_TEXT_COMBINED = SELECTORS.tier1.aiModeUi.textCandidateSelectors.join(", ");
 const AI_MODE_TIER2_COMBINED = SELECTORS.tier2.aiModeUi.join(", ");
-const AUX_DIRECT_COMBINED = SELECTORS.tier1.auxiliaryAi.directSelectors.join(", ");
 const AUX_PAA_COMBINED = SELECTORS.tier1.auxiliaryAi.paaCardSelectors.join(", ");
 const AUX_TIER2_COMBINED = SELECTORS.tier2.auxiliaryAi.join(", ");
 
@@ -504,20 +552,59 @@ export function findOverviewHeadingContainer(
 }
 
 /**
- * Collect AI Overview candidates from Tier 1 selectors, heading text and Tier 2 selectors.
+ * Run admin-pushed extraHideSelectors one selector at a time so one malformed selector logs
+ * ERR_SELECTOR_SYNTAX via safeQueryAll() without breaking valid selectors in the same array (BP-04).
+ * @param doc - Page document.
+ * @param selectors - Optional managed selector array for one category.
+ * @param errors - Collector for syntax errors.
+ * @returns Matched elements not already hidden by this extension.
+ */
+export function collectExtraSelectorCandidates(
+  doc: Document,
+  selectors: readonly string[] | undefined,
+  errors: PolicyError[]
+): Element[] {
+  if (!selectors || selectors.length === 0) {
+    return [];
+  }
+  const candidates: Element[] = [];
+  for (const selector of selectors) {
+    if (typeof selector !== "string") {
+      continue;
+    }
+    const trimmed = selector.trim();
+    if (!trimmed) {
+      continue;
+    }
+    for (const el of safeQueryAll(doc, trimmed, errors)) {
+      if (!isAlreadyHidden(el)) {
+        candidates.push(el);
+      }
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Collect AI Overview candidates from Tier 1 selectors, heading text, Tier 2 selectors and extras.
  * @param doc - Page document.
  * @param errors - Collector for selector errors.
  * @param guardCache - Optional per-sweep safety-guard cache.
+ * @param lang - Resolved UI language ("en" | "es").
+ * @param extraSelectors - Optional managed hotfix selectors for overview.
  * @returns Candidate elements (unvetted).
  */
 export function collectAiOverviewCandidates(
   doc: Document,
   errors: PolicyError[],
-  guardCache?: SafetyGuardCache
+  guardCache?: SafetyGuardCache,
+  lang: SupportedUiLanguage = "en",
+  extraSelectors?: readonly string[]
 ): Element[] {
   const candidates: Element[] = [];
-  if (OVERVIEW_DIRECT_COMBINED) {
-    for (const el of safeQueryAll(doc, OVERVIEW_DIRECT_COMBINED, errors)) {
+  const localeSet = LOCALE_SETS[lang];
+  if (localeSet.overviewDirectCombined) {
+    for (const el of safeQueryAll(doc, localeSet.overviewDirectCombined, errors)) {
       if (!isAlreadyHidden(el)) {
         candidates.push(el);
       }
@@ -528,7 +615,7 @@ export function collectAiOverviewCandidates(
       if (isAlreadyHidden(headingEl)) {
         continue;
       }
-      if (OVERVIEW_HEADING_TEXT_SET.has(normalizeText(headingEl.textContent))) {
+      if (localeSet.overviewHeadingTexts.has(normalizeText(headingEl.textContent))) {
         candidates.push(findOverviewHeadingContainer(headingEl, doc, guardCache));
       }
     }
@@ -539,6 +626,9 @@ export function collectAiOverviewCandidates(
         candidates.push(el);
       }
     }
+  }
+  if (extraSelectors && extraSelectors.length > 0) {
+    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
   }
   return candidates;
 }
@@ -569,18 +659,23 @@ export function promoteAiModeTarget(
 }
 
 /**
- * Collect AI Mode buttons, tabs and prompts from links, exact label text and Tier 2 selectors.
+ * Collect AI Mode buttons, tabs and prompts from links, exact label text, Tier 2 selectors and extras.
  * @param doc - Page document.
  * @param errors - Collector for selector errors.
  * @param guardCache - Optional per-sweep safety-guard cache.
+ * @param lang - Resolved UI language ("en" | "es").
+ * @param extraSelectors - Optional managed hotfix selectors for aimode.
  * @returns Candidate elements (unvetted).
  */
 export function collectAiModeUiCandidates(
   doc: Document,
   errors: PolicyError[],
-  guardCache?: SafetyGuardCache
+  guardCache?: SafetyGuardCache,
+  lang: SupportedUiLanguage = "en",
+  extraSelectors?: readonly string[]
 ): Element[] {
   const candidates: Element[] = [];
+  const localeSet = LOCALE_SETS[lang];
   if (AI_MODE_DIRECT_COMBINED) {
     for (const el of safeQueryAll(doc, AI_MODE_DIRECT_COMBINED, errors)) {
       if (!isAlreadyHidden(el)) {
@@ -593,7 +688,7 @@ export function collectAiModeUiCandidates(
       if (isAlreadyHidden(el)) {
         continue;
       }
-      if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(el.textContent))) {
+      if (localeSet.aiModeExactTexts.has(normalizeText(el.textContent))) {
         candidates.push(promoteAiModeTarget(el, doc, guardCache));
       }
     }
@@ -614,7 +709,7 @@ export function collectAiModeUiCandidates(
     if (trimmed.length === 0 || trimmed.length > SELECTORS.tier1.aiModeUi.maxAnchorTextLength) {
       continue;
     }
-    if (AI_MODE_EXACT_TEXT_SET.has(normalizeText(trimmed))) {
+    if (localeSet.aiModeExactTexts.has(normalizeText(trimmed))) {
       candidates.push(promoteAiModeTarget(anchor, doc, guardCache));
     }
   }
@@ -625,23 +720,28 @@ export function collectAiModeUiCandidates(
       }
     }
   }
+  if (extraSelectors && extraSelectors.length > 0) {
+    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
+  }
   return candidates;
 }
 
 /**
  * Check whether a People Also Ask card is labelled as AI-generated.
  * @param card - Card element.
+ * @param lang - Resolved UI language ("en" | "es").
  * @returns true if an aria-label or leaf text exactly matches an attribution marker.
  */
-export function hasAiAttributionBadge(card: Element): boolean {
+export function hasAiAttributionBadge(card: Element, lang: SupportedUiLanguage = "en"): boolean {
+  const markers = LOCALE_SETS[lang].aiAttributionMarkers;
   const ariaLabel = normalizeText(card.getAttribute("aria-label"));
-  if (ariaLabel && AI_ATTRIBUTION_MARKER_SET.has(ariaLabel)) {
+  if (ariaLabel && markers.has(ariaLabel)) {
     return true;
   }
   const labelNodes = card.querySelectorAll('span, div, p, [role="heading"], h3, h4');
   for (const node of labelNodes) {
     const nodeAria = normalizeText(node.getAttribute("aria-label"));
-    if (nodeAria && AI_ATTRIBUTION_MARKER_SET.has(nodeAria)) {
+    if (nodeAria && markers.has(nodeAria)) {
       return true;
     }
     if (node.children.length === 0) {
@@ -651,7 +751,7 @@ export function hasAiAttributionBadge(card: Element): boolean {
         continue;
       }
       const text = normalizeText(rawText);
-      if (AI_ATTRIBUTION_MARKER_SET.has(text)) {
+      if (markers.has(text)) {
         return true;
       }
     }
@@ -660,15 +760,23 @@ export function hasAiAttributionBadge(card: Element): boolean {
 }
 
 /**
- * Collect auxiliary AI candidates: Search Labs, Lens, follow-up prompts and AI-labelled PAA cards.
+ * Collect auxiliary AI candidates: Search Labs, Lens, follow-up prompts, AI PAA cards and extras.
  * @param doc - Page document.
  * @param errors - Collector for selector errors.
+ * @param lang - Resolved UI language ("en" | "es").
+ * @param extraSelectors - Optional managed hotfix selectors for aux.
  * @returns Candidate elements (unvetted).
  */
-export function collectAuxAiCandidates(doc: Document, errors: PolicyError[]): Element[] {
+export function collectAuxAiCandidates(
+  doc: Document,
+  errors: PolicyError[],
+  lang: SupportedUiLanguage = "en",
+  extraSelectors?: readonly string[]
+): Element[] {
   const candidates: Element[] = [];
-  if (AUX_DIRECT_COMBINED) {
-    for (const el of safeQueryAll(doc, AUX_DIRECT_COMBINED, errors)) {
+  const localeSet = LOCALE_SETS[lang];
+  if (localeSet.auxDirectCombined) {
+    for (const el of safeQueryAll(doc, localeSet.auxDirectCombined, errors)) {
       if (!isAlreadyHidden(el)) {
         candidates.push(el);
       }
@@ -676,7 +784,7 @@ export function collectAuxAiCandidates(doc: Document, errors: PolicyError[]): El
   }
   if (AUX_PAA_COMBINED) {
     for (const card of safeQueryAll(doc, AUX_PAA_COMBINED, errors)) {
-      if (!isAlreadyHidden(card) && hasAiAttributionBadge(card)) {
+      if (!isAlreadyHidden(card) && hasAiAttributionBadge(card, lang)) {
         candidates.push(card);
       }
     }
@@ -688,20 +796,112 @@ export function collectAuxAiCandidates(doc: Document, errors: PolicyError[]): El
       }
     }
   }
+  if (extraSelectors && extraSelectors.length > 0) {
+    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
+  }
   return candidates;
+}
+
+/**
+ * Check whether an element is still visible to the user (not hidden by this extension or CSS).
+ * Uses Element.checkVisibility() (Chrome 105+, below the 134 floor) with a safe fallback for
+ * minimal DOM test stubs.
+ * @param el - Candidate element.
+ * @returns true if connected and visibly rendered.
+ */
+export function isElementVisible(el: Element): boolean {
+  if (!el.isConnected || isAlreadyHidden(el)) {
+    return false;
+  }
+  const maybeCheck = el as Element & {
+    checkVisibility?: (options?: { checkOpacity?: boolean; checkVisibilityCSS?: boolean }) => boolean;
+  };
+  if (typeof maybeCheck.checkVisibility === "function") {
+    try {
+      return maybeCheck.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    } catch {
+    }
+  }
+  const htmlEl = el as HTMLElement & { offsetParent?: Element | null };
+  if (htmlEl.style?.getPropertyValue?.("display") === "none") {
+    return false;
+  }
+  if ("offsetParent" in htmlEl && htmlEl.offsetParent === null && htmlEl.tagName !== "BODY") {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Leak detector (BP-04): after hiding finishes, scan headings, tabs and buttons for known AI
+ * labels that are still visible so silent selector rot becomes visible in IT Diagnostics.
+ * Skips already-hidden nodes and checks text before checkVisibility() to avoid layout flushes
+ * on clean pages (BP-09). Never puts page text into error details (category name only).
+ * @param doc - Page document.
+ * @param policy - Effective policy toggles.
+ * @param lang - Resolved UI language ("en" | "es").
+ * @param errors - Collector for WARN_AI_SURFACE_VISIBLE.
+ */
+export function detectVisibleAiSurfaceLeaks(
+  doc: Document,
+  policy: Toggles,
+  lang: SupportedUiLanguage,
+  errors: PolicyError[]
+): void {
+  if (!policy.masterEnabled || (!policy.hideAiOverviews && !policy.hideAiModeUi)) {
+    return;
+  }
+  const localeSet = LOCALE_SETS[lang];
+  let flaggedOverview = false;
+  let flaggedAiMode = false;
+  for (const el of safeQueryAll(doc, SELECTORS.leakDetector.candidateSelector, errors)) {
+    if (isAlreadyHidden(el)) {
+      continue;
+    }
+    const rawText = el.textContent;
+    if (!rawText) {
+      continue;
+    }
+    const trimmed = rawText.trim();
+    if (!trimmed || trimmed.length > SELECTORS.leakDetector.maxLabelTextLength) {
+      continue;
+    }
+    const normalized = normalizeText(trimmed);
+    if (
+      policy.hideAiOverviews &&
+      !flaggedOverview &&
+      localeSet.overviewHeadingTexts.has(normalized) &&
+      isElementVisible(el)
+    ) {
+      flaggedOverview = true;
+      errors.push({ code: "WARN_AI_SURFACE_VISIBLE", detail: "overview" });
+    }
+    if (
+      policy.hideAiModeUi &&
+      !flaggedAiMode &&
+      localeSet.aiModeExactTexts.has(normalized) &&
+      isElementVisible(el)
+    ) {
+      flaggedAiMode = true;
+      errors.push({ code: "WARN_AI_SURFACE_VISIBLE", detail: "aimode" });
+    }
+    if ((!policy.hideAiOverviews || flaggedOverview) && (!policy.hideAiModeUi || flaggedAiMode)) {
+      break;
+    }
+  }
 }
 
 /**
  * Run one full hiding sweep for the active policy.
  * @param doc - Page document.
- * @param policy - Effective policy.
+ * @param policy - Effective policy (plus optional managed extraHideSelectors).
  * @param seenPages - Page-key sets used to count each hidden category once per page (BP-14).
  * @param pageKey - Opaque page key; defaults to location.href (kept local, never sent).
  * @returns { deltas, errors } for the caller to report.
  */
 export function sweepDom(
   doc: Document,
-  policy: Toggles,
+  policy: SweepPolicy,
   seenPages: SeenCategoryPages,
   pageKey?: string
 ): { deltas: Record<string, number>; errors: PolicyError[] } {
@@ -709,6 +909,13 @@ export function sweepDom(
   const errors: PolicyError[] = [];
   if (!policy.masterEnabled) {
     return { deltas, errors };
+  }
+  const uiLang = resolveUiLanguage(doc.documentElement?.lang);
+  if (!uiLang.supported) {
+    errors.push({
+      code: "WARN_UNSUPPORTED_UI_LANGUAGE",
+      detail: uiLang.normalizedTag
+    });
   }
   const resolvedPageKey = pageKey ?? (doc.location && doc.location.href ? doc.location.href : "default");
   const reportedUnsafe = /* @__PURE__ */ new Set<Element>();
@@ -725,7 +932,13 @@ export function sweepDom(
     restoreUnsafeHiddenElements("aux", doc, errors, reportedUnsafe, guardCache);
   }
   if (policy.hideAiOverviews) {
-    const overviewCandidates = collectAiOverviewCandidates(doc, errors, guardCache);
+    const overviewCandidates = collectAiOverviewCandidates(
+      doc,
+      errors,
+      guardCache,
+      uiLang.language,
+      policy.extraHideSelectors?.overview
+    );
     const hiddenOverviews = processCategoryCandidates(
       overviewCandidates,
       "overview",
@@ -740,7 +953,13 @@ export function sweepDom(
     }
   }
   if (policy.hideAiModeUi) {
-    const aiModeCandidates = collectAiModeUiCandidates(doc, errors, guardCache);
+    const aiModeCandidates = collectAiModeUiCandidates(
+      doc,
+      errors,
+      guardCache,
+      uiLang.language,
+      policy.extraHideSelectors?.aimode
+    );
     const hiddenAiMode = processCategoryCandidates(
       aiModeCandidates,
       "aimode",
@@ -755,7 +974,12 @@ export function sweepDom(
     }
   }
   if (policy.hideAuxiliaryAiFeatures) {
-    const auxCandidates = collectAuxAiCandidates(doc, errors);
+    const auxCandidates = collectAuxAiCandidates(
+      doc,
+      errors,
+      uiLang.language,
+      policy.extraHideSelectors?.aux
+    );
     const hiddenAux = processCategoryCandidates(
       auxCandidates,
       "aux",
@@ -769,5 +993,6 @@ export function sweepDom(
       deltas.auxAiHidden = 1;
     }
   }
+  detectVisibleAiSurfaceLeaks(doc, policy, uiLang.language, errors);
   return { deltas, errors };
 }

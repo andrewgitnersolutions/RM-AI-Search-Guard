@@ -16,6 +16,7 @@
 
 import { cleanAiModeUrl } from "../shared/ai-mode-url";
 import { STORAGE_KEYS } from "../shared/defaults";
+import { getTodayDateBucket } from "../shared/errors";
 import { parsePolicy } from "../shared/policy";
 import { readLocalOverrides, readManagedPolicyRaw, readMetricsResetEpoch } from "../shared/storage";
 import { applyPolicyAttributes, parseRedirectHash, sweepDom, unhideAllElements, unhideCategoryElements } from "./dom-engine";
@@ -121,6 +122,7 @@ const seenCategoryPages: SeenCategoryPages = {
 };
 
 const reportedErrorKeys = /* @__PURE__ */ new Set<string>();
+const reportedUnsupportedLangKeys = /* @__PURE__ */ new Set<string>();
 
 let pendingMetricDeltas: Record<string, number> = {};
 let metricsFlushTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -350,6 +352,18 @@ function runSweepNow() {
     queueMetricDeltas(deltas);
   }
   for (const err of errors) {
+    if (err.code === "WARN_UNSUPPORTED_UI_LANGUAGE") {
+      const langKey = `${getTodayDateBucket()}:${err.detail}`;
+      if (!reportedUnsupportedLangKeys.has(langKey)) {
+        reportedUnsupportedLangKeys.add(langKey);
+        void sendRuntimeMessage({
+          type: "LOG_DIAGNOSTIC",
+          code: err.code,
+          detail: err.detail
+        });
+      }
+      continue;
+    }
     const dedupeKey = `${pageKey}:${err.code}:${err.detail}`;
     if (!reportedErrorKeys.has(dedupeKey)) {
       reportedErrorKeys.add(dedupeKey);
@@ -530,6 +544,7 @@ if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
         epochVersion += 1;
         currentResetEpoch = nextEpoch;
         clearPendingMetrics();
+        reportedUnsupportedLangKeys.clear();
       }
     }
     if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {

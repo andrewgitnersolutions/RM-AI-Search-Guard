@@ -14,7 +14,9 @@ export const ALL_ERROR_CODES = [
   "ERR_SAFETY_GUARD_TRIPPED",
   "ERR_STORAGE_FAILURE",
   "WARN_NO_MANAGED_POLICY",
-  "WARN_OMNIBOX_POLICY_MISSING"
+  "WARN_OMNIBOX_POLICY_MISSING",
+  "WARN_UNSUPPORTED_UI_LANGUAGE",
+  "WARN_AI_SURFACE_VISIBLE"
 ] as const;
 
 export const ERROR_CATALOG = {
@@ -34,7 +36,7 @@ export const ERROR_CATALOG = {
     code: "ERR_SELECTOR_SYNTAX",
     severity: "error",
     title: "DOM Selector Validation Error",
-    remediationTemplate: "A bundled DOM selector failed browser validation ({detail}). Other detection tiers remain active. Update to the latest RaiseMark: AI Search Controls for K-12 release."
+    remediationTemplate: "A bundled or custom extraHideSelectors CSS selector failed browser validation ({detail}). Other selectors and detection tiers remain active. Fix invalid managed extraHideSelectors JSON or update to the latest RaiseMark: AI Search Controls for K-12 release."
   },
   ERR_SAFETY_GUARD_TRIPPED: {
     code: "ERR_SAFETY_GUARD_TRIPPED",
@@ -59,6 +61,18 @@ export const ERROR_CATALOG = {
     severity: "warning",
     title: "Chrome Native Omnibox AI Mode Policy Not Configured",
     remediationTemplate: "An AI Mode click arrived from Chrome's native Omnibox or New Tab Page and was silently blocked. To remove the native browser button itself, set AIModeSettings = 'Do not allow' (1) under Devices > Chrome > Settings > Users & browsers for this grade OU (Chrome/ChromeOS 138+)."
+  },
+  WARN_UNSUPPORTED_UI_LANGUAGE: {
+    code: "WARN_UNSUPPORTED_UI_LANGUAGE",
+    severity: "warning",
+    title: "Unsupported Google UI Language Detected",
+    remediationTemplate: "Google Search rendered in UI language '{detail}', which is outside the supported English and Spanish text-matching sets. Language-neutral structural selectors and AI Mode URL redirects remain active, while label-based fallback matching may miss translated headings or buttons."
+  },
+  WARN_AI_SURFACE_VISIBLE: {
+    code: "WARN_AI_SURFACE_VISIBLE",
+    severity: "warning",
+    title: "Possible Unhidden AI Surface Detected",
+    remediationTemplate: "A visible AI heading or button remained unhidden after DOM sweep (category: {detail}). Google likely changed its Search markup. Check for a RaiseMark: AI Search Controls for K-12 update or push hotfix CSS selectors via managed extraHideSelectors."
   }
 };
 

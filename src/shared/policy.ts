@@ -8,12 +8,13 @@
  * ui/policy-generator-core.ts.
  */
 
-import { FEATURE_TOGGLE_KEYS, STRICT_LOCKDOWN_TOGGLES, VALID_GRADE_BANDS } from "./defaults";
-import type { EffectivePolicy, GradeBand, InstallType, PolicyError, RawRecord, Toggles } from "./types";
+import { EXTRA_SELECTOR_CATEGORIES, FEATURE_TOGGLE_KEYS, MAX_EXTRA_SELECTORS_PER_CATEGORY, MAX_EXTRA_SELECTOR_LENGTH, STRICT_LOCKDOWN_TOGGLES, VALID_GRADE_BANDS, createEmptyExtraHideSelectors } from "./defaults";
+import type { EffectivePolicy, ExtraHideSelectors, ExtraSelectorCategory, GradeBand, InstallType, PolicyError, RawRecord, Toggles } from "./types";
 
-/** Generator input: a grade band (possibly invalid) plus the six toggles. */
+/** Generator input: a grade band (possibly invalid), six toggles, and optional hotfix selectors. */
 export interface PolicyDraft extends Partial<Toggles> {
   gradeBand: unknown;
+  extraHideSelectors?: Partial<Record<ExtraSelectorCategory, string[]>>;
 }
 
 /**
@@ -34,6 +35,53 @@ export function isValidGradeBand(value: unknown): value is GradeBand {
  */
 export function isUnlockableInstall(installType: InstallType | undefined): boolean {
   return installType === "normal" || installType === "development";
+}
+
+/**
+ * Validate and normalize managed extraHideSelectors (BP-04).
+ * Rejects non-objects, unknown category keys, arrays exceeding 20 items, non-strings,
+ * blank strings, and selectors exceeding 300 characters.
+ * @param raw - Untrusted managed extraHideSelectors value.
+ * @returns Normalized selectors per category and whether every input key/item was valid.
+ * Fails safe: invalid entries are dropped instead of throwing, and valid = false marks the
+ * field invalid for ERR_POLICY_INVALID.
+ */
+export function parseExtraHideSelectors(raw: unknown): { value: ExtraHideSelectors; valid: boolean } {
+  const value = createEmptyExtraHideSelectors();
+  if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
+    return { value, valid: false };
+  }
+  const obj = raw as RawRecord;
+  let valid = true;
+  const allowedKeys = new Set<string>(EXTRA_SELECTOR_CATEGORIES);
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.has(key)) {
+      valid = false;
+    }
+  }
+  for (const category of EXTRA_SELECTOR_CATEGORIES) {
+    if (!(category in obj) || obj[category] === void 0) {
+      continue;
+    }
+    const rawList = obj[category];
+    if (!Array.isArray(rawList) || rawList.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+      valid = false;
+      continue;
+    }
+    for (const item of rawList) {
+      if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+        valid = false;
+        continue;
+      }
+      const trimmed = item.trim();
+      if (trimmed.length === 0) {
+        valid = false;
+        continue;
+      }
+      value[category].push(trimmed);
+    }
+  }
+  return { value, valid };
 }
 
 /**
@@ -71,6 +119,7 @@ export function parsePolicy(
       const policy: EffectivePolicy = {
         ...toggles,
         gradeBand: "Unassigned",
+        extraHideSelectors: createEmptyExtraHideSelectors(),
         source: "admin-no-policy",
         isManaged: true,
         invalidFields: [],
@@ -95,6 +144,8 @@ export function parsePolicy(
     const policy: EffectivePolicy = {
       ...toggles,
       gradeBand,
+      // Custom hotfix selectors are managed-only (BP-04): ignore any localRaw.extraHideSelectors.
+      extraHideSelectors: createEmptyExtraHideSelectors(),
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
       invalidFields: [],
@@ -124,6 +175,14 @@ export function parsePolicy(
       gradeBand = "Unassigned";
     }
   }
+  let extraHideSelectors = createEmptyExtraHideSelectors();
+  if ("extraHideSelectors" in managedRaw && managedRaw.extraHideSelectors !== void 0) {
+    const parsedExtras = parseExtraHideSelectors(managedRaw.extraHideSelectors);
+    extraHideSelectors = parsedExtras.value;
+    if (!parsedExtras.valid) {
+      invalidFields.push("extraHideSelectors");
+    }
+  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
@@ -133,6 +192,7 @@ export function parsePolicy(
   const policy: EffectivePolicy = {
     ...toggles,
     gradeBand,
+    extraHideSelectors,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,
     invalidFields,
@@ -143,11 +203,21 @@ export function parsePolicy(
 
 /**
  * Wrap a generator config in Admin Console {"key": {"Value": …}} form.
- * @param config - Grade band plus the six feature toggles.
+ * Emits extraHideSelectors only when at least one category has a non-empty selector.
+ * @param config - Grade band, six feature toggles, and optional hotfix selectors.
  * @returns Policy object ready to paste into the Admin Console.
  */
 export function formatAdminConsolePolicyJson(config: PolicyDraft) {
-  return {
+  const formatted: {
+    gradeBand: { Value: unknown };
+    masterEnabled: { Value: boolean };
+    hideAiOverviews: { Value: boolean };
+    hideAiModeUi: { Value: boolean };
+    blockAiModeNavigation: { Value: boolean };
+    forceWebOnlySearch: { Value: boolean };
+    hideAuxiliaryAiFeatures: { Value: boolean };
+    extraHideSelectors?: { Value: Partial<Record<ExtraSelectorCategory, string[]>> };
+  } = {
     gradeBand: { Value: config.gradeBand },
     masterEnabled: { Value: Boolean(config.masterEnabled) },
     hideAiOverviews: { Value: Boolean(config.hideAiOverviews) },
@@ -156,17 +226,66 @@ export function formatAdminConsolePolicyJson(config: PolicyDraft) {
     forceWebOnlySearch: { Value: Boolean(config.forceWebOnlySearch) },
     hideAuxiliaryAiFeatures: { Value: Boolean(config.hideAuxiliaryAiFeatures) }
   };
+  if (config.extraHideSelectors) {
+    const extraValue: Partial<Record<ExtraSelectorCategory, string[]>> = {};
+    for (const category of EXTRA_SELECTOR_CATEGORIES) {
+      const rawList = config.extraHideSelectors[category];
+      if (!Array.isArray(rawList)) {
+        continue;
+      }
+      const cleaned = rawList
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      if (cleaned.length > 0) {
+        extraValue[category] = cleaned;
+      }
+    }
+    if (Object.keys(extraValue).length > 0) {
+      formatted.extraHideSelectors = { Value: extraValue };
+    }
+  }
+  return formatted;
 }
 
 /**
  * Validate a generator draft before it can be copied or downloaded.
- * @param config - Grade band plus the six feature toggles.
+ * @param config - Grade band, six feature toggles, and optional hotfix selectors.
  * @returns { valid, errors } with admin-readable messages.
  */
 export function validatePolicyDraft(config: PolicyDraft): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
   if (!isValidGradeBand(config.gradeBand)) {
     errors.push(`Invalid grade band "${String(config.gradeBand)}".`);
+  }
+  if (config.extraHideSelectors !== void 0) {
+    if (config.extraHideSelectors === null || typeof config.extraHideSelectors !== "object" || Array.isArray(config.extraHideSelectors)) {
+      errors.push("extraHideSelectors must be an object.");
+    } else {
+      for (const category of EXTRA_SELECTOR_CATEGORIES) {
+        const rawList = config.extraHideSelectors[category];
+        if (rawList === void 0) {
+          continue;
+        }
+        if (!Array.isArray(rawList)) {
+          errors.push(`extraHideSelectors.${category} must be an array.`);
+          continue;
+        }
+        if (rawList.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+          errors.push(`extraHideSelectors.${category} allows at most ${MAX_EXTRA_SELECTORS_PER_CATEGORY} selectors.`);
+        }
+        for (const item of rawList) {
+          if (typeof item !== "string") {
+            errors.push(`extraHideSelectors.${category} must contain strings only.`);
+            break;
+          }
+          if (item.trim().length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+            errors.push(`extraHideSelectors.${category} exceeds ${MAX_EXTRA_SELECTOR_LENGTH} characters per selector.`);
+            break;
+          }
+        }
+      }
+    }
   }
   return { valid: errors.length === 0, errors };
 }

@@ -170,10 +170,19 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A (English + Spanish; D5 resolved 2026-11-20) + D.** Keep C as Tier 1 as today.
 
 **To-do:**
-- [ ] Restructure `SELECTORS.tier1.*` text lists into `{ en: [...], es: [...] }` maps. Resolve the active set from `document.documentElement.lang` (prefix match, e.g. `es-419` → `es`), always also including `en`.
-- [ ] **Collect the Spanish strings from live Google** (`hl=es`) for the AI Overview heading, AI Mode tab/button, "Dive deeper in AI Mode", Search Labs, Lens, and "Ask a follow up". Don't guess translations. Record the source date in a comment beside each string.
-- [ ] Move the language-specific `aria-label` CSS rules out of `static-guard.css` into the JS engine (CSS can't switch on language cleanly), or add `:lang(es)` variants.
-- [ ] Add diagnostic code `WARN_UNSUPPORTED_UI_LANGUAGE` (catalog entry plus remediation in every copy of `ALL_ERROR_CODES`/`ERROR_CATALOG`, the Apps Script allowlist, and the payload validator). Log it once per language per day when `lang` isn't supported.
+- [x] Restructure `SELECTORS.tier1.*` text lists into `{ en: [...], es: [...] }` maps. Resolve the active set from `document.documentElement.lang` (prefix match, e.g. `es-419` → `es`), always also including `en`.
+- [x] **Collect the Spanish strings from live Google** (`hl=es`) for the AI Overview heading, AI Mode tab/button, "Dive deeper in AI Mode", Search Labs, Lens, and "Ask a follow up". Don't guess translations. Record the source date in a comment beside each string.
+- [x] Move the language-specific `aria-label` CSS rules out of `static-guard.css` into the JS engine (CSS can't switch on language cleanly), or add `:lang(es)` variants.
+- [x] Add diagnostic code `WARN_UNSUPPORTED_UI_LANGUAGE` (catalog entry plus remediation in every copy of `ALL_ERROR_CODES`/`ERROR_CATALOG`, the Apps Script allowlist, and the payload validator). Log it once per language per day when `lang` isn't supported.
+
+**2026-11-21, fixed in `src/` (Phase 4):**
+- **Live Google inspection (`?hl=es` resolved `es-US`, `?hl=es-419`, `?hl=en`, read-only without extension loaded, 0 CAPTCHAs):**
+  - Verbatim Spanish strings observed identically on both `es-US` and `es-419`: Overview heading `"Visión general creada por IA"` (`div[role="heading"][aria-level="2"] > strong.WJFise`), AI Mode tab/button `"Modo IA"`, Lens `aria-label` `"Búsqueda por imagen"`, embedded follow-up composer (`[data-xid="aim-mars-input-plate"]` `textarea` `aria-label`/`placeholder`) `"Haz una pregunta"` (English is now `"Ask anything"`).
+  - Surfaces not rendered in the test session (`"Dive deeper in AI Mode"`, `"Ask AI Mode"`, `"Search Labs"`, `"Generative AI"`, `"AI-generated"`) were intentionally **not** machine-translated (`aiAttributionMarkers.es` holds `"visión general creada por ia"` only).
+- **Locale resolution & selectors (`src/shared/selectors.ts`, `src/content/dom-engine.ts`, `src/content/static-guard.css`):** `resolveUiLanguage()` matches primary subtags (`en*` → `en`, `es*` → `es`, blank → `en` without warning; anything else → `en` fallback + `WARN_UNSUPPORTED_UI_LANGUAGE`). Supported non-English sets always include English fallbacks. `static-guard.css` uses `:lang(es)` rules (with a standalone `:has()` rule for `S-05b`) and adds `[data-xid="aim-mars-input-plate"]`.
+- **Daily diagnostic dedupe (`src/content/content.ts`, `src/shared/storage.ts`):** `WARN_UNSUPPORTED_UI_LANGUAGE` stores only the sanitized primary subtag (no URL/page text) and logs at most once per language per UTC day across sweeps, tabs, and worker restarts.
+- **Tests:** `U-24`, `B-17` (`serp-es.html` under `es-419` and `es-US`), and `B-18` (`serp-fr.html`) pass, and `B-17`/`B-18` fail against the pre-Phase-4 `dist/`.
+- **NOT RUN:** `L-04` and `L-05` with the built extension loaded on live `google.com` (live Google DOM strings were collected read-only without the extension loaded).
 
 **Done when:** with `hl=es`, an Overview and the AI Mode tab are hidden, and with `hl=fr` the warning appears in IT Diagnostics.
 
@@ -197,12 +206,20 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **B + C** now; D later.
 
 **To-do:**
-- [ ] `schema.json`: add `extraHideSelectors` as an object with `overview`, `aimode` and `aux` keys, each an array of strings, with `maxItems` 20 and `maxLength` 300 per string.
-- [ ] `parsePolicy`: validate (array of strings, bounded). Invalid → ignore and add to `invalidFields`. Pass through only on managed policy.
-- [ ] Content engine: append validated extras to each category's candidate collection. They go through `safeQueryAll` (syntax errors → `ERR_SELECTOR_SYNTAX`) and `isUnsafeToHide` like everything else.
-- [ ] Policy generator (`options.js` `mountPolicyGenerator`): optional advanced textarea per category, emitted only when non-empty.
-- [ ] Leak detector: after `sweepDom`, scan `h1, h2, [role="heading"], [role="tab"], button` for the active-language AI labels that are visible (`checkVisibility()` or an offsetParent check) and not inside `[data-rmsg-hidden]`. Log `WARN_AI_SURFACE_VISIBLE` once per page (detail is the category only, no text or URL). Add the code to every allowlist (see BP-03 to-do 4).
-- [ ] Add a comment by every Tier 2 selector giving the date it was last confirmed on live Google.
+- [x] `schema.json`: add `extraHideSelectors` as an object with `overview`, `aimode` and `aux` keys, each an array of strings, with `maxItems` 20 and `maxLength` 300 per string.
+- [x] `parsePolicy`: validate (array of strings, bounded). Invalid → ignore and add to `invalidFields`. Pass through only on managed policy.
+- [x] Content engine: append validated extras to each category's candidate collection. They go through `safeQueryAll` (syntax errors → `ERR_SELECTOR_SYNTAX`) and `isUnsafeToHide` like everything else.
+- [x] Policy generator (`options.js` `mountPolicyGenerator`): optional advanced textarea per category, emitted only when non-empty.
+- [x] Leak detector: after `sweepDom`, scan `h1, h2, [role="heading"], [role="tab"], button` for the active-language AI labels that are visible (`checkVisibility()` or an offsetParent check) and not inside `[data-rmsg-hidden]`. Log `WARN_AI_SURFACE_VISIBLE` once per page (detail is the category only, no text or URL). Add the code to every allowlist (see BP-03 to-do 4).
+- [x] Add a comment by every Tier 2 selector giving the date it was last confirmed on live Google.
+
+**2026-11-21, fixed in `src/` (Phase 4):**
+- **Schema & policy validation (`src/schema.json`, `src/shared/policy.ts`, `src/background/messages.ts`, `src/ui/options.ts`):** Added `extraHideSelectors` (`overview`, `aimode`, `aux`; `maxItems: 20`, `maxLength: 300`). Note: Chrome's `storage.managed_schema` parser rejects boolean `"additionalProperties": false` (`Invalid type for attribute 'additionalProperties'`), so `schema.json` omits it while `parseExtraHideSelectors()` rejects unknown keys into `invalidFields` (`S-04`, `U-04b`). Local overrides never pass `extraHideSelectors` (`admin-no-policy` and unmanaged installs stay empty), `toContentPolicy()` clones them to content scripts, and `buildZeroPiiDiagnosticBundle()` includes them.
+- **Engine & leak detector (`src/content/dom-engine.ts`):** `collectExtraSelectorCandidates()` queries each hotfix selector individually so one bad selector logs `ERR_SELECTOR_SYNTAX` without breaking valid siblings, and every match still runs through `isUnsafeToHide()`. `detectVisibleAiSurfaceLeaks()` scans `h1, h2, [role="heading"], [role="tab"], button` after sweeps (skipping hidden elements and checking text before `checkVisibility()`, zero layout flushes on clean pages) and emits `WARN_AI_SURFACE_VISIBLE` once per page per leaked category (`"overview"` or `"aimode"` only, no text/URL).
+- **Policy generator (`src/ui/policy-generator-core.ts`, `src/ui/shared.css`):** Each band card has a collapsible `<details>` disclosure with newline-delimited `<textarea>` inputs for `overview`, `aimode`, and `aux`, CSS syntax/bounds validation on `blur` (`aria-invalid` + `aria-describedby` + live-region announcement), live preview updates, and JSON omission when empty.
+- **Live Tier 2 verification (`L-07`, read-only on `hl=en`/`es`/`es-419` 2026-11-21):** `#eKIzJc`, `div.olrp5b`, `button.plR5qb`, `button[jsname="B6rgad"]`, and `div[jsname="R5mgy"]` confirmed (1 match each); `div.YzCcne[data-mcpr]` and `div[data-mcp="18"]` had 0 matches and remain as dated legacy fallbacks (bare `div.YzCcne` is unsafe because it matches 4 PAA skeletons).
+- **Tests:** `S-04`, `S-06`, `U-04`, `U-04b`, `U-13b`, `U-25`, `B-10` (managed storage stubbed in worker), `B-11`, and `B-14` pass; `U-04`, `B-10`, and `B-11` fail on the pre-Phase-4 `dist/`. `U-04` and `B-11` were removed from `tests/known-failures.json`.
+- **NOT RUN:** managed-device push test with `extraHideSelectors` (`M-*`, no managed device available).
 
 **Done when:** pasting `{"extraHideSelectors":{"Value":{"overview":["div.test-ai"]}}}` hides `div.test-ai` on a fixture page, an invalid selector logs `ERR_SELECTOR_SYNTAX` without breaking other hiding, and removing the Tier 1/2 matches for a fixture Overview produces `WARN_AI_SURFACE_VISIBLE`.
 
@@ -444,12 +461,14 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 **Recommendation:** **A + B + D.** Note in `docs/04` that the token is anti-noise, not security.
 
 **To-do:**
-- [ ] Extract the `Code.gs` string to a real file `templates/apps-script/Code.gs`. Keep the embedded copy generated or synced, and add it to the sync check (BP-15).
-- [ ] Rewrite `doPost` as validate → `appendRow` to `Raw`. Add `rollup_()` plus an `installTrigger()` helper the admin runs once.
-- [ ] Payload `schemaVersion: 2`: `{ schemaVersion, extensionVersion, token?, gradeBand, buckets: [{ dateBucket, metrics }], errors }`. Update `ALLOWED_PAYLOAD_KEYS`, `buildSanitizedPayload`, `assertNoPiiPayload` (cap `buckets` at 14 entries) and the Code.gs validator. Keep the strict allowlist.
-- [ ] Client: one POST per flush; subtract only what was sent (current logic, per bucket).
-- [ ] Default interval: 720 (schema description, `DEFAULT_ANALYTICS_POLICY` in all copies, generator default, docs).
-- [ ] Update `docs/04` Step 4 (trigger install step; token caveat).
+- [ ] ~~Extract the `Code.gs` string to a real file `templates/apps-script/Code.gs`. Keep the embedded copy generated or synced, and add it to the sync check (BP-15).~~ Removed by D6 (analytics dropped 2026-11-20).
+- [ ] ~~Rewrite `doPost` as validate → `appendRow` to `Raw`. Add `rollup_()` plus an `installTrigger()` helper the admin runs once.~~ Removed by D6.
+- [ ] ~~Payload `schemaVersion: 2`: `{ schemaVersion, extensionVersion, token?, gradeBand, buckets: [{ dateBucket, metrics }], errors }`. Update `ALLOWED_PAYLOAD_KEYS`, `buildSanitizedPayload`, `assertNoPiiPayload` (cap `buckets` at 14 entries) and the Code.gs validator. Keep the strict allowlist.~~ Removed by D6.
+- [ ] ~~Client: one POST per flush; subtract only what was sent (current logic, per bucket).~~ Removed by D6.
+- [ ] ~~Default interval: 720 (schema description, `DEFAULT_ANALYTICS_POLICY` in all copies, generator default, docs).~~ Removed by D6.
+- [ ] ~~Update `docs/04` Step 4 (trigger install step; token caveat).~~ Removed by D6.
+
+**2026-11-21 (Phase 4):** Confirmed N/A per D6 — district Google Sheets analytics and `Code.gs` remain absent (`S-06b` enforces this across `src/`, `build/`, and `dist/`).
 
 **Done when:** a local harness (mock `SpreadsheetApp`/`LockService`, or a scratch Sheet) shows `doPost` never calls `getValues()`. The rollup produces the same totals as v1 for a fixed sample of payloads. The client sends exactly one POST for three pending days.
 
@@ -698,7 +717,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 | 1. Make protection hold | BP-01, BP-02, BP-06, BP-10, BP-17 (owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 1`. Still open: M-01, M-02 and M-05 on a managed device (BP-01). | Highest risk to students; small, contained changes. BP-17 shares code paths with BP-01/BP-02. |
 | 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 (BP-19 option A, owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 2`. Still open: M-05 (managed device) and L-06/L-07 (live Google). | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 (N/A per D6). **Done 2026-11-21**: BP-09 and BP-14 fixed; BP-12 N/A per D6; `tests/known-failures.json` has `currentPhase: 3`. | Touch the same sweep/metrics paths, so do them together. |
-| 4. Longevity | BP-03, BP-04, BP-11 | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
+| 4. Longevity | BP-03, BP-04, BP-11 (N/A per D6). **Done 2026-11-21**: BP-03 and BP-04 fixed; BP-11 N/A per D6; `tests/known-failures.json` has `currentPhase: 4` and empty `failures`. Still open: `L-04`/`L-05` with extension loaded on live Google and `M-*` on a managed device. | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
 | 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above | Comment once, after the code is stable. |
 
 **Verification for every phase:** load `dist/` unpacked in Chrome, run each BP's "Done when" check, run `scripts/check-shared-sync.mjs` and `scripts/syntax-check.mjs`. Managed-policy checks (BP-01, BP-07, BP-04) need a real managed profile or Chromebook in a test OU; the agent must report which checks it could not run, not mark them passed.
@@ -732,7 +751,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-01 (U-01a–d in the tests; 2026-11-21 also covers `sideload`, `other`, a missing install type and a failing `getSelf`) | Install-type × policy matrix: {admin, development, normal, unknown} × {no keys, valid, partly invalid}. Expect admin/unknown + no keys → locked strict defaults, `source:"admin-no-policy"`. Development/normal + no keys → unlocked. Any valid keys → managed. | BP-01 |
 | U-02 | `SET_LOCAL_OVERRIDES` refused when locked; accepted on development/normal unmanaged | BP-01 |
 | U-03 | Invalid managed values (string `"true"`, out-of-range interval, bad enum) fall back fail-closed and are listed in `invalidFields` | Regression |
-| U-04 | `extraHideSelectors`: accepts valid string arrays; rejects non-arrays, over-long strings and >20 items into `invalidFields`; ignored when unmanaged | BP-04 |
+| U-04 (`U-04b` added 2026-11-21) | `extraHideSelectors`: accepts valid string arrays and partial category objects; rejects non-arrays, unknown keys, non-strings, blank items, over-long strings (>300) and >20 items into `invalidFields`; ignored when unmanaged; generator JSON omits empty extras | BP-04 |
 | U-05 | DNR rules for all 4 combinations of `blockAiModeNavigation` × `forceWebOnlySearch`, plus `masterEnabled:false` → `[]` | Regression |
 | U-06 | Redirect simulation, with each rule's pattern run as a JS RegExp and its transform applied, until no rule matches. `?q=x&udm=50` → `udm=14` or no `udm`; `sourceid=chrome` + `udm=50` → `#rm_sg_omnibox`; `/ai` and `/aimode` with no query → `/` (with a query: `/search`, query kept, BP-19); `?q=x` → `udm=14`; `udm=2` and `tbm=nws` untouched; **every URL settles within 2 hops (no loops)** | Regression, BP-05 |
 | U-07 | `cleanAiModeUrl()` (BP-05 JS copy) returns the same URL as the U-06 simulation for every test URL. (2026-11-21: tested through the real content bundle in the vm harness; non-AI-Mode URLs must not redirect. U-07b adds `popstate`/`pageshow`.) | BP-05 |
@@ -752,6 +771,8 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-21 | Content script (vm, fake timers): burst mutations throttle to ≥150 ms, first/idle sweep runs on rAF, disabling `masterEnabled` cancels pending timer/rAF | BP-09 |
 | U-22 | Content script (vm, fake timers): metric deltas batch across sweeps, flush once on `visibilitychange` (`hidden`) / `pagehide` (no double-send), and flush on the 10 s timer | BP-09 |
 | U-23 | Content script + service worker (vm): `RESET_LOCAL_METRICS` discards pending pre-reset batches in open tabs and drops stale in-flight `INCREMENT_METRICS` via `resetEpoch` (`U-23b`: delayed/failed epoch reads never emit untagged batches, never cache `0`, and failed resets keep the stored epoch intact) | BP-09 |
+| U-24 | UI language resolution & daily dedupe: `en`/`es` variants and blank `lang` stay quiet; unsupported languages (e.g. `fr`/`fr-CA`) emit `WARN_UNSUPPORTED_UI_LANGUAGE` with primary subtag only at most once per language per UTC day (`tests/unit/longevity.test.mjs`) | BP-03 |
+| U-25 | Content script `extraHideSelectors` + leak detector: hides valid extras, isolates bad syntax into `ERR_SELECTOR_SYNTAX`, enforces `isUnsafeToHide()`, and logs `WARN_AI_SURFACE_VISIBLE` once per page per leaked category for EN and ES (`tests/unit/longevity.test.mjs`) | BP-04 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
 
@@ -768,13 +789,15 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-07 | Same page reloaded 3× with re-render churn → each category counter +3 exactly | BP-14 |
 | B-08 | A single search on a churning results page (`churn.html`) produces ≤2 telemetry writes and flushes all counters on `pagehide` (`B-08b`: Options skips telemetry-only refreshes while Diagnostics is hidden) | BP-09 |
 | B-09 | Performance profile on the churning mock page (`churn.html`): sweep time per second down ≥50% vs. the Phase 2 `dist` baseline (88.7% median reduction measured via CDP CPU profiler: 50.18 → 5.67 ms/s) | BP-09 |
-| B-10 | `extraHideSelectors` hides `div.test-ai`; an invalid selector logs `ERR_SELECTOR_SYNTAX` and other hiding still works | BP-04 |
-| B-11 | Tier 1/2 selectors stripped from the mock Overview → `WARN_AI_SURFACE_VISIBLE` logged once | BP-04 |
+| B-10 | Managed `extraHideSelectors` (service worker `chrome.storage.managed.get` stubbed) hides custom `overview`/`aimode`/`aux` surfaces, isolates an invalid selector into `ERR_SELECTOR_SYNTAX`, and refuses an unsafe selector via `ERR_SAFETY_GUARD_TRIPPED` | BP-04 |
+| B-11 | Tier 1/2 matches stripped from the mock Overview → `WARN_AI_SURFACE_VISIBLE` logged once | BP-04 |
 | B-12 | Options page (unmanaged): no "Locked" badges; Cancel Reset only after the first Reset click; Test Flush only when analytics is on; Staff card only after "Show Staff OU Preset"; tabs switch; Ctrl+F finds text in hidden tabs | BP-06 |
 | B-13 (B-13b–d in the tests stub the worker's answer for the locked and unreachable cases; B-13d also checks the Options page) | Popup: unmanaged view on unpacked install; managed view when the service worker reports locked; managed view (not unmanaged) when the service worker is unreachable | BP-01 |
-| B-14 | Policy generator: each band's JSON parses, uses `{"key":{"Value":…}}` wrappers, and matches `schema.json` types; `extraHideSelectors` only emitted when filled | Regression, BP-04 |
+| B-14 | Policy generator: each band's JSON parses, uses `{"key":{"Value":…}}` wrappers, matches `schema.json` types, omits empty `extraHideSelectors`, validates textarea syntax on blur (`aria-invalid` + `aria-describedby`), and emits populated extras | Regression, BP-04 |
 | B-15 | Options: two overlapping refreshes whose snapshots arrive in reverse order → the newer snapshot stays rendered. (The content-script half moved to U-20, 2026-11-21.) | BP-17 |
 | B-16 | An element with inline `display:none` that is hidden and then unhidden by turning its toggle off stays `display:none`; removing a policy attribute unhides a marked element | BP-18 |
+| B-17 | Spanish Google SERP (`serp-es.html` under `es-419` and `es-US`): hides Spanish AI Overview, AI Mode, Lens, follow-up, and PAA while keeping organic results and emitting zero warnings | BP-03 |
+| B-18 | Unsupported UI language (`serp-fr.html` with `lang="fr"`): structural hiding still works and `WARN_UNSUPPORTED_UI_LANGUAGE` logs with `detail: "fr"` once per day across reloads | BP-03 |
 
 ### 6.4 Live Google tests (Browser, real google.com, manual)
 

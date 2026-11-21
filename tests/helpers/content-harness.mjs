@@ -64,6 +64,7 @@ export function loadContentScript(target, opts = {}) {
 
   const documentElement = {
     tagName: "HTML",
+    lang: opts.lang ?? "en",
     setAttribute: (k, v) => attrs.set(k, String(v)),
     removeAttribute: (k) => attrs.delete(k),
     getAttribute: (k) => attrs.get(k) ?? null,
@@ -221,6 +222,10 @@ export function loadContentScript(target, opts = {}) {
     setHref(href) {
       const u = new URL(href);
       Object.assign(window.location, { href: u.href, pathname: u.pathname, search: u.search, hash: u.hash });
+    },
+    /** Set document.documentElement.lang (e.g. "es-419", "fr"). */
+    setLang(lang) {
+      documentElement.lang = lang;
     },
     /** Set document.visibilityState (e.g. "hidden" or "visible"). */
     setVisibilityState(state) {

@@ -23,6 +23,16 @@ var FEATURE_TOGGLE_KEYS = [
   "forceWebOnlySearch",
   "hideAuxiliaryAiFeatures"
 ];
+var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
+var MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
+var MAX_EXTRA_SELECTOR_LENGTH = 300;
+function createEmptyExtraHideSelectors() {
+  return {
+    overview: [],
+    aimode: [],
+    aux: []
+  };
+}
 
 // src/shared/policy.ts
 function isValidGradeBand(value) {
@@ -30,6 +40,43 @@ function isValidGradeBand(value) {
 }
 function isUnlockableInstall(installType) {
   return installType === "normal" || installType === "development";
+}
+function parseExtraHideSelectors(raw) {
+  const value = createEmptyExtraHideSelectors();
+  if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
+    return { value, valid: false };
+  }
+  const obj = raw;
+  let valid = true;
+  const allowedKeys = new Set(EXTRA_SELECTOR_CATEGORIES);
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.has(key)) {
+      valid = false;
+    }
+  }
+  for (const category of EXTRA_SELECTOR_CATEGORIES) {
+    if (!(category in obj) || obj[category] === void 0) {
+      continue;
+    }
+    const rawList = obj[category];
+    if (!Array.isArray(rawList) || rawList.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+      valid = false;
+      continue;
+    }
+    for (const item of rawList) {
+      if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+        valid = false;
+        continue;
+      }
+      const trimmed = item.trim();
+      if (trimmed.length === 0) {
+        valid = false;
+        continue;
+      }
+      value[category].push(trimmed);
+    }
+  }
+  return { value, valid };
 }
 function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
   const evaluatedAt = now.toISOString();
@@ -45,6 +92,7 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
       const policy3 = {
         ...toggles2,
         gradeBand: "Unassigned",
+        extraHideSelectors: createEmptyExtraHideSelectors(),
         source: "admin-no-policy",
         isManaged: true,
         invalidFields: [],
@@ -69,6 +117,8 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
     const policy2 = {
       ...toggles2,
       gradeBand: gradeBand2,
+      // Custom hotfix selectors are managed-only (BP-04): ignore any localRaw.extraHideSelectors.
+      extraHideSelectors: createEmptyExtraHideSelectors(),
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
       invalidFields: [],
@@ -98,6 +148,14 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
       gradeBand = "Unassigned";
     }
   }
+  let extraHideSelectors = createEmptyExtraHideSelectors();
+  if ("extraHideSelectors" in managedRaw && managedRaw.extraHideSelectors !== void 0) {
+    const parsedExtras = parseExtraHideSelectors(managedRaw.extraHideSelectors);
+    extraHideSelectors = parsedExtras.value;
+    if (!parsedExtras.valid) {
+      invalidFields.push("extraHideSelectors");
+    }
+  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
@@ -107,6 +165,7 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
   const policy = {
     ...toggles,
     gradeBand,
+    extraHideSelectors,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,
     invalidFields,

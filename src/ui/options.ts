@@ -9,7 +9,7 @@
 
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS, createInitialTelemetryState } from "../shared/defaults";
 import { getTodayDateBucket } from "../shared/errors";
-import { parsePolicy } from "../shared/policy";
+import { parsePolicy, formatAdminConsolePolicyJson, validatePolicyDraft } from "../shared/policy";
 import { mountPolicyGenerator } from "./policy-generator-core";
 import type { DiagnosticEntry, DiagnosticSnapshot, RawRecord, TelemetryState, ToggleKey } from "../shared/types";
 
@@ -58,6 +58,11 @@ function buildZeroPiiDiagnosticBundle(snapshot: DiagnosticSnapshot) {
       blockAiModeNavigation: policy.blockAiModeNavigation,
       forceWebOnlySearch: policy.forceWebOnlySearch,
       hideAuxiliaryAiFeatures: policy.hideAuxiliaryAiFeatures,
+      extraHideSelectors: {
+        overview: [...(policy.extraHideSelectors?.overview ?? [])],
+        aimode: [...(policy.extraHideSelectors?.aimode ?? [])],
+        aux: [...(policy.extraHideSelectors?.aux ?? [])]
+      },
       invalidFields: [...policy.invalidFields]
     },
     metrics: {
@@ -669,5 +674,7 @@ if (typeof document !== "undefined") {
 export {
   buildMetricsCsv,
   buildZeroPiiDiagnosticBundle,
-  sortDiagnosticEntries
+  formatAdminConsolePolicyJson,
+  sortDiagnosticEntries,
+  validatePolicyDraft
 };

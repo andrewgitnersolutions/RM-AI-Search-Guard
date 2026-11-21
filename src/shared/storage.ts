@@ -279,6 +279,15 @@ export async function recordDiagnosticEntry(code: ErrorCode, detail: string = ""
     const existingIndex = state.diagnosticLog.findIndex(
       (entry) => entry.code === code && entry.detail === cleanDetail
     );
+    // BP-03: WARN_UNSUPPORTED_UI_LANGUAGE fires at most once per language per UTC day across tabs
+    // and worker restarts so unsupported locales don't churn storage or inflate counts per search.
+    if (
+      code === "WARN_UNSUPPORTED_UI_LANGUAGE" &&
+      existingIndex >= 0 &&
+      state.diagnosticLog[existingIndex].lastSeenDate === dateBucket
+    ) {
+      return state;
+    }
     if (existingIndex >= 0) {
       const existing = state.diagnosticLog[existingIndex];
       existing.count += 1;

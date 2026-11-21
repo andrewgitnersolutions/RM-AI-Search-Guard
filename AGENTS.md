@@ -17,7 +17,8 @@ A Manifest V3 Chrome extension for K-12 school districts. It hides Google Search
 - **Phase 0 is done** (0a rebuild, 0b analytics removed, 0c rename; PR #3, 2026-11-21). The equivalence gate passed.
 - **Phase 1 is done** (BP-01, BP-02, BP-06, BP-10, BP-17; PR #4, 2026-11-21).
 - **Phase 2 is done** (BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 option A; PR #5, 2026-11-21).
-- **Phase 3 is done** (BP-09, BP-14; BP-12 removed by D6; 2026-11-21). `tests/known-failures.json` has `currentPhase: 3`. Still open: M-01, M-02 and M-05 on a managed device (the owner has none yet), and L-06/L-07 on live Google. **Next: Phase 4** (docs/07 §5: BP-03, BP-04; BP-11 removed by D6).
+- **Phase 3 is done** (BP-09, BP-14; BP-12 removed by D6; 2026-11-21).
+- **Phase 4 is done** (BP-03, BP-04; BP-11 removed by D6; 2026-11-21). `tests/known-failures.json` has `currentPhase: 4` and empty `failures`. Still open: `M-01`–`M-05` on a managed device (the owner has none yet), `L-04`/`L-05` with the extension loaded on live Google (live strings & Tier 2 selectors were verified read-only without the extension loaded), and `L-06`. **Next: Phase 5** (docs/07 §5: §4 re-commenting check `R-01`/`R-02`, BP-16, final doc pass).
 - **`src/` is the source of truth and `dist/` is build output.** Never hand-edit `dist/`; change `src/` and rebuild. TypeScript runs with `strict: true`; `npm run typecheck` must pass.
 - **Workflow (2026-11-20):** edit `src/` → `npm run build` (writes to the gitignored `build/`) → run the S/U/B tests against `build/` → `npm run promote` copies `build/` to `dist/`. Never write to `dist/` any other way.
 - Open owner decisions: see the decisions table in docs/07 §2. Don't act on an unresolved decision; use its stated default only if the owner said to.

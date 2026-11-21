@@ -112,6 +112,20 @@ Allows AI Overviews for source-critique lessons while keeping full conversationa
 
 > **Using Google Groups for Exceptions:** If you want an AP Computer Science class or special-education cohort across multiple grades to receive a different policy, apply a separate **Policy for extensions** to a **Configuration Group**—Google Admin Console Group policies automatically override OU policies.
 
+### Optional Hotfix Selectors (`extraHideSelectors`) & Supported UI Languages
+
+* **Supported Google UI Languages:** Text- and `aria-label`-based hiding covers **English** (`en*`) and **Spanish** (`es*`, including `es-419` and `es-US`). On any other Google UI language, language-neutral DOM attributes and `?udm=50` / `/aimode` URL redirects still apply, and **IT Diagnostics** logs `WARN_UNSUPPORTED_UI_LANGUAGE` once per language per day.
+* **Emergency Hotfix Selectors (`extraHideSelectors`):** If Google changes its Search markup before an extension release ships, open **Options → 4-Band Admin Policy Generator → Advanced: Extra Hide Selectors (Hotfix)** (or add `"extraHideSelectors"` to your Admin Console JSON) to push up to 20 CSS selectors per category (`overview`, `aimode`, `aux`; max 300 chars each). Only filled categories are emitted, and every matched element still passes through the Organic Results Safety Guard (`isUnsafeToHide`).
+  ```json
+  "extraHideSelectors": {
+    "Value": {
+      "overview": ["div.example-ai-box"],
+      "aimode": [],
+      "aux": []
+    }
+  }
+  ```
+
 ---
 
 ## Step 4: Usage Counts Stay on Each Device
@@ -145,7 +159,10 @@ Each Chromebook still keeps its own aggregate counters (AI Overviews hidden, AI 
 | `WARN_OMNIBOX_POLICY_MISSING` | Student clicked Chrome's native Omnibox/NTP AI button; extension blocked it, but button is still visible. | Enable `AIModeSettings = 1` in Step 1 for this OU (requires ChromeOS/Chrome 138+). |
 | `WARN_NO_MANAGED_POLICY` | Extension is running on Strict Maximum Lockdown defaults because Admin Console JSON wasn't pushed yet. | Paste valid JSON in **Policy for extensions** and run `chrome://policy` → Reload policies. |
 | `ERR_POLICY_INVALID` | Syntax/type error in Admin Console JSON (e.g., missing `{"Value": ...}` wrapper or string `"true"` instead of boolean `true`). | Re-generate JSON via the **Admin Policy Generator** tab and re-save. |
+| `ERR_SELECTOR_SYNTAX` | A bundled or custom `extraHideSelectors` CSS selector failed browser syntax validation. | Check any custom selectors pushed in `extraHideSelectors` (or update the extension); valid selectors continue running. |
 | `ERR_SAFETY_GUARD_TRIPPED` | Google changed Search DOM structure; safety guard protected organic results. | Check Chrome Web Store for a selector update or report diagnostic JSON to RaiseMark Support (`info@raisemarkai.com`). |
+| `WARN_AI_SURFACE_VISIBLE` | A visible AI heading or AI Mode button remained unhidden after a sweep (`detail` shows category only). | Check for an extension update, or push temporary hotfix CSS selectors via managed `extraHideSelectors`. |
+| `WARN_UNSUPPORTED_UI_LANGUAGE` | Google Search rendered in a UI language outside English and Spanish (`detail` shows primary subtag). | Structural selectors and AI Mode URL redirects remain active; label-based fallbacks cover English and Spanish only. |
 
 ---
 

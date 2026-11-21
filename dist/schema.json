@@ -36,6 +36,43 @@
       "title": "Hide Auxiliary AI Features (Labs, Lens, AI Follow-Ups)",
       "description": "Hide Search Labs triggers, Google Lens search-bar buttons, AI follow-up input bars, and AI-generated prompt cards. Defaults to true.",
       "type": "boolean"
+    },
+    "extraHideSelectors": {
+      "title": "Extra CSS Hide Selectors (Managed Hotfix)",
+      "description": "Optional CSS selectors pushed by IT to hide newly changed Google AI surfaces without waiting for an extension update. Up to 20 selectors per category, max 300 characters each; every match still passes through the Organic Results Safety Guard.",
+      "type": "object",
+      "properties": {
+        "overview": {
+          "title": "Extra AI Overview Selectors",
+          "description": "CSS selectors hidden under hideAiOverviews.",
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "aimode": {
+          "title": "Extra AI Mode UI Selectors",
+          "description": "CSS selectors hidden under hideAiModeUi.",
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "aux": {
+          "title": "Extra Auxiliary AI Selectors",
+          "description": "CSS selectors hidden under hideAuxiliaryAiFeatures.",
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      }
     }
   }
 }

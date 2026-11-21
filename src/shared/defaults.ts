@@ -5,7 +5,7 @@
  * Shared with: bundled into all four entry points; esbuild drops what each one doesn't use.
  */
 
-import type { GradeBand, Metrics, TelemetryState, Toggles } from "./types";
+import type { ExtraHideSelectors, GradeBand, Metrics, TelemetryState, Toggles } from "./types";
 
 /**
  * Strict defaults: every protection on. Used for missing or invalid values (fail closed).
@@ -123,6 +123,24 @@ export const STORAGE_KEYS = {
 };
 
 export const MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
+
+export const EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"] as const;
+
+export const MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
+
+export const MAX_EXTRA_SELECTOR_LENGTH = 300;
+
+/**
+ * Create an empty extraHideSelectors map (no custom hotfix selectors).
+ * @returns Empty per-category arrays.
+ */
+export function createEmptyExtraHideSelectors(): ExtraHideSelectors {
+  return {
+    overview: [],
+    aimode: [],
+    aux: []
+  };
+}
 
 /**
  * Create a zeroed aggregate counter object.

@@ -37,6 +37,16 @@ var STORAGE_KEYS = {
   METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
 };
 var MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
+var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
+var MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
+var MAX_EXTRA_SELECTOR_LENGTH = 300;
+function createEmptyExtraHideSelectors() {
+  return {
+    overview: [],
+    aimode: [],
+    aux: []
+  };
+}
 function createEmptyMetrics() {
   return {
     overviewsHidden: 0,
@@ -61,7 +71,9 @@ var ALL_ERROR_CODES = [
   "ERR_SAFETY_GUARD_TRIPPED",
   "ERR_STORAGE_FAILURE",
   "WARN_NO_MANAGED_POLICY",
-  "WARN_OMNIBOX_POLICY_MISSING"
+  "WARN_OMNIBOX_POLICY_MISSING",
+  "WARN_UNSUPPORTED_UI_LANGUAGE",
+  "WARN_AI_SURFACE_VISIBLE"
 ];
 var ERROR_CATALOG = {
   ERR_POLICY_INVALID: {
@@ -80,7 +92,7 @@ var ERROR_CATALOG = {
     code: "ERR_SELECTOR_SYNTAX",
     severity: "error",
     title: "DOM Selector Validation Error",
-    remediationTemplate: "A bundled DOM selector failed browser validation ({detail}). Other detection tiers remain active. Update to the latest RaiseMark: AI Search Controls for K-12 release."
+    remediationTemplate: "A bundled or custom extraHideSelectors CSS selector failed browser validation ({detail}). Other selectors and detection tiers remain active. Fix invalid managed extraHideSelectors JSON or update to the latest RaiseMark: AI Search Controls for K-12 release."
   },
   ERR_SAFETY_GUARD_TRIPPED: {
     code: "ERR_SAFETY_GUARD_TRIPPED",
@@ -105,6 +117,18 @@ var ERROR_CATALOG = {
     severity: "warning",
     title: "Chrome Native Omnibox AI Mode Policy Not Configured",
     remediationTemplate: "An AI Mode click arrived from Chrome's native Omnibox or New Tab Page and was silently blocked. To remove the native browser button itself, set AIModeSettings = 'Do not allow' (1) under Devices > Chrome > Settings > Users & browsers for this grade OU (Chrome/ChromeOS 138+)."
+  },
+  WARN_UNSUPPORTED_UI_LANGUAGE: {
+    code: "WARN_UNSUPPORTED_UI_LANGUAGE",
+    severity: "warning",
+    title: "Unsupported Google UI Language Detected",
+    remediationTemplate: "Google Search rendered in UI language '{detail}', which is outside the supported English and Spanish text-matching sets. Language-neutral structural selectors and AI Mode URL redirects remain active, while label-based fallback matching may miss translated headings or buttons."
+  },
+  WARN_AI_SURFACE_VISIBLE: {
+    code: "WARN_AI_SURFACE_VISIBLE",
+    severity: "warning",
+    title: "Possible Unhidden AI Surface Detected",
+    remediationTemplate: "A visible AI heading or button remained unhidden after DOM sweep (category: {detail}). Google likely changed its Search markup. Check for a RaiseMark: AI Search Controls for K-12 update or push hotfix CSS selectors via managed extraHideSelectors."
   }
 };
 function formatRemediation(code, detail) {
@@ -138,6 +162,43 @@ function isValidGradeBand(value) {
 function isUnlockableInstall(installType) {
   return installType === "normal" || installType === "development";
 }
+function parseExtraHideSelectors(raw) {
+  const value = createEmptyExtraHideSelectors();
+  if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) {
+    return { value, valid: false };
+  }
+  const obj = raw;
+  let valid = true;
+  const allowedKeys = new Set(EXTRA_SELECTOR_CATEGORIES);
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.has(key)) {
+      valid = false;
+    }
+  }
+  for (const category of EXTRA_SELECTOR_CATEGORIES) {
+    if (!(category in obj) || obj[category] === void 0) {
+      continue;
+    }
+    const rawList = obj[category];
+    if (!Array.isArray(rawList) || rawList.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
+      valid = false;
+      continue;
+    }
+    for (const item of rawList) {
+      if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+        valid = false;
+        continue;
+      }
+      const trimmed = item.trim();
+      if (trimmed.length === 0) {
+        valid = false;
+        continue;
+      }
+      value[category].push(trimmed);
+    }
+  }
+  return { value, valid };
+}
 function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), installType) {
   const evaluatedAt = now.toISOString();
   const errors = [];
@@ -152,6 +213,7 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
       const policy3 = {
         ...toggles2,
         gradeBand: "Unassigned",
+        extraHideSelectors: createEmptyExtraHideSelectors(),
         source: "admin-no-policy",
         isManaged: true,
         invalidFields: [],
@@ -176,6 +238,8 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
     const policy2 = {
       ...toggles2,
       gradeBand: gradeBand2,
+      // Custom hotfix selectors are managed-only (BP-04): ignore any localRaw.extraHideSelectors.
+      extraHideSelectors: createEmptyExtraHideSelectors(),
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
       invalidFields: [],
@@ -205,6 +269,14 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
       gradeBand = "Unassigned";
     }
   }
+  let extraHideSelectors = createEmptyExtraHideSelectors();
+  if ("extraHideSelectors" in managedRaw && managedRaw.extraHideSelectors !== void 0) {
+    const parsedExtras = parseExtraHideSelectors(managedRaw.extraHideSelectors);
+    extraHideSelectors = parsedExtras.value;
+    if (!parsedExtras.valid) {
+      invalidFields.push("extraHideSelectors");
+    }
+  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
@@ -214,6 +286,7 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date(), ins
   const policy = {
     ...toggles,
     gradeBand,
+    extraHideSelectors,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,
     invalidFields,
@@ -398,6 +471,9 @@ async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ ne
     const existingIndex = state.diagnosticLog.findIndex(
       (entry) => entry.code === code && entry.detail === cleanDetail
     );
+    if (code === "WARN_UNSUPPORTED_UI_LANGUAGE" && existingIndex >= 0 && state.diagnosticLog[existingIndex].lastSeenDate === dateBucket) {
+      return state;
+    }
     if (existingIndex >= 0) {
       const existing = state.diagnosticLog[existingIndex];
       existing.count += 1;
@@ -639,7 +715,12 @@ function toContentPolicy(policy) {
     forceWebOnlySearch: policy.forceWebOnlySearch,
     hideAuxiliaryAiFeatures: policy.hideAuxiliaryAiFeatures,
     gradeBand: policy.gradeBand,
-    isManaged: policy.isManaged
+    isManaged: policy.isManaged,
+    extraHideSelectors: {
+      overview: [...policy.extraHideSelectors.overview],
+      aimode: [...policy.extraHideSelectors.aimode],
+      aux: [...policy.extraHideSelectors.aux]
+    }
   };
 }
 

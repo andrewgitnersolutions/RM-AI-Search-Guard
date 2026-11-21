@@ -1,15 +1,4 @@
 {
-  "currentPhase": 3,
-  "failures": {
-    "B-11": {
-      "bp": "BP-04",
-      "phase": 4,
-      "message": "AssertionError: Expected values to be strictly equal:\n\n0 !== 1\n"
-    },
-    "U-04": {
-      "bp": "BP-04",
-      "phase": 4,
-      "message": "AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- [\n-   'div.test-ai'\n- ]\n"
-    }
-  }
+  "currentPhase": 4,
+  "failures": {}
 }

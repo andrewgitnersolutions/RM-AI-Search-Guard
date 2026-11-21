@@ -7,7 +7,7 @@
  */
 
 import type { ALL_ERROR_CODES, ERROR_CATALOG } from "./errors";
-import type { FEATURE_TOGGLE_KEYS, METRIC_KEYS, VALID_GRADE_BANDS } from "./defaults";
+import type { EXTRA_SELECTOR_CATEGORIES, FEATURE_TOGGLE_KEYS, METRIC_KEYS, VALID_GRADE_BANDS } from "./defaults";
 
 /** One of the six boolean protection toggles. */
 export type ToggleKey = (typeof FEATURE_TOGGLE_KEYS)[number];
@@ -23,6 +23,12 @@ export type MetricKey = (typeof METRIC_KEYS)[number];
 
 /** Aggregate counters (non-negative integers). */
 export type Metrics = Record<MetricKey, number>;
+
+/** One category key in managed extraHideSelectors (BP-04). */
+export type ExtraSelectorCategory = (typeof EXTRA_SELECTOR_CATEGORIES)[number];
+
+/** Admin-supplied hotfix CSS selectors grouped by protection category (BP-04). */
+export type ExtraHideSelectors = Record<ExtraSelectorCategory, string[]>;
 
 /** A diagnostic catalog code. */
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -45,6 +51,7 @@ export type InstallType = `${chrome.management.ExtensionInstallType}` | "unknown
 /** The effective policy every bundle acts on. */
 export interface EffectivePolicy extends Toggles {
   gradeBand: GradeBand;
+  extraHideSelectors: ExtraHideSelectors;
   source: PolicySource;
   isManaged: boolean;
   invalidFields: string[];

@@ -3,8 +3,11 @@
 // Not automated here: B-09 (CDP CPU profile benchmark), B-10 (needs managed policy), and B-13 on
 // a real managed profile (B-13b–d stub the worker's answer instead) — reported NOT RUN where skipped.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { equivalent } from "../helpers/equivalence.mjs";
 import { launchWithExtension, readTelemetry, settle, visibilityById } from "../helpers/browser.mjs";
+import { ROOT } from "../helpers/targets.mjs";
 
 /** Run a body with a fresh browser + extension for one target, always closing it. */
 async function withBrowser(target, fn) {
@@ -419,6 +422,53 @@ equivalent("B-08b", "Options skips telemetry-only storage refreshes while IT Dia
     return { callsWhileHidden, callsFinal, displayed };
   }), { bp: "BP-09" });
 
+equivalent("B-10", "managed extraHideSelectors hides custom surfaces, isolates bad syntax into ERR_SELECTOR_SYNTAX, and still enforces the safety guard", (target) =>
+  withBrowser(target, async (b) => {
+    const stubbed = await b.sw.evaluate(() => {
+      const managedPolicy = {
+        gradeBand: "K-2",
+        extraHideSelectors: {
+          overview: ["div.test-ai", "div[invalid!!", "div.test-ai-unsafe"],
+          aimode: ["div.test-aimode"],
+          aux: ["div.test-aux"],
+        },
+      };
+      const fakeGet = async () => managedPolicy;
+      try {
+        chrome.storage.managed.get = fakeGet;
+        if (chrome.storage.managed.get === fakeGet) return true;
+      } catch {
+      }
+      try {
+        Object.defineProperty(chrome.storage.managed, "get", {
+          value: fakeGet,
+          configurable: true,
+          writable: true,
+        });
+        return chrome.storage.managed.get === fakeGet;
+      } catch {
+      }
+      return false;
+    });
+    assert.equal(stubbed, true, "could not stub chrome.storage.managed.get in service worker");
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=extra-selectors&udm=14");
+    await settle(page);
+    const vis = await visibilityById(page);
+    const telemetry = await readTelemetry(b.sw);
+    const codes = telemetry.diagnosticLog.map((e) => e.code);
+    assert.equal(vis["ov-attr"], false, "built-in Overview should hide");
+    assert.equal(vis["extra-ov"], false, "extra overview selector should hide");
+    assert.equal(vis["extra-aimode"], false, "extra aimode selector should hide");
+    assert.equal(vis["extra-aux"], false, "extra aux selector should hide");
+    assert.equal(vis["extra-unsafe"], true, "safety guard must refuse unsafe extra selector");
+    assert.equal(vis["unsafe-organic"], true);
+    assert.equal(vis["r1"], true);
+    assert.ok(codes.includes("ERR_SELECTOR_SYNTAX"), "invalid extra selector should log ERR_SELECTOR_SYNTAX");
+    assert.ok(codes.includes("ERR_SAFETY_GUARD_TRIPPED"), "unsafe extra selector should log ERR_SAFETY_GUARD_TRIPPED");
+    return { vis, codes };
+  }), { bp: "BP-04" });
+
 equivalent("B-11", "Tier 1/2 matches stripped from an Overview → WARN_AI_SURFACE_VISIBLE logged once", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
@@ -587,7 +637,7 @@ equivalent("B-15", "Options: two overlapping refreshes whose snapshots arrive in
     return pill;
   }), { bp: "BP-17" });
 
-equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"Value\":…}} wrappers and matches schema.json types", (target) =>
+equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"Value\":…}} wrappers, matches schema.json types, omits empty extraHideSelectors, validates extras on blur, and emits populated extras", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     await page.goto(`chrome-extension://${b.extensionId}/ui/options.html`);
@@ -599,6 +649,7 @@ equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"
     for (const [band, text] of Object.entries(outputs)) {
       const json = JSON.parse(text);
       parsed[band] = json;
+      assert.equal("extraHideSelectors" in json, false, `${band} must omit empty extraHideSelectors by default`);
       for (const [key, wrapper] of Object.entries(json)) {
         assert.deepEqual(Object.keys(wrapper), ["Value"], `${band}.${key} wrapper`);
         const prop = schema.properties[key];
@@ -609,5 +660,108 @@ equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"
       }
     }
     assert.deepEqual(Object.keys(parsed).sort(), ["3-5", "6-8", "9-12", "K-2", "Staff"]);
-    return parsed;
+
+    // Open Advanced disclosure on K-2 and enter valid overview extra selectors.
+    await page.click('details[data-advanced-band="K-2"] > summary');
+    const ovTextarea = page.locator('textarea[data-grade-band="K-2"][data-extra-category="overview"]');
+    await ovTextarea.fill("div.test-ai\nsection.extra-ov");
+    const k2AfterExtra = JSON.parse(await page.locator('code[data-json-output="K-2"]').textContent());
+    assert.deepEqual(k2AfterExtra.extraHideSelectors, { Value: { overview: ["div.test-ai", "section.extra-ov"] } });
+    assert.equal(schema.properties.extraHideSelectors.type, "object");
+    for (const [cat, list] of Object.entries(k2AfterExtra.extraHideSelectors.Value)) {
+      const catProp = schema.properties.extraHideSelectors.properties[cat];
+      assert.equal(catProp.type, "array");
+      assert.ok(list.length <= catProp.maxItems);
+      for (const item of list) {
+        assert.equal(typeof item, catProp.items.type);
+        assert.ok(item.length <= catProp.items.maxLength);
+      }
+    }
+
+    // Enter invalid CSS selector in K-2 aimode textarea and trigger blur → aria-invalid + aria-describedby error link.
+    const aimTextarea = page.locator('textarea[data-grade-band="K-2"][data-extra-category="aimode"]');
+    await aimTextarea.fill("div[invalid!!");
+    await aimTextarea.blur();
+    const invalidState = await aimTextarea.evaluate((el) => {
+      const errorId = el.getAttribute("aria-describedby")?.split(/\s+/).find((id) => id.endsWith("-error"));
+      const errorEl = errorId ? document.getElementById(errorId) : null;
+      return {
+        ariaInvalid: el.getAttribute("aria-invalid"),
+        errorVisible: errorEl ? errorEl.checkVisibility() : false,
+        errorText: errorEl?.textContent ?? "",
+      };
+    });
+    assert.equal(invalidState.ariaInvalid, "true", "invalid selector should set aria-invalid=true on blur");
+    assert.equal(invalidState.errorVisible, true, "field error should become visible on blur");
+    assert.match(invalidState.errorText, /Invalid CSS selector syntax/);
+
+    // Reset to Recommended Presets clears extra selectors and error state.
+    await page.getByRole("button", { name: "Reset to Recommended Presets" }).click();
+    const afterReset = await page.evaluate(() => {
+      const ov = document.querySelector('textarea[data-grade-band="K-2"][data-extra-category="overview"]');
+      const aim = document.querySelector('textarea[data-grade-band="K-2"][data-extra-category="aimode"]');
+      return {
+        ovVal: ov.value,
+        aimVal: aim.value,
+        aimInvalid: aim.getAttribute("aria-invalid"),
+        k2Json: JSON.parse(document.querySelector('code[data-json-output="K-2"]').textContent),
+      };
+    });
+    assert.equal(afterReset.ovVal, "");
+    assert.equal(afterReset.aimVal, "");
+    assert.equal(afterReset.aimInvalid, "false");
+    assert.equal("extraHideSelectors" in afterReset.k2Json, false);
+
+    return { parsed, k2AfterExtra, invalidState, afterReset };
   }));
+
+equivalent("B-17", "Spanish Google SERP (es-419 and es-US): hides Spanish AI Overview, AI Mode, Lens, follow-up and PAA while keeping organic results and emitting zero warnings", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    const esSurfaces = ["es-ov-aria", "es-ov-heading", "es-tab-aimode", "es-aimode-btn", "es-lens", "es-followup", "es-paa-ai"];
+    const esKeep = ["q", "es-tab-all", "es-tab-images", "r1", "r2", "r3", "r4", "r5", "es-paa-normal", "footer-link"];
+
+    await page.goto("https://www.google.com/search?q=fotosintesis&fixture=serp-es&udm=14");
+    await settle(page);
+    const vis419 = await visibilityById(page);
+    for (const id of esSurfaces) assert.equal(vis419[id], false, `es-419: ${id} should be hidden`);
+    for (const id of esKeep) assert.equal(vis419[id], true, `es-419: ${id} should stay visible`);
+
+    // Also verify lang="es-US" (what live Google served for ?hl=es).
+    const esUsHtml = readFileSync(path.join(ROOT, "tests/browser/fixtures/serp-es.html"), "utf8").replace('lang="es-419"', 'lang="es-US"');
+    await page.route(/^https:\/\/(www\.)?google\.com\/search\?q=fotosintesis-us/, (route) =>
+      route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: esUsHtml }),
+    );
+    await page.goto("https://www.google.com/search?q=fotosintesis-us&udm=14");
+    await settle(page);
+    const visUs = await visibilityById(page);
+    for (const id of esSurfaces) assert.equal(visUs[id], false, `es-US: ${id} should be hidden`);
+    for (const id of esKeep) assert.equal(visUs[id], true, `es-US: ${id} should stay visible`);
+
+    const telemetry = await readTelemetry(b.sw);
+    const codes = telemetry.diagnosticLog.map((e) => e.code);
+    assert.ok(!codes.includes("WARN_UNSUPPORTED_UI_LANGUAGE"), "Spanish must not emit WARN_UNSUPPORTED_UI_LANGUAGE");
+    assert.ok(!codes.includes("WARN_AI_SURFACE_VISIBLE"), "hidden Spanish surfaces must not emit WARN_AI_SURFACE_VISIBLE");
+    return { vis419, visUs, codes };
+  }), { bp: "BP-03" });
+
+equivalent("B-18", "Unsupported UI language (hl=fr): structural hiding still works and WARN_UNSUPPORTED_UI_LANGUAGE logs once per day", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=serp-fr&udm=14");
+    await settle(page);
+    await page.reload();
+    await settle(page);
+    const vis = await visibilityById(page);
+    assert.equal(vis["fr-ov-attr"], false, "structural Overview should still hide on lang=fr");
+    assert.equal(vis["fr-tab-aimode"], false, "udm=50 AI Mode tab should still hide on lang=fr");
+    for (const id of ["q", "fr-tab-all", "r1", "r2", "r3", "r4", "r5"]) {
+      assert.equal(vis[id], true, `${id} should stay visible`);
+    }
+    const telemetry = await readTelemetry(b.sw);
+    const langEntries = telemetry.diagnosticLog.filter((e) => e.code === "WARN_UNSUPPORTED_UI_LANGUAGE");
+    assert.equal(langEntries.length, 1);
+    assert.equal(langEntries[0].detail, "fr");
+    assert.equal(langEntries[0].count, 1, "unsupported language warning should log once per day across reloads");
+    return { vis, langEntry: langEntries[0] };
+  }), { bp: "BP-03" });

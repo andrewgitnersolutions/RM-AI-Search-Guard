@@ -1,5 +1,7 @@
 // U-01a–d, U-03, U-04 (docs/07 §6.2): parsePolicy behavior, run on each target's service worker in node:vm.
 import assert from "node:assert/strict";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { equivalent, plain } from "../helpers/equivalence.mjs";
 import { loadServiceWorker } from "../helpers/sw-harness.mjs";
 
@@ -99,4 +101,55 @@ equivalent("U-04", "extraHideSelectors: valid string arrays accepted; bad shapes
   const unmanaged = parse(sw, {}, { extraHideSelectors: { overview: ["div.x"] } }).policy;
   assert.equal(unmanaged.extraHideSelectors?.overview?.length ?? 0, 0);
   return { ok, bad };
+}, { bp: "BP-04" });
+
+equivalent("U-04b", "extraHideSelectors: partial objects, unknown keys, bounds (20 items / 300 chars), local override isolation, and generator JSON formatting", async (target) => {
+  const sw = loadServiceWorker(target);
+  const partial = parse(sw, { extraHideSelectors: { overview: ["  div.a  "] } }, null);
+  assert.deepEqual(partial.policy.extraHideSelectors, { overview: ["div.a"], aimode: [], aux: [] });
+  assert.deepEqual(partial.policy.invalidFields, []);
+  assert.equal(partial.policy.source, "managed");
+
+  const unknownKey = parse(sw, { extraHideSelectors: { not: "valid", overview: ["div.a"] } }, null);
+  assert.ok(unknownKey.policy.invalidFields.includes("extraHideSelectors"));
+  assert.equal(unknownKey.policy.source, "managed-degraded");
+  assert.deepEqual(unknownKey.policy.extraHideSelectors.overview, ["div.a"]);
+
+  const mixedItems = parse(sw, { extraHideSelectors: { overview: ["div.ok", 123, "   "], aimode: [null] } }, null);
+  assert.ok(mixedItems.policy.invalidFields.includes("extraHideSelectors"));
+  assert.deepEqual(mixedItems.policy.extraHideSelectors, { overview: ["div.ok"], aimode: [], aux: [] });
+
+  const exact20 = Array.from({ length: 20 }, (_, i) => `div.s${i}`);
+  const exact300 = "a".repeat(300);
+  const maxOk = parse(sw, { extraHideSelectors: { overview: exact20, aimode: [exact300] } }, null);
+  assert.deepEqual(maxOk.policy.invalidFields, []);
+  assert.equal(maxOk.policy.extraHideSelectors.overview.length, 20);
+  assert.equal(maxOk.policy.extraHideSelectors.aimode[0].length, 300);
+
+  const tooManyOrLong = parse(sw, { extraHideSelectors: { overview: Array(21).fill("div.x"), aimode: ["a".repeat(301)] } }, null);
+  assert.ok(tooManyOrLong.policy.invalidFields.includes("extraHideSelectors"));
+  assert.deepEqual(tooManyOrLong.policy.extraHideSelectors, { overview: [], aimode: [], aux: [] });
+
+  for (const installType of ["development", "normal", "admin"]) {
+    const localIgnored = parse(sw, {}, { masterEnabled: false, extraHideSelectors: { overview: ["div.sneaky"] } }, installType).policy;
+    assert.deepEqual(localIgnored.extraHideSelectors, { overview: [], aimode: [], aux: [] });
+  }
+
+  const optionsMod = await import(pathToFileURL(path.join(target.dir, "ui/options.js")).href);
+  const baseDraft = {
+    gradeBand: "K-2",
+    masterEnabled: true,
+    hideAiOverviews: true,
+    hideAiModeUi: true,
+    blockAiModeNavigation: true,
+    forceWebOnlySearch: true,
+    hideAuxiliaryAiFeatures: true,
+  };
+  const emptyJson = optionsMod.formatAdminConsolePolicyJson({ ...baseDraft, extraHideSelectors: { overview: ["  "], aimode: [], aux: [] } });
+  assert.equal("extraHideSelectors" in emptyJson, false);
+
+  const filledJson = optionsMod.formatAdminConsolePolicyJson({ ...baseDraft, extraHideSelectors: { overview: [" div.test-ai "], aimode: [], aux: [] } });
+  assert.deepEqual(filledJson.extraHideSelectors, { Value: { overview: ["div.test-ai"] } });
+
+  return { partial: partial.policy.extraHideSelectors, emptyKeys: Object.keys(emptyJson), filledExtra: filledJson.extraHideSelectors };
 }, { bp: "BP-04" });
