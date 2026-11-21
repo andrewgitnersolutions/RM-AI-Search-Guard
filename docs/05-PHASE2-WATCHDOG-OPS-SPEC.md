@@ -1,6 +1,6 @@
 # 05 — Phase 2 Operations Spec: Daily Selector Watchdog & Self-Healing Pipeline
 
-> **Current Implementation Note (2026-11-21):** This document is a future post-release operations concept. Current active engineering work, breakpoint fixes (`BP-01`–`BP-20`), and verification suites (`S`, `U`, `B`, `L`, `M`) are tracked in [`docs/07-BREAKPOINT-AUDIT-LOG.md`](07-BREAKPOINT-AUDIT-LOG.md).
+> **Current Implementation Note (2026-11-21):** This document is a future post-release operations concept. Current active engineering work, breakpoint fixes (`BP-01`–`BP-19`), and verification suites (`S`, `U`, `B`, `L`, `M`, `O`, `R`) are tracked in [`docs/07-BREAKPOINT-AUDIT-LOG.md`](07-BREAKPOINT-AUDIT-LOG.md).
 
 **Status:** Post-Release Operations Concept (builds on the `src/` + `tests/` harness in `docs/07-BREAKPOINT-AUDIT-LOG.md`)  
 **Maintainer Notification Target:** `info@raisemarkai.com`  
@@ -70,13 +70,13 @@ When triggered on Exit Code `1`, the Antigravity repair workflow follows strict 
 ## 4. Chrome Web Store Draft Upload & Email Notification Gate
 
 ### 4.1 Chrome Web Store Publish API (Draft-Only Upload)
-* Uses Google's free **Chrome Web Store API** (`https://www.googleapis.com/upload/chromewebstore/v1.1/items/{itemId}` — `PUT` with the built `release/raisemark-search-guard-v<version>.zip`).
+* Uses Google's free **Chrome Web Store API** (`https://www.googleapis.com/upload/chromewebstore/v1.1/items/{itemId}` — `PUT` with the built `release/raisemark-ai-search-controls-v<version>.zip`).
 * **CRITICAL SAFETY RULE:** Phase 2 uploads the new package as a **DRAFT ONLY** and deliberately **does NOT** invoke the `/publish` endpoint automatically.
 * **Graceful Auth-Expiry Fallback:** If the CWS OAuth refresh token has expired or returns `401/403`, Phase 2 STILL opens the GitHub PR with the tested diff + local `.zip` path + `.webm` video and includes `"CWS Draft upload skipped — refresh OAuth token"` in the email to `andrew@raisemarkai.com`.
 
 ### 4.2 Maintainer Email Format (`andrew@raisemarkai.com`)
 Dispatched via `raisemark-google` Gmail integration (or Gmail draft/send per user preference configured when activating Phase 2):
-* **Subject:** `[Search Guard Watchdog] Action Needed: Selector Update v1.0.X Ready for 1-Click Publish`
+* **Subject:** `[RaiseMark Watchdog] Action Needed: Selector Update v1.0.X Ready for 1-Click Publish`
 * **Body:**
   * **Detected Change:** Exact failing check from `canary-report.json` (e.g., AI Overview wrapper attribute rotated).
   * **Patch Summary:** Concise diff of `selectors.ts` / `static-guard.css` + new unit test added.
