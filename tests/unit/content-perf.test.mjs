@@ -349,7 +349,36 @@ equivalent("U-23b", "delayed or failed epoch reads never emit untagged batches, 
   assert.equal(retriedBatches.length, 1);
   assert.equal(retriedBatches[0].resetEpoch, 3, "retry must recover stored epoch 3 instead of caching 0");
 
-  // 4. Failed epoch read during RESET_LOCAL_METRICS leaves epoch 5 intact; retry advances to 6.
+  // 4. Consecutive failed epoch reads re-arm the 10 s fallback timer until a later read succeeds.
+  ovEl.removeAttribute("data-rmsg-hidden");
+  let timerReadAttempt = 0;
+  const csTimerRetry = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll: makeQuery(),
+    localGet: async () => {
+      timerReadAttempt += 1;
+      if (timerReadAttempt <= 2) throw new Error("transient storage error");
+      return { rmsg_metrics_reset_epoch: 4 };
+    },
+  });
+  await csTimerRetry.flush();
+  csTimerRetry.policyRequests[0]({ ...ENABLED_POLICY });
+  await csTimerRetry.flush();
+  csTimerRetry.flushRaf();
+  assert.equal(csTimerRetry.pendingTimers(), 1, "10 s fallback timer should be armed");
+  csTimerRetry.advanceTime(10_000);
+  await csTimerRetry.flush();
+  assert.equal(csTimerRetry.messages.filter((m) => m.type === "INCREMENT_METRICS").length, 0, "failed retry must not flush");
+  assert.equal(csTimerRetry.pendingTimers(), 1, "failed epoch retry must re-arm the 10 s fallback timer");
+  csTimerRetry.advanceTime(10_000);
+  await csTimerRetry.flush();
+  const timerRetriedBatches = csTimerRetry.messages.filter((m) => m.type === "INCREMENT_METRICS");
+  assert.equal(timerRetriedBatches.length, 1);
+  assert.equal(timerRetriedBatches[0].resetEpoch, 4, "subsequent timer retry must flush with confirmed epoch 4");
+  assert.equal(csTimerRetry.pendingTimers(), 0);
+
+  // 5. Failed epoch read during RESET_LOCAL_METRICS leaves epoch 5 intact; retry advances to 6.
   const OPTIONS_SENDER = { id: "testextensionid", url: "chrome-extension://testextensionid/ui/options.html" };
   const GOOGLE_TAB_SENDER = { id: "testextensionid", url: "https://www.google.com/search?q=x", tab: { id: 7, url: "https://www.google.com/search?q=x" } };
   const sw = loadServiceWorker(target, {
@@ -383,6 +412,7 @@ equivalent("U-23b", "delayed or failed epoch reads never emit untagged batches, 
   return {
     delayedEpoch: delayedBatches[0].resetEpoch,
     retriedEpoch: retriedBatches[0].resetEpoch,
+    timerRetriedEpoch: timerRetriedBatches[0].resetEpoch,
     finalSwEpoch: sw.chrome.storage.local.data.rmsg_metrics_reset_epoch,
   };
 }, { bp: "BP-09" });

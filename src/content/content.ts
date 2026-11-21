@@ -135,26 +135,27 @@ let epochVersion = 0;
  * @returns Confirmed non-negative epoch, or null when reading fails (caller keeps
  * currentResetEpoch unset so it retries later or discards on unload rather than guessing 0).
  */
-function ensureMetricsResetEpoch(): Promise<number | null> {
+async function ensureMetricsResetEpoch(): Promise<number | null> {
   if (currentResetEpoch !== null) {
-    return Promise.resolve(currentResetEpoch);
+    return currentResetEpoch;
   }
-  if (epochReadPromise !== null) {
-    return epochReadPromise;
-  }
-  const versionAtStart = epochVersion;
-  epochReadPromise = readMetricsResetEpoch()
-    .then((epoch) => {
-      if (epochVersion === versionAtStart && currentResetEpoch === null) {
-        currentResetEpoch = epoch;
+  if (epochReadPromise === null) {
+    const versionAtStart = epochVersion;
+    epochReadPromise = (async () => {
+      try {
+        const epoch = await readMetricsResetEpoch();
+        if (epochVersion === versionAtStart && currentResetEpoch === null) {
+          currentResetEpoch = epoch;
+        }
+        return currentResetEpoch;
+      } catch {
+        return null;
+      } finally {
+        epochReadPromise = null;
       }
-      return currentResetEpoch;
-    })
-    .catch(() => null)
-    .finally(() => {
-      epochReadPromise = null;
-    });
-  return epochReadPromise;
+    })();
+  }
+  return await epochReadPromise;
 }
 
 /**
@@ -202,6 +203,19 @@ function queueSweepFrame(): void {
 }
 
 /**
+ * Arm the 10 s fallback flush timer if not already scheduled.
+ * No-op outside a DOM window timer environment.
+ */
+function scheduleMetricsFlushTimer(): void {
+  if (metricsFlushTimer === null && typeof window.setTimeout === "function") {
+    metricsFlushTimer = window.setTimeout(() => {
+      metricsFlushTimer = null;
+      flushPendingMetrics();
+    }, METRICS_FLUSH_INTERVAL_MS);
+  }
+}
+
+/**
  * Accumulate positive counter deltas and schedule the fallback 10 s flush timer (BP-09).
  * Batching avoids a storage write on every mutation frame on streaming results pages.
  * @param deltas - Non-negative integer deltas from sweepDom().
@@ -217,12 +231,29 @@ function queueMetricDeltas(deltas: Record<string, number>): void {
       }
     }
   }
-  if (added && metricsFlushTimer === null && typeof window.setTimeout === "function") {
-    metricsFlushTimer = window.setTimeout(() => {
-      metricsFlushTimer = null;
-      flushPendingMetrics();
-    }, METRICS_FLUSH_INTERVAL_MS);
+  if (added) {
+    scheduleMetricsFlushTimer();
   }
+}
+
+/**
+ * Retry confirming the reset epoch before flushing queued deltas.
+ * Re-arms the fallback timer if confirmation fails again while deltas remain queued; drops
+ * silently if a live reset changed epochVersion meanwhile (since that reset already cleared deltas).
+ * @param versionBeforeRetry - Epoch version captured before awaiting the storage read.
+ */
+async function flushAfterEpochRetry(versionBeforeRetry: number): Promise<void> {
+  const confirmedEpoch = await ensureMetricsResetEpoch();
+  if (epochVersion !== versionBeforeRetry) {
+    return;
+  }
+  if (confirmedEpoch === null) {
+    if (Object.keys(pendingMetricDeltas).length > 0) {
+      scheduleMetricsFlushTimer();
+    }
+    return;
+  }
+  flushPendingMetrics(false);
 }
 
 /**
@@ -248,13 +279,7 @@ function flushPendingMetrics(allowAsyncRetry = true): void {
       clearPendingMetrics();
       return;
     }
-    const versionBeforeRetry = epochVersion;
-    void ensureMetricsResetEpoch().then((confirmedEpoch) => {
-      if (confirmedEpoch === null || epochVersion !== versionBeforeRetry) {
-        return;
-      }
-      flushPendingMetrics(false);
-    });
+    void flushAfterEpochRetry(epochVersion);
     return;
   }
   const deltas = pendingMetricDeltas;

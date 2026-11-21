@@ -899,23 +899,27 @@
   var currentResetEpoch = null;
   var epochReadPromise = null;
   var epochVersion = 0;
-  function ensureMetricsResetEpoch() {
+  async function ensureMetricsResetEpoch() {
     if (currentResetEpoch !== null) {
-      return Promise.resolve(currentResetEpoch);
-    }
-    if (epochReadPromise !== null) {
-      return epochReadPromise;
-    }
-    const versionAtStart = epochVersion;
-    epochReadPromise = readMetricsResetEpoch().then((epoch) => {
-      if (epochVersion === versionAtStart && currentResetEpoch === null) {
-        currentResetEpoch = epoch;
-      }
       return currentResetEpoch;
-    }).catch(() => null).finally(() => {
-      epochReadPromise = null;
-    });
-    return epochReadPromise;
+    }
+    if (epochReadPromise === null) {
+      const versionAtStart = epochVersion;
+      epochReadPromise = (async () => {
+        try {
+          const epoch = await readMetricsResetEpoch();
+          if (epochVersion === versionAtStart && currentResetEpoch === null) {
+            currentResetEpoch = epoch;
+          }
+          return currentResetEpoch;
+        } catch {
+          return null;
+        } finally {
+          epochReadPromise = null;
+        }
+      })();
+    }
+    return await epochReadPromise;
   }
   function clearPendingMetrics() {
     if (metricsFlushTimer !== null) {
@@ -948,6 +952,14 @@
     });
     pendingRafId = typeof id === "number" ? id : null;
   }
+  function scheduleMetricsFlushTimer() {
+    if (metricsFlushTimer === null && typeof window.setTimeout === "function") {
+      metricsFlushTimer = window.setTimeout(() => {
+        metricsFlushTimer = null;
+        flushPendingMetrics();
+      }, METRICS_FLUSH_INTERVAL_MS);
+    }
+  }
   function queueMetricDeltas(deltas) {
     let added = false;
     for (const [key, rawValue] of Object.entries(deltas)) {
@@ -959,12 +971,22 @@
         }
       }
     }
-    if (added && metricsFlushTimer === null && typeof window.setTimeout === "function") {
-      metricsFlushTimer = window.setTimeout(() => {
-        metricsFlushTimer = null;
-        flushPendingMetrics();
-      }, METRICS_FLUSH_INTERVAL_MS);
+    if (added) {
+      scheduleMetricsFlushTimer();
     }
+  }
+  async function flushAfterEpochRetry(versionBeforeRetry) {
+    const confirmedEpoch = await ensureMetricsResetEpoch();
+    if (epochVersion !== versionBeforeRetry) {
+      return;
+    }
+    if (confirmedEpoch === null) {
+      if (Object.keys(pendingMetricDeltas).length > 0) {
+        scheduleMetricsFlushTimer();
+      }
+      return;
+    }
+    flushPendingMetrics(false);
   }
   function flushPendingMetrics(allowAsyncRetry = true) {
     if (metricsFlushTimer !== null) {
@@ -981,13 +1003,7 @@
         clearPendingMetrics();
         return;
       }
-      const versionBeforeRetry = epochVersion;
-      void ensureMetricsResetEpoch().then((confirmedEpoch) => {
-        if (confirmedEpoch === null || epochVersion !== versionBeforeRetry) {
-          return;
-        }
-        flushPendingMetrics(false);
-      });
+      void flushAfterEpochRetry(epochVersion);
       return;
     }
     const deltas = pendingMetricDeltas;
