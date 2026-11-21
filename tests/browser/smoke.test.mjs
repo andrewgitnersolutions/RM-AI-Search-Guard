@@ -92,14 +92,20 @@ equivalent("B-02", "local policy hideAiOverviews:false → Overview visible afte
     return { noOverviewHiding, masterOff };
   }));
 
-equivalent("B-01", "html[data-rmsg-hide-*] attributes are set before any page script runs (no flash)", (target) =>
+equivalent("B-01", "html[data-rmsg-hide-*] attributes are set before any page script runs; with 6× CPU throttle the Overview is already hidden when parsed (no flash)", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
+    const cdp = await b.context.newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
     await page.goto("https://www.google.com/search?q=x&udm=14");
     await settle(page);
     const atParse = await page.evaluate(() => window.__attrAtParse);
+    const allAtParse = await page.evaluate(() => window.__attrsAtParse);
     assert.equal(atParse, "1");
-    return atParse;
+    assert.deepEqual(allAtParse, ["1", "1", "1"], "all three hide attributes set before page scripts");
+    const ovVisibleAtParse = await page.evaluate(() => window.__ovVisibleAtParse);
+    assert.equal(ovVisibleAtParse, false, "AI Overview visible at the moment it was parsed (flash)");
+    return { allAtParse, ovVisibleAtParse };
   }), { bp: "BP-02" });
 
 equivalent("B-04", "organic result linking to example.com/blog/aimode-review stays visible", (target) =>

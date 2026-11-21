@@ -7,7 +7,7 @@
   <title>x - Google Search</title>
   <!-- Inline on purpose: B-01 needs a synchronous parse-time probe. An external script adds a
        fetch that lets the async policy land first, so B-01 would flake and stop detecting BP-02. -->
-  <script>window.__attrAtParse = document.documentElement.getAttribute("data-rmsg-hide-overviews");</script>
+  <script>window.__attrAtParse = document.documentElement.getAttribute("data-rmsg-hide-overviews"); window.__attrsAtParse = ["overviews", "aimode", "aux"].map((c) => document.documentElement.getAttribute(`data-rmsg-hide-${c}`));</script>
 </head>
 <body>
   <div id="main">
@@ -35,6 +35,8 @@
                 <div id="ov-attr-body">Generated overview text.</div>
                 <div class="olrp5b" id="dive"><a id="dive-link" href="/search?q=x&amp;udm=50&amp;aep=1">Dive deeper in AI Mode</a></div>
               </div>
+              <!-- B-01 flash probe: runs the moment the Overview above is parsed, before any later markup. -->
+              <script>window.__ovVisibleAtParse = document.getElementById("ov-attr").checkVisibility();</script>
               <div id="ov-heading" data-async-type="folsrch">
                 <div><span role="heading" id="ov-heading-label">AI Overview</span></div>
                 <p>Another generated summary.</p>

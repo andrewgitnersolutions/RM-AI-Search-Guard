@@ -134,11 +134,19 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
 
 **Recommendation:** **A.** The flicker in "allowed" OUs is the right trade for a K-12 product.
 
+**Owner decision 2026-11-21: option A.**
+
 **To-do:**
-- [ ] At the very top of the content-script IIFE (before `handleRedirectHashTelemetry()`), set `data-rmsg-hide-overviews/aimode/aux="1"` on `document.documentElement`, guarded for a null `documentElement`.
-- [ ] Keep `applyPolicyAttributes` as the step that removes attributes per policy, including when `masterEnabled === false`.
-- [ ] If the policy can't be resolved at all (worker and storage both fail), keep the attributes on and log `ERR_STORAGE_FAILURE`.
-- [ ] Comment the fail-closed rationale at the top of the file.
+- [x] At the very top of the content-script IIFE (before `handleRedirectHashTelemetry()`), set `data-rmsg-hide-overviews/aimode/aux="1"` on `document.documentElement`, guarded for a null `documentElement`.
+- [x] Keep `applyPolicyAttributes` as the step that removes attributes per policy, including when `masterEnabled === false`.
+- [x] If the policy can't be resolved at all (worker and storage both fail), keep the attributes on and log `ERR_STORAGE_FAILURE`.
+- [x] Comment the fail-closed rationale at the top of the file.
+
+**2026-11-21, fixed in `src/` (Phase 1):**
+- **What changed:** `applyFailClosedAttributes()` is the content script's first statement, and the resolved policy only removes attributes. When the worker is unreachable and storage is unreadable, the fallback parse locks (BP-01), so the attributes stay on. `ERR_STORAGE_FAILURE` is then sent best-effort, with the storage error text only.
+- **B-01:** now checks all three attributes at parse time. It also checks, under a 6× CPU throttle, that the Overview is already hidden the instant it is parsed (an inline probe sits right after it in the fixture). It passes 3/3 runs, fails against the unfixed `dist/`, and was removed from `tests/known-failures.json`.
+- **B-02:** still passes (an allowed Overview appears after load).
+- **NOT RUN:** the manual DevTools check on live Google (L-tests).
 
 **Done when:** throttling the CPU 6× in DevTools and reloading a results page that has an AI Overview shows no visible flash. With `hideAiOverviews: false` the Overview still appears after load.
 

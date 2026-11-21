@@ -1,11 +1,6 @@
 {
   "currentPhase": 0,
   "failures": {
-    "B-01": {
-      "bp": "BP-02",
-      "phase": 1,
-      "message": "AssertionError: Expected values to be strictly equal:\n\nnull !== '1'\n"
-    },
     "B-04": {
       "bp": "BP-08",
       "phase": 2,
