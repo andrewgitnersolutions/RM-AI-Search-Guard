@@ -54,7 +54,9 @@ equivalent("U-12d", "message gating: SET_LOCAL_OVERRIDES / RESET_LOCAL_METRICS /
   for (const [, msg] of PRIVILEGED) {
     const sw = loadServiceWorker(target);
     fromPage[msg.type] = await sw.send(msg, OPTIONS_SENDER);
-    assert.notEqual(fromPage[msg.type]?.ok, false, `${msg.type} from an extension page must be accepted`);
+    // A listener that never responds resolves undefined, which would slip past the ok check.
+    assert.ok(fromPage[msg.type] !== undefined && fromPage[msg.type] !== null, `${msg.type} from an extension page got no response`);
+    assert.notEqual(fromPage[msg.type].ok, false, `${msg.type} from an extension page must be accepted`);
   }
   return fromPage;
 }, { bp: "BP-13" });
