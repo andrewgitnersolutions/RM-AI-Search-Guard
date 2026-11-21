@@ -1,0 +1,23 @@
+{
+  "name": "raisemark-ai-search-controls",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RaiseMark Chrome extension (MV3): source, build and tests.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "promote": "node scripts/promote.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test \"tests/static/*.test.mjs\" \"tests/unit/*.test.mjs\"",
+    "test:browser": "node --test --test-concurrency=1 \"tests/browser/*.test.mjs\"",
+    "test:gate": "RM_TARGETS=baseline-dist,build RM_PRE_PROMOTE=1 node --test --test-concurrency=1 \"tests/static/*.test.mjs\" \"tests/unit/*.test.mjs\" \"tests/browser/*.test.mjs\"",
+    "record-known-failures": "node tests/record-known-failures.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.7",
+    "esbuild": "0.28.2",
+    "playwright": "1.65.1",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- Mock Google results page for B tests. Hand-written to mirror the markup the selectors in
+     src/shared/selectors.ts target; it is not a copy of a live Google page. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>x - Google Search</title>
+  <script>window.__attrAtParse = document.documentElement.getAttribute("data-rmsg-hide-overviews");</script>
+</head>
+<body>
+  <div id="main">
+    <div id="searchform">
+      <form role="search" id="search-form" action="/search">
+        <textarea name="q" id="q">x</textarea>
+        <div id="lens" role="button" aria-label="Search by image"></div>
+        <a id="labs" href="https://labs.google.com/search">Search Labs</a>
+      </form>
+    </div>
+    <div id="top_nav">
+      <div role="list" id="nav-list">
+        <div role="listitem" id="tab-all"><a href="/search?q=x">All</a></div>
+        <div role="listitem" id="tab-aimode"><a href="/search?q=x&amp;udm=50"><span>AI Mode</span></a></div>
+        <div role="listitem" id="tab-images"><a href="/search?q=x&amp;udm=2">Images</a></div>
+        <div role="listitem" id="tab-news"><a href="/search?q=x&amp;tbm=nws">News</a></div>
+      </div>
+    </div>
+    <div id="cnt">
+      <div id="rcnt">
+        <div id="center_col">
+          <div id="search">
+            <div id="rso">
+              <div id="ov-attr" data-attrid="AIOverview">
+                <div id="ov-attr-body">Generated overview text.</div>
+                <div class="olrp5b" id="dive"><a id="dive-link" href="/search?q=x&amp;udm=50&amp;aep=1">Dive deeper in AI Mode</a></div>
+              </div>
+              <div id="ov-heading" data-async-type="folsrch">
+                <div><span role="heading" id="ov-heading-label">AI Overview</span></div>
+                <p>Another generated summary.</p>
+              </div>
+              <div class="g" id="r1"><a href="https://example.com/1"><h3 class="LC20lb">Result one</h3></a></div>
+              <div class="g" id="r2"><a href="https://example.com/2"><h3 class="LC20lb">Result two</h3></a></div>
+              <div class="g" id="r3"><a href="https://example.com/3"><h3 class="LC20lb">Result three</h3></a></div>
+              <div class="related-question-pair" id="paa-ai"><span>AI-generated</span><span>Why is the sky blue?</span></div>
+              <div class="related-question-pair" id="paa-normal"><span>What is photosynthesis?</span></div>
+              <div class="g" id="r4"><a href="https://example.com/4"><h3 class="LC20lb">Result four</h3></a></div>
+              <div class="g" id="r5"><a href="https://example.com/5"><h3 class="LC20lb">Result five</h3></a></div>
+              <div class="g" id="r6"><a href="https://example.com/6"><h3 class="LC20lb">Result six</h3></a></div>
+            </div>
+          </div>
+          <div id="followup"><textarea id="followup-input" placeholder="Ask a follow up"></textarea></div>
+        </div>
+      </div>
+    </div>
+    <div id="botstuff"><a id="footer-link" href="https://example.com/help">Help</a></div>
+  </div>
+</body>
+</html>

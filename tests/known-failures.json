@@ -1,0 +1,85 @@
+{
+  "currentPhase": 0,
+  "failures": {
+    "B-01": {
+      "bp": "BP-02",
+      "phase": 1,
+      "message": "AssertionError: Expected values to be strictly equal:\n\nnull !== '1'\n"
+    },
+    "B-04": {
+      "bp": "BP-08",
+      "phase": 2,
+      "message": "AssertionError: Expected values to be strictly equal:\n\nfalse !== true\n"
+    },
+    "B-05": {
+      "bp": "BP-08",
+      "phase": 2,
+      "message": "AssertionError: Expected values to be strictly equal:\n\nfalse !== true\n"
+    },
+    "B-06": {
+      "bp": "BP-05",
+      "phase": 2,
+      "message": "AssertionError: The input was expected to not match the regular expression /udm=50/. Input:\n\n'https://www.google.com/search?q=x&udm=50'\n"
+    },
+    "B-07": {
+      "bp": "BP-14",
+      "phase": 3,
+      "message": "AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n    aiModeUiHidden: 3,\n+   auxAiHidden: 12,\n-   auxAiHidden: 3,\n    overviewsHidden: 3\n  }\n"
+    },
+    "B-11": {
+      "bp": "BP-04",
+      "phase": 4,
+      "message": "AssertionError: Expected values to be strictly equal:\n\n0 !== 1\n"
+    },
+    "B-12": {
+      "bp": "BP-06",
+      "phase": 1,
+      "message": "AssertionError: Locked badges shown on an unmanaged device\n\n6 !== 0\n"
+    },
+    "S-05a": {
+      "bp": "BP-06",
+      "phase": 1,
+      "message": "AssertionError: global [hidden] rule missing"
+    },
+    "S-05b": {
+      "bp": "BP-10",
+      "phase": 1,
+      "message": "AssertionError: 1 mixed :has() selector list(s)\n\n1 !== 0\n"
+    },
+    "U-01a": {
+      "bp": "BP-01",
+      "phase": 1,
+      "message": "AssertionError: admin: must lock\n\nfalse !== true\n"
+    },
+    "U-02b": {
+      "bp": "BP-01",
+      "phase": 1,
+      "message": "AssertionError: Expected values to be strictly equal:\n\nfalse !== true\n"
+    },
+    "U-04": {
+      "bp": "BP-04",
+      "phase": 4,
+      "message": "AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- [\n-   'div.test-ai'\n- ]\n"
+    },
+    "U-07": {
+      "bp": "BP-05",
+      "phase": 2,
+      "message": "AssertionError: cleanAiModeUrl is not implemented\n+ actual - expected\n\n+ 'undefined'\n- 'function'\n"
+    },
+    "U-12": {
+      "bp": "BP-13",
+      "phase": 2,
+      "message": "AssertionError: SET_LOCAL_OVERRIDES from a google.com tab must be refused\n+ actual - expected\n\n+ undefined\n- false\n"
+    },
+    "U-13": {
+      "bp": "BP-13",
+      "phase": 2,
+      "message": "AssertionError: endpoint URL leaked to content script"
+    },
+    "U-14": {
+      "bp": "BP-07",
+      "phase": 2,
+      "message": "AssertionError: reset must be refused when locked\n+ actual - expected\n\n+ undefined\n- false\n"
+    }
+  }
+}
