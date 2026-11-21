@@ -102,6 +102,7 @@ export function loadContentScript(target, opts = {}) {
     clearTimeout: clearTimer,
   };
 
+  const localData = structuredClone(opts.local ?? {});
   const chrome = {
     runtime: {
       sendMessage(msg) {
@@ -112,7 +113,15 @@ export function loadContentScript(target, opts = {}) {
     },
     storage: {
       managed: { get: async () => ({}) },
-      local: { get: async () => ({}) },
+      local: {
+        get: async (keys) => {
+          if (keys === null || keys === undefined) return structuredClone(localData);
+          const list = typeof keys === "string" ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
+          const out = {};
+          for (const k of list) if (k in localData) out[k] = structuredClone(localData[k]);
+          return out;
+        },
+      },
       onChanged: { addListener: (fn) => storageListeners.push(fn) },
     },
   };
@@ -227,6 +236,11 @@ export function loadContentScript(target, opts = {}) {
     /** Fire chrome.storage.onChanged for the local overrides key. */
     fireStorageChange() {
       for (const fn of storageListeners) void fn({ rmsg_local_overrides: { newValue: {} } }, "local");
+    },
+    /** Fire chrome.storage.onChanged for a local counter reset epoch bump. */
+    fireMetricsReset(epoch) {
+      localData.rmsg_metrics_reset_epoch = epoch;
+      for (const fn of storageListeners) void fn({ rmsg_metrics_reset_epoch: { newValue: epoch } }, "local");
     },
   };
 }

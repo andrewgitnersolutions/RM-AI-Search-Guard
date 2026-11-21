@@ -74,7 +74,8 @@
   var STORAGE_KEYS = {
     LOCAL_OVERRIDES: "rmsg_local_overrides",
     TELEMETRY: "rmsg_telemetry",
-    LAST_POLICY: "rmsg_last_policy"
+    LAST_POLICY: "rmsg_last_policy",
+    METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
   };
 
   // src/shared/policy.ts
@@ -203,6 +204,21 @@
       return { data: raw };
     } catch (err) {
       return { data: null, error: formatErrorMessage(err) };
+    }
+  }
+  async function readMetricsResetEpoch() {
+    if (typeof chrome === "undefined" || !chrome.storage?.local) {
+      return 0;
+    }
+    try {
+      const result = await chrome.storage.local.get(STORAGE_KEYS.METRICS_RESET_EPOCH);
+      const raw = result?.[STORAGE_KEYS.METRICS_RESET_EPOCH];
+      if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
+        return raw;
+      }
+      return 0;
+    } catch {
+      return 0;
     }
   }
 
@@ -552,7 +568,7 @@
     }
     return topLevel;
   }
-  function processCategoryCandidates(candidates, category, doc, errors, reportedUnsafe, guardCache) {
+  function restoreUnsafeHiddenElements(category, doc, errors, reportedUnsafe, guardCache) {
     for (const hidden of doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`)) {
       if (isUnsafeToHide(hidden, doc, category, guardCache)) {
         restoreElementVisibility(hidden);
@@ -565,6 +581,8 @@
         }
       }
     }
+  }
+  function processCategoryCandidates(candidates, category, doc, errors, reportedUnsafe, guardCache) {
     const uniqueCandidates = Array.from(new Set(candidates));
     const safeCandidates = [];
     for (const candidate of uniqueCandidates) {
@@ -760,6 +778,15 @@
     const reportedUnsafe = /* @__PURE__ */ new Set();
     const guardCache = createSafetyGuardCache(doc);
     if (policy.hideAiOverviews) {
+      restoreUnsafeHiddenElements("overview", doc, errors, reportedUnsafe, guardCache);
+    }
+    if (policy.hideAiModeUi) {
+      restoreUnsafeHiddenElements("aimode", doc, errors, reportedUnsafe, guardCache);
+    }
+    if (policy.hideAuxiliaryAiFeatures) {
+      restoreUnsafeHiddenElements("aux", doc, errors, reportedUnsafe, guardCache);
+    }
+    if (policy.hideAiOverviews) {
       const overviewCandidates = collectAiOverviewCandidates(doc, errors, guardCache);
       const hiddenOverviews = processCategoryCandidates(
         overviewCandidates,
@@ -873,6 +900,23 @@
   var reportedErrorKeys = /* @__PURE__ */ new Set();
   var pendingMetricDeltas = {};
   var metricsFlushTimer = null;
+  var currentResetEpoch = null;
+  var liveResetSeen = false;
+  async function initMetricsResetEpoch() {
+    const epoch = await readMetricsResetEpoch();
+    if (!liveResetSeen && currentResetEpoch === null) {
+      currentResetEpoch = epoch;
+    }
+  }
+  function clearPendingMetrics() {
+    if (metricsFlushTimer !== null) {
+      if (typeof window.clearTimeout === "function") {
+        window.clearTimeout(metricsFlushTimer);
+      }
+      metricsFlushTimer = null;
+    }
+    pendingMetricDeltas = {};
+  }
   function cancelScheduledSweep() {
     if (sweepTimer !== null) {
       if (typeof window.clearTimeout === "function") {
@@ -925,7 +969,11 @@
     }
     const deltas = pendingMetricDeltas;
     pendingMetricDeltas = {};
-    void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas });
+    const msg = { type: "INCREMENT_METRICS", deltas };
+    if (currentResetEpoch !== null) {
+      msg.resetEpoch = currentResetEpoch;
+    }
+    void sendRuntimeMessage(msg);
   }
   function disconnectObservers() {
     if (bodyObserver) {
@@ -1096,6 +1144,14 @@
   }
   if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener(async (changes, areaName) => {
+      if (areaName === "local" && STORAGE_KEYS.METRICS_RESET_EPOCH in changes) {
+        const nextEpoch = changes[STORAGE_KEYS.METRICS_RESET_EPOCH]?.newValue;
+        if (typeof nextEpoch === "number" && Number.isInteger(nextEpoch) && nextEpoch >= 0) {
+          liveResetSeen = true;
+          currentResetEpoch = nextEpoch;
+          clearPendingMetrics();
+        }
+      }
       if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
         await loadAndApplyPolicy();
       }
@@ -1137,5 +1193,6 @@
       checkAiModeUrl();
     });
   }
+  void initMetricsResetEpoch();
   void bootstrapContentGuard();
 })();

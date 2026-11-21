@@ -1,7 +1,8 @@
-// U-21, U-22 (docs/07 §6.2): BP-09 content-script sweep throttling and metric batching.
+// U-21, U-22, U-23 (docs/07 §6.2): BP-09 content-script sweep throttling, metric batching, and reset epoch gating.
 import assert from "node:assert/strict";
 import { equivalent } from "../helpers/equivalence.mjs";
 import { loadContentScript } from "../helpers/content-harness.mjs";
+import { loadServiceWorker } from "../helpers/sw-harness.mjs";
 
 const ENABLED_POLICY = {
   masterEnabled: true,
@@ -204,4 +205,71 @@ equivalent("U-22", "content script batches metric deltas across sweeps, flushes 
   assert.deepEqual(timerMetrics()[0].deltas, { overviewsHidden: 1 });
 
   return { flushed: metricsMsgs()[0].deltas, timerFlushed: timerMetrics()[0].deltas };
+}, { bp: "BP-09" });
+
+equivalent("U-23", "RESET_LOCAL_METRICS discards pending pre-reset batches in open tabs and drops stale in-flight INCREMENT_METRICS via resetEpoch", async (target) => {
+  const ovEl = makeStubEl({
+    id: "ov-reset",
+    category: "overview",
+    matchSelector: (sel) => sel.includes('data-attrid="AIOverview"'),
+  });
+  let ovActive = true;
+  const cs = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll(sel) {
+      if (sel.includes("data-rmsg-hidden=")) return [];
+      return ovActive && ovEl.matches(sel) ? [ovEl] : [];
+    },
+  });
+
+  await cs.flush();
+  cs.policyRequests[0]({ ...ENABLED_POLICY });
+  await cs.flush();
+  cs.flushRaf();
+  assert.equal(cs.pendingTimers(), 1, "10 s flush timer should be armed after hiding");
+
+  // Reset happens in another tab before the 10 s timer fires.
+  cs.fireMetricsReset(1);
+  assert.equal(cs.pendingTimers(), 0, "reset must cancel the pending flush timer");
+  cs.advanceTime(15_000);
+  cs.fireWindowEvent("pagehide");
+  const metricsMsgs = () => cs.messages.filter((m) => m.type === "INCREMENT_METRICS");
+  assert.equal(metricsMsgs().length, 0, "pre-reset pending deltas must not flush after reset");
+
+  // A subsequent search on the same tab records under the new resetEpoch.
+  ovEl.removeAttribute("data-rmsg-hidden");
+  ovActive = true;
+  cs.setHref("https://www.google.com/search?q=after-reset&udm=14");
+  cs.triggerMutation();
+  cs.flushRaf();
+  cs.fireWindowEvent("pagehide");
+  assert.equal(metricsMsgs().length, 1);
+  assert.equal(metricsMsgs()[0].resetEpoch, 1);
+
+  // Service worker rejects stale pre-reset batches and malformed resetEpoch values.
+  const OPTIONS_SENDER = { id: "testextensionid", url: "chrome-extension://testextensionid/ui/options.html" };
+  const GOOGLE_TAB_SENDER = { id: "testextensionid", url: "https://www.google.com/search?q=x", tab: { id: 7, url: "https://www.google.com/search?q=x" } };
+  const sw = loadServiceWorker(target, { installType: "development" });
+  await sw.send({ type: "INCREMENT_METRICS", deltas: { overviewsHidden: 2 }, resetEpoch: 0 }, GOOGLE_TAB_SENDER);
+  assert.equal(sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden, 2);
+
+  await sw.send({ type: "RESET_LOCAL_METRICS" }, OPTIONS_SENDER);
+  assert.equal(sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden, 0);
+  assert.equal(sw.chrome.storage.local.data.rmsg_metrics_reset_epoch, 1);
+
+  await sw.send({ type: "INCREMENT_METRICS", deltas: { overviewsHidden: 5 }, resetEpoch: 0 }, GOOGLE_TAB_SENDER);
+  assert.equal(sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden, 0, "stale epoch 0 batch must be ignored");
+
+  await sw.send({ type: "INCREMENT_METRICS", deltas: { overviewsHidden: 1 }, resetEpoch: 1 }, GOOGLE_TAB_SENDER);
+  assert.equal(sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden, 1, "current epoch 1 batch must apply");
+
+  const badEpoch = await sw.send({ type: "INCREMENT_METRICS", deltas: { overviewsHidden: 1 }, resetEpoch: -1 }, GOOGLE_TAB_SENDER);
+  assert.equal(badEpoch?.error, "bad_message");
+
+  return {
+    tabPostResetMsg: metricsMsgs()[0],
+    swEpoch: sw.chrome.storage.local.data.rmsg_metrics_reset_epoch,
+    swOverviews: sw.chrome.storage.local.data.rmsg_telemetry.lifetimeMetrics.overviewsHidden,
+  };
 }, { bp: "BP-09" });

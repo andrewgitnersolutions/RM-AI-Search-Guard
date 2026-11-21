@@ -167,7 +167,7 @@ async function handleRuntimeMessage(message: unknown, sender: chrome.runtime.Mes
       return fromExtensionPage ? policy : toContentPolicy(policy);
     }
     case "INCREMENT_METRICS": {
-      await incrementTelemetryMetrics(message.deltas);
+      await incrementTelemetryMetrics(message.deltas, message.resetEpoch);
       return { ok: true };
     }
     case "RECORD_REDIRECT": {

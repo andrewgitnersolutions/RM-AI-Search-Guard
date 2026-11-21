@@ -638,7 +638,9 @@ async function bootOptionsPage() {
         const changedKeys = Object.keys(changes);
         const isTelemetryOnly =
           changedKeys.length > 0 &&
-          changedKeys.every((key) => key === STORAGE_KEYS.TELEMETRY);
+          changedKeys.every(
+            (key) => key === STORAGE_KEYS.TELEMETRY || key === STORAGE_KEYS.METRICS_RESET_EPOCH
+          );
         const diagnosticsVisible =
           diagnosticsPanel !== null && !diagnosticsPanel.hasAttribute("hidden");
         // Skip telemetry-only re-renders while IT Diagnostics is hidden (BP-09); mark stale

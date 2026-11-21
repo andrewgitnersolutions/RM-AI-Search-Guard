@@ -88,7 +88,8 @@ var GRADE_BAND_PRESETS = {
 var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
-  LAST_POLICY: "rmsg_last_policy"
+  LAST_POLICY: "rmsg_last_policy",
+  METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch"
 };
 function createEmptyMetrics() {
   return {
@@ -1071,7 +1072,9 @@ async function bootOptionsPage() {
       }
       if (areaName === "local") {
         const changedKeys = Object.keys(changes);
-        const isTelemetryOnly = changedKeys.length > 0 && changedKeys.every((key) => key === STORAGE_KEYS.TELEMETRY);
+        const isTelemetryOnly = changedKeys.length > 0 && changedKeys.every(
+          (key) => key === STORAGE_KEYS.TELEMETRY || key === STORAGE_KEYS.METRICS_RESET_EPOCH
+        );
         const diagnosticsVisible = diagnosticsPanel !== null && !diagnosticsPanel.hasAttribute("hidden");
         if (isTelemetryOnly && !diagnosticsVisible) {
           diagnosticsStale = true;

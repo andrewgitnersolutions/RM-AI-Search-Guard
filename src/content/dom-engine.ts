@@ -384,7 +384,41 @@ export function filterTopLevelCandidates(candidates: Element[]): Element[] {
 }
 
 /**
+ * Re-check elements already hidden under one category and restore any that now violate the
+ * Organic Results Safety Guard (e.g., an empty wrapper that received organic results later).
+ * Runs before candidate collection so restored wrappers release safe inner AI elements to be
+ * collected and hidden individually in the same sweep.
+ * @param category - Category name.
+ * @param doc - Page document.
+ * @param errors - Collector; ERR_SAFETY_GUARD_TRIPPED is added once per un-hidden element.
+ * @param reportedUnsafe - Elements already reported this sweep.
+ * @param guardCache - Optional per-sweep safety-guard cache.
+ */
+export function restoreUnsafeHiddenElements(
+  category: HideCategory,
+  doc: Document,
+  errors: PolicyError[],
+  reportedUnsafe: Set<Element>,
+  guardCache?: SafetyGuardCache
+): void {
+  for (const hidden of doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`)) {
+    if (isUnsafeToHide(hidden, doc, category, guardCache)) {
+      restoreElementVisibility(hidden);
+      if (!reportedUnsafe.has(hidden)) {
+        reportedUnsafe.add(hidden);
+        errors.push({
+          code: "ERR_SAFETY_GUARD_TRIPPED",
+          detail: `Un-hid ${describeElementSafe(hidden)} (${category}): it now holds protected content`
+        });
+      }
+    }
+  }
+}
+
+/**
  * Vet, dedupe and hide one category's candidates, keeping only outermost safe ones.
+ * Callers (sweepDom) run restoreUnsafeHiddenElements() first so stale unsafe wrappers are
+ * un-hidden before candidates are collected.
  * @param candidates - Raw candidates.
  * @param category - Category name.
  * @param doc - Page document.
@@ -401,22 +435,6 @@ export function processCategoryCandidates(
   reportedUnsafe: Set<Element>,
   guardCache?: SafetyGuardCache
 ): number {
-  // Re-check what this category already hid: a wrapper hidden while empty can receive an
-  // organic result later, and the guard must still win then (CodeRabbit review of #5). Every
-  // marked element is checked, not just this sweep's candidates, because a container found via
-  // the heading walk may not be found again once results land in it.
-  for (const hidden of doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`)) {
-    if (isUnsafeToHide(hidden, doc, category, guardCache)) {
-      restoreElementVisibility(hidden);
-      if (!reportedUnsafe.has(hidden)) {
-        reportedUnsafe.add(hidden);
-        errors.push({
-          code: "ERR_SAFETY_GUARD_TRIPPED",
-          detail: `Un-hid ${describeElementSafe(hidden)} (${category}): it now holds protected content`
-        });
-      }
-    }
-  }
   const uniqueCandidates = Array.from(new Set(candidates));
   const safeCandidates: Element[] = [];
   for (const candidate of uniqueCandidates) {
@@ -692,6 +710,17 @@ export function sweepDom(
   const resolvedPageKey = pageKey ?? (doc.location && doc.location.href ? doc.location.href : "default");
   const reportedUnsafe = /* @__PURE__ */ new Set<Element>();
   const guardCache = createSafetyGuardCache(doc);
+  // Restore unsafe hidden wrappers before any collector runs so safe inner AI controls are
+  // not skipped by isAlreadyHidden() and can be hidden in the same sweep (PR #6 review).
+  if (policy.hideAiOverviews) {
+    restoreUnsafeHiddenElements("overview", doc, errors, reportedUnsafe, guardCache);
+  }
+  if (policy.hideAiModeUi) {
+    restoreUnsafeHiddenElements("aimode", doc, errors, reportedUnsafe, guardCache);
+  }
+  if (policy.hideAuxiliaryAiFeatures) {
+    restoreUnsafeHiddenElements("aux", doc, errors, reportedUnsafe, guardCache);
+  }
   if (policy.hideAiOverviews) {
     const overviewCandidates = collectAiOverviewCandidates(doc, errors, guardCache);
     const hiddenOverviews = processCategoryCandidates(

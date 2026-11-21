@@ -205,6 +205,47 @@ equivalent("B-05c", "an Overview wrapper hidden while empty is un-hidden when an
     return { before, after: { wrapper: after["ov-late"], organic: after["late-organic"] }, unHid };
   }), { bp: "BP-08" });
 
+equivalent("B-05d", "restored AI Mode wrapper releases inner button and short anchor to be hidden in the exact same sweep", (target) =>
+  withBrowser(target, async (b) => {
+    const page = await b.context.newPage();
+    await page.goto("https://www.google.com/search?q=x&fixture=aimode-restore&udm=14");
+    await settle(page);
+    const before = await page.evaluate(() => ({
+      btnWrapAttr: document.getElementById("wrap-btn")?.getAttribute("data-rmsg-hidden"),
+      linkWrapAttr: document.getElementById("wrap-link")?.getAttribute("data-rmsg-hidden"),
+    }));
+    assert.equal(before.btnWrapAttr, "aimode");
+    assert.equal(before.linkWrapAttr, "aimode");
+
+    // Append 3 organic results into each hidden wrapper in one mutation (no subsequent mutations).
+    await page.evaluate(() => {
+      for (const [wrapId, prefix] of [["wrap-btn", "btn"], ["wrap-link", "lnk"]]) {
+        const wrap = document.getElementById(wrapId);
+        for (let i = 1; i <= 3; i += 1) {
+          const r = document.createElement("div");
+          r.className = "g";
+          r.id = `${prefix}-r${i}`;
+          r.innerHTML = `<a href="https://example.com/${prefix}-${i}"><h3 class="LC20lb">Organic ${prefix} ${i}</h3></a>`;
+          wrap.append(r);
+        }
+      }
+    });
+    await settle(page);
+    const after = await visibilityById(page);
+    const telemetry = await readTelemetry(b.sw);
+    const unHidBtn = telemetry.diagnosticLog.some((e) => e.code === "ERR_SAFETY_GUARD_TRIPPED" && /Un-hid div#wrap-btn/.test(e.detail));
+    const unHidLink = telemetry.diagnosticLog.some((e) => e.code === "ERR_SAFETY_GUARD_TRIPPED" && /Un-hid div#wrap-link/.test(e.detail));
+    assert.equal(after["wrap-btn"], true, "button wrapper should be restored");
+    assert.equal(after["wrap-link"], true, "link wrapper should be restored");
+    for (const id of ["btn-r1", "btn-r2", "btn-r3", "lnk-r1", "lnk-r2", "lnk-r3"]) {
+      assert.equal(after[id], true, `${id} should be visible`);
+    }
+    assert.equal(after["ai-btn-inside"], false, "inner AI Mode button stayed visible after wrapper restore");
+    assert.equal(after["ai-link-inside"], false, "inner AI Mode short anchor stayed visible after wrapper restore");
+    assert.ok(unHidBtn && unHidLink, "un-hide diagnostic not logged for restored wrappers");
+    return { before, after, unHidBtn, unHidLink };
+  }), { bp: "BP-09" });
+
 equivalent("B-06", "history.pushState(…udm=50) + DOM mutation → clean URL; aiModeRedirects +1 exactly", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();

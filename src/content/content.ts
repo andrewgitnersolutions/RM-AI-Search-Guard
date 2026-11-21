@@ -17,7 +17,7 @@
 import { cleanAiModeUrl } from "../shared/ai-mode-url";
 import { STORAGE_KEYS } from "../shared/defaults";
 import { parsePolicy } from "../shared/policy";
-import { readLocalOverrides, readManagedPolicyRaw } from "../shared/storage";
+import { readLocalOverrides, readManagedPolicyRaw, readMetricsResetEpoch } from "../shared/storage";
 import { applyPolicyAttributes, parseRedirectHash, sweepDom, unhideAllElements, unhideCategoryElements } from "./dom-engine";
 import type { SeenCategoryPages } from "./dom-engine";
 import type { EffectivePolicy, RawRecord } from "../shared/types";
@@ -124,6 +124,32 @@ const reportedErrorKeys = /* @__PURE__ */ new Set<string>();
 
 let pendingMetricDeltas: Record<string, number> = {};
 let metricsFlushTimer: ReturnType<typeof window.setTimeout> | null = null;
+let currentResetEpoch: number | null = null;
+let liveResetSeen = false;
+
+/**
+ * Load the stored metrics reset epoch once on startup without clobbering any newer epoch
+ * already delivered live via storage.onChanged.
+ */
+async function initMetricsResetEpoch(): Promise<void> {
+  const epoch = await readMetricsResetEpoch();
+  if (!liveResetSeen && currentResetEpoch === null) {
+    currentResetEpoch = epoch;
+  }
+}
+
+/**
+ * Discard any queued pre-reset metric deltas and cancel the fallback flush timer (PR #6 review).
+ */
+function clearPendingMetrics(): void {
+  if (metricsFlushTimer !== null) {
+    if (typeof window.clearTimeout === "function") {
+      window.clearTimeout(metricsFlushTimer);
+    }
+    metricsFlushTimer = null;
+  }
+  pendingMetricDeltas = {};
+}
 
 /**
  * Cancel any pending throttle timer or animation-frame sweep callback.
@@ -196,7 +222,11 @@ function flushPendingMetrics(): void {
   }
   const deltas = pendingMetricDeltas;
   pendingMetricDeltas = {};
-  void sendRuntimeMessage({ type: "INCREMENT_METRICS", deltas });
+  const msg: RawRecord = { type: "INCREMENT_METRICS", deltas };
+  if (currentResetEpoch !== null) {
+    msg.resetEpoch = currentResetEpoch;
+  }
+  void sendRuntimeMessage(msg);
 }
 
 /**
@@ -432,9 +462,18 @@ async function bootstrapContentGuard() {
   }
 }
 
-// Admin Console pushes and local test changes re-apply to open tabs without a reload.
+// Admin Console pushes and local test changes re-apply to open tabs without a reload; local
+// counter resets discard unflushed pre-reset deltas before they can re-increment cleared totals.
 if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener(async (changes, areaName) => {
+    if (areaName === "local" && STORAGE_KEYS.METRICS_RESET_EPOCH in changes) {
+      const nextEpoch = changes[STORAGE_KEYS.METRICS_RESET_EPOCH]?.newValue;
+      if (typeof nextEpoch === "number" && Number.isInteger(nextEpoch) && nextEpoch >= 0) {
+        liveResetSeen = true;
+        currentResetEpoch = nextEpoch;
+        clearPendingMetrics();
+      }
+    }
     if (areaName === "managed" || areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
       await loadAndApplyPolicy();
     }
@@ -490,4 +529,5 @@ if (navigationApi && typeof navigationApi.addEventListener === "function") {
 
 // Start at document_start. CSS hiding is already on (applyFailClosedAttributes); JS sweeps and
 // any un-hiding wait for the policy.
+void initMetricsResetEpoch();
 void bootstrapContentGuard();

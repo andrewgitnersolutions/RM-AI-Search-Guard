@@ -391,6 +391,10 @@ Severity scale: **Critical**: a student can defeat protection, or protection sil
   - Reduction: **88.7% median** (88.6% mean), exceeding the ≥50% target.
 - **Tests:** `U-21`, `U-22`, `B-08` (churning SERP: ≤2 telemetry writes, all counters flushed on `pagehide`), `B-08b`, and `B-09` pass. `B-07`, `B-08`, and `B-08b` fail against the unfixed Phase 2 `dist/`.
 
+**2026-11-21, CodeRabbit review of PR #6:**
+- **Restore unsafe wrappers before collection (`src/content/dom-engine.ts`):** Extracted `restoreUnsafeHiddenElements()` and run it in `sweepDom()` before collecting any category candidates, so restored `[role="listitem"]` wrappers release inner AI Mode buttons and short anchors to be hidden in the same sweep (`B-05d`).
+- **Reset epoch gating (`src/shared/defaults.ts`, `src/shared/storage.ts`, `src/background/messages.ts`, `src/background/service-worker.ts`, `src/content/content.ts`, `src/ui/options.ts`):** `resetLocalTelemetry()` bumps `rmsg_metrics_reset_epoch` in `chrome.storage.local`; open content scripts discard `pendingMetricDeltas` and cancel `metricsFlushTimer` on reset via `storage.onChanged`, and tag `INCREMENT_METRICS` with `resetEpoch` so stale in-flight batches are ignored (`U-23`).
+
 **Done when:** on a recorded results page, a DevTools Performance profile shows sweep time per second reduced by at least 50% versus baseline, and a single search causes ≤ 2 telemetry writes.
 
 ---
@@ -747,6 +751,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-20 | Content script (vm, controlled message timing): an older disabled policy load finishing after a newer enabled one is dropped; the tab stays protected | BP-17 |
 | U-21 | Content script (vm, fake timers): burst mutations throttle to ≥150 ms, first/idle sweep runs on rAF, disabling `masterEnabled` cancels pending timer/rAF | BP-09 |
 | U-22 | Content script (vm, fake timers): metric deltas batch across sweeps, flush once on `visibilitychange` (`hidden`) / `pagehide` (no double-send), and flush on the 10 s timer | BP-09 |
+| U-23 | Content script + service worker (vm): `RESET_LOCAL_METRICS` discards pending pre-reset batches in open tabs and drops stale in-flight `INCREMENT_METRICS` via `resetEpoch` | BP-09 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
 
@@ -758,7 +763,7 @@ Mock pages are saved HTML snippets copied from Google's markup: an AI Overview, 
 | B-02 | Policy with `hideAiOverviews:false` → Overview visible after load | BP-02 |
 | B-03 | Each surface is hidden: Overview, AI Mode tab, homepage button, Dive deeper, Labs, Lens, follow-up; search box visible; ≥5 organic results visible | Regression |
 | B-04 | Organic result linking to `example.com/.../aimode-review` stays visible | BP-08 |
-| B-05 | Overview whose nearest `data-hveid` wrapper contains 1 organic result: only the Overview card hides; `ERR_SAFETY_GUARD_TRIPPED` if the only candidate is the wrapper | BP-08 |
+| B-05 | Overview whose nearest `data-hveid` wrapper contains 1 organic result: only the Overview card hides; `ERR_SAFETY_GUARD_TRIPPED` if the only candidate is the wrapper (`B-05b`/`B-05c`: CSS guard deferral & late un-hide; `B-05d`: restored `aimode` wrapper releases inner button/anchor in the same sweep) | BP-08, BP-09 |
 | B-06 | `history.pushState(…udm=50)` + a DOM mutation → page ends on the clean URL; `aiModeRedirects` +1 exactly. (B-06b, 2026-11-21: pushState alone, caught by the Navigation API.) | BP-05 |
 | B-07 | Same page reloaded 3× with re-render churn → each category counter +3 exactly | BP-14 |
 | B-08 | A single search on a churning results page (`churn.html`) produces ≤2 telemetry writes and flushes all counters on `pagehide` (`B-08b`: Options skips telemetry-only refreshes while Diagnostics is hidden) | BP-09 |
