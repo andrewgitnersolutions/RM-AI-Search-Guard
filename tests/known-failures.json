@@ -71,11 +71,6 @@
       "phase": 2,
       "message": "AssertionError: SET_LOCAL_OVERRIDES from a google.com tab must be refused\n+ actual - expected\n\n+ undefined\n- false\n"
     },
-    "U-13": {
-      "bp": "BP-13",
-      "phase": 2,
-      "message": "AssertionError: endpoint URL leaked to content script"
-    },
     "U-14": {
       "bp": "BP-07",
       "phase": 2,

@@ -194,14 +194,14 @@ async function optionsState(page) {
   return page.evaluate(() => ({
     lockBadgesVisible: [...document.querySelectorAll("[data-lock-badge]")].filter((e) => e.checkVisibility()).length,
     cancelResetVisible: document.getElementById("btn-cancel-reset").checkVisibility(),
-    testFlushVisible: document.getElementById("btn-test-flush").checkVisibility(),
     staffCardVisible: document.querySelector('article[data-grade-band="Staff"]')?.checkVisibility() ?? null,
     selectedTab: document.querySelector('[role="tab"][aria-selected="true"]')?.id ?? null,
     modeBadge: document.getElementById("policy-mode-badge")?.textContent ?? null,
   }));
 }
 
-equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only after first Reset; Test Flush only with analytics; Staff card only after toggle; tabs switch", (target) =>
+// The Test Flush half of B-12 went away with analytics (D6).
+equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only after first Reset; Staff card only after toggle; tabs switch", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     await page.goto(`chrome-extension://${b.extensionId}/ui/options.html`);
@@ -220,7 +220,6 @@ equivalent("B-12", "Options (unmanaged): no Locked badges; Cancel Reset only aft
     assert.equal(initial.lockBadgesVisible, 0, "Locked badges shown on an unmanaged device");
     assert.equal(initial.cancelResetVisible, false, "Cancel Reset visible before Reset");
     assert.equal(afterFirstReset.cancelResetVisible, true);
-    assert.equal(initial.testFlushVisible, false, "Test Flush visible with analytics off");
     assert.equal(generatorTab.staffCardVisible, false, "Staff card visible before toggle");
     return record;
   }), { bp: "BP-06" });

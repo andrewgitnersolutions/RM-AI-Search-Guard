@@ -3,7 +3,7 @@
   "properties": {
     "gradeBand": {
       "title": "Grade Band Label",
-      "description": "Grade-band label for this Organizational Unit (used for diagnostics and anonymous aggregate analytics only).",
+      "description": "Grade-band label for this Organizational Unit (shown in the Options page and IT diagnostics; never sent anywhere).",
       "type": "string",
       "enum": ["K-2", "3-5", "6-8", "9-12", "Staff", "Unassigned"]
     },
@@ -36,28 +36,6 @@
       "title": "Hide Auxiliary AI Features (Labs, Lens, AI Follow-Ups)",
       "description": "Hide Search Labs triggers, Google Lens search-bar buttons, AI follow-up input bars, and AI-generated prompt cards. Defaults to true.",
       "type": "boolean"
-    },
-    "analyticsEnabled": {
-      "title": "Enable Optional District Google Sheets Analytics",
-      "description": "When true and analyticsEndpointUrl is set, periodically flushes strictly anonymous daily aggregate counts to your district's Google Apps Script Web App. Defaults to false.",
-      "type": "boolean"
-    },
-    "analyticsEndpointUrl": {
-      "title": "District Google Apps Script Web App URL",
-      "description": "Must match https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec owned by your district.",
-      "type": "string"
-    },
-    "analyticsSharedToken": {
-      "title": "Optional Shared Token for Apps Script Endpoint",
-      "description": "Optional non-secret anti-spam token checked by your district's Code.gs webhook.",
-      "type": "string"
-    },
-    "analyticsFlushIntervalMinutes": {
-      "title": "Analytics Flush Interval (Minutes)",
-      "description": "Base interval between anonymous batch flushes (60 to 1440 minutes; plus 0-30 min random jitter). Defaults to 240.",
-      "type": "integer",
-      "minimum": 60,
-      "maximum": 1440
     }
   }
 }

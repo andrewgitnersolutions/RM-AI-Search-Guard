@@ -65,10 +65,6 @@ equivalent("U-03", "invalid managed values fall back fail-closed and are listed 
     forceWebOnlySearch: [],
     hideAuxiliaryAiFeatures: {},
     gradeBand: "13",
-    analyticsEnabled: "yes",
-    analyticsEndpointUrl: 42,
-    analyticsSharedToken: false,
-    analyticsFlushIntervalMinutes: 5,
   };
   const { policy, errors } = parse(sw, managed, null);
   for (const key of ["masterEnabled", "hideAiOverviews", "blockAiModeNavigation", "forceWebOnlySearch", "hideAuxiliaryAiFeatures"]) {
@@ -77,7 +73,6 @@ equivalent("U-03", "invalid managed values fall back fail-closed and are listed 
   }
   assert.equal(policy.gradeBand, "Unassigned");
   assert.ok(policy.invalidFields.includes("gradeBand"));
-  assert.ok(policy.invalidFields.includes("analyticsFlushIntervalMinutes"));
   assert.equal(policy.source, "managed-degraded");
   assert.ok(errors.some((e) => e.code === "ERR_POLICY_INVALID"));
   return { policy, errors };

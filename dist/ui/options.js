@@ -7,12 +7,6 @@ var STRICT_LOCKDOWN_TOGGLES = {
   forceWebOnlySearch: true,
   hideAuxiliaryAiFeatures: true
 };
-var DEFAULT_ANALYTICS_POLICY = {
-  analyticsEnabled: false,
-  analyticsEndpointUrl: "",
-  analyticsSharedToken: "",
-  analyticsFlushIntervalMinutes: 240
-};
 var VALID_GRADE_BANDS = [
   "K-2",
   "3-5",
@@ -91,14 +85,11 @@ var GRADE_BAND_PRESETS = {
     }
   }
 };
-var APPS_SCRIPT_URL_REGEX = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]{10,}\/exec$/;
 var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
   LAST_POLICY: "rmsg_last_policy"
 };
-var MIN_FLUSH_INTERVAL_MINUTES = 60;
-var MAX_FLUSH_INTERVAL_MINUTES = 1440;
 function createEmptyMetrics() {
   return {
     overviewsHidden: 0,
@@ -111,15 +102,7 @@ function createEmptyMetrics() {
 function createInitialTelemetryState() {
   return {
     lifetimeMetrics: createEmptyMetrics(),
-    pendingMetricsByDate: {},
-    pendingErrorsByCode: {},
-    diagnosticLog: [],
-    lastFlushAttemptDate: null,
-    lastFlushSuccessDate: null,
-    lastFlushStatus: "idle",
-    lastFlushMessage: "Analytics disabled (local-only mode).",
-    consecutiveFlushFailures: 0,
-    nextEligibleFlushAtMs: 0
+    diagnosticLog: []
   };
 }
 
@@ -129,12 +112,6 @@ function getTodayDateBucket(now = /* @__PURE__ */ new Date()) {
 }
 
 // src/shared/policy.ts
-function isValidAppsScriptUrl(url) {
-  if (typeof url !== "string") {
-    return false;
-  }
-  return APPS_SCRIPT_URL_REGEX.test(url);
-}
 function isValidGradeBand(value) {
   return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
 }
@@ -164,7 +141,6 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
     }
     const policy2 = {
       ...toggles2,
-      ...DEFAULT_ANALYTICS_POLICY,
       gradeBand: gradeBand2,
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
@@ -195,61 +171,14 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
       gradeBand = "Unassigned";
     }
   }
-  let analyticsEnabled = DEFAULT_ANALYTICS_POLICY.analyticsEnabled;
-  if ("analyticsEnabled" in managedRaw && managedRaw.analyticsEnabled !== void 0) {
-    if (typeof managedRaw.analyticsEnabled === "boolean") {
-      analyticsEnabled = managedRaw.analyticsEnabled;
-    } else {
-      invalidFields.push("analyticsEnabled");
-      analyticsEnabled = false;
-    }
-  }
-  let analyticsEndpointUrl = DEFAULT_ANALYTICS_POLICY.analyticsEndpointUrl;
-  if ("analyticsEndpointUrl" in managedRaw && managedRaw.analyticsEndpointUrl !== void 0) {
-    if (typeof managedRaw.analyticsEndpointUrl === "string") {
-      analyticsEndpointUrl = managedRaw.analyticsEndpointUrl.trim();
-    } else {
-      invalidFields.push("analyticsEndpointUrl");
-      analyticsEndpointUrl = "";
-    }
-  }
-  let analyticsSharedToken = DEFAULT_ANALYTICS_POLICY.analyticsSharedToken;
-  if ("analyticsSharedToken" in managedRaw && managedRaw.analyticsSharedToken !== void 0) {
-    if (typeof managedRaw.analyticsSharedToken === "string") {
-      analyticsSharedToken = managedRaw.analyticsSharedToken.trim();
-    } else {
-      invalidFields.push("analyticsSharedToken");
-      analyticsSharedToken = "";
-    }
-  }
-  let analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-  if ("analyticsFlushIntervalMinutes" in managedRaw && managedRaw.analyticsFlushIntervalMinutes !== void 0) {
-    const rawInterval = managedRaw.analyticsFlushIntervalMinutes;
-    if (typeof rawInterval === "number" && Number.isInteger(rawInterval) && rawInterval >= MIN_FLUSH_INTERVAL_MINUTES && rawInterval <= MAX_FLUSH_INTERVAL_MINUTES) {
-      analyticsFlushIntervalMinutes = rawInterval;
-    } else {
-      invalidFields.push("analyticsFlushIntervalMinutes");
-      analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-    }
-  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
       detail: invalidFields.join(", ")
     });
   }
-  if (analyticsEnabled && !isValidAppsScriptUrl(analyticsEndpointUrl)) {
-    errors.push({
-      code: "ERR_ANALYTICS_ENDPOINT_INVALID",
-      detail: analyticsEndpointUrl ? "Configured analyticsEndpointUrl failed Apps Script allowlist validation" : "analyticsEndpointUrl is missing while analyticsEnabled is true"
-    });
-  }
   const policy = {
     ...toggles,
-    analyticsEnabled,
-    analyticsEndpointUrl,
-    analyticsSharedToken,
-    analyticsFlushIntervalMinutes,
     gradeBand,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,
@@ -259,51 +188,20 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
   return { policy, errors };
 }
 function formatAdminConsolePolicyJson(config) {
-  const result = {
+  return {
     gradeBand: { Value: config.gradeBand },
     masterEnabled: { Value: Boolean(config.masterEnabled) },
     hideAiOverviews: { Value: Boolean(config.hideAiOverviews) },
     hideAiModeUi: { Value: Boolean(config.hideAiModeUi) },
     blockAiModeNavigation: { Value: Boolean(config.blockAiModeNavigation) },
     forceWebOnlySearch: { Value: Boolean(config.forceWebOnlySearch) },
-    hideAuxiliaryAiFeatures: { Value: Boolean(config.hideAuxiliaryAiFeatures) },
-    analyticsEnabled: { Value: Boolean(config.analyticsEnabled) }
+    hideAuxiliaryAiFeatures: { Value: Boolean(config.hideAuxiliaryAiFeatures) }
   };
-  if (config.analyticsEnabled) {
-    const trimmedUrl = (config.analyticsEndpointUrl ?? "").trim();
-    result.analyticsEndpointUrl = { Value: trimmedUrl };
-    const trimmedToken = (config.analyticsSharedToken ?? "").trim();
-    if (trimmedToken.length > 0) {
-      result.analyticsSharedToken = { Value: trimmedToken };
-    }
-    const interval = config.analyticsFlushIntervalMinutes;
-    const validInterval = typeof interval === "number" && Number.isInteger(interval) && interval >= MIN_FLUSH_INTERVAL_MINUTES && interval <= MAX_FLUSH_INTERVAL_MINUTES ? interval : DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-    result.analyticsFlushIntervalMinutes = { Value: validInterval };
-  }
-  return result;
 }
 function validatePolicyDraft(config) {
   const errors = [];
   if (!isValidGradeBand(config.gradeBand)) {
     errors.push(`Invalid grade band "${String(config.gradeBand)}".`);
-  }
-  if (config.analyticsEnabled) {
-    const trimmedUrl = (config.analyticsEndpointUrl ?? "").trim();
-    if (!trimmedUrl) {
-      errors.push("District Google Apps Script Web App URL is required when analytics is enabled.");
-    } else if (!isValidAppsScriptUrl(trimmedUrl)) {
-      errors.push(
-        "Analytics Endpoint URL must match https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec"
-      );
-    }
-    if (config.analyticsFlushIntervalMinutes !== void 0) {
-      const interval = config.analyticsFlushIntervalMinutes;
-      if (typeof interval !== "number" || !Number.isInteger(interval) || interval < MIN_FLUSH_INTERVAL_MINUTES || interval > MAX_FLUSH_INTERVAL_MINUTES) {
-        errors.push(
-          `Analytics flush interval must be a whole number between ${MIN_FLUSH_INTERVAL_MINUTES} and ${MAX_FLUSH_INTERVAL_MINUTES} minutes.`
-        );
-      }
-    }
   }
   return { valid: errors.length === 0, errors };
 }
@@ -329,14 +227,10 @@ function createDefaultBandStates() {
     Staff: { ...GRADE_BAND_PRESETS.Staff.toggles }
   };
 }
-function buildBandAdminJsonString(gradeBand, toggles, analytics) {
+function buildBandAdminJsonString(gradeBand, toggles) {
   const payload = formatAdminConsolePolicyJson({
     gradeBand,
-    ...toggles,
-    analyticsEnabled: analytics.analyticsEnabled,
-    analyticsEndpointUrl: analytics.analyticsEndpointUrl,
-    analyticsSharedToken: analytics.analyticsSharedToken,
-    analyticsFlushIntervalMinutes: analytics.analyticsFlushIntervalMinutes
+    ...toggles
   });
   return JSON.stringify(payload, null, 2);
 }
@@ -384,22 +278,10 @@ function triggerFileDownload(filename, content, mimeType = "application/json") {
     URL.revokeObjectURL(objectUrl);
   }, 1e3);
 }
-function syncFieldErrorLink(input, errorId, shown) {
-  const existing = (input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((id) => id.length > 0 && id !== errorId);
-  if (shown) {
-    existing.push(errorId);
-  }
-  if (existing.length > 0) {
-    input.setAttribute("aria-describedby", existing.join(" "));
-  } else {
-    input.removeAttribute("aria-describedby");
-  }
-}
 function mountPolicyGenerator(container, options) {
   mountInstanceCounter += 1;
   const idPrefix = `rm-pg-${mountInstanceCounter}`;
   let bandStates = createDefaultBandStates();
-  const analytics = { ...DEFAULT_ANALYTICS_POLICY };
   let showStaffBand = false;
   container.replaceChildren();
   const root = document.createElement("div");
@@ -443,11 +325,7 @@ function mountPolicyGenerator(container, options) {
   downloadAllBtn.type = "button";
   downloadAllBtn.className = "rm-btn rm-btn-navy";
   downloadAllBtn.textContent = "Download All 4 JSON Files";
-  const copyAppsScriptBtn = document.createElement("button");
-  copyAppsScriptBtn.type = "button";
-  copyAppsScriptBtn.className = "rm-btn";
-  copyAppsScriptBtn.textContent = "Copy Apps Script Template (Code.gs)";
-  rightButtons.append(downloadAllBtn, copyAppsScriptBtn);
+  rightButtons.append(downloadAllBtn);
   toolbar.append(leftButtons, rightButtons);
   root.append(toolbar);
   const statusLine = document.createElement("p");
@@ -460,115 +338,6 @@ function mountPolicyGenerator(container, options) {
     statusLine.classList.toggle("status-line-error", isError);
     options?.onStatus?.(message);
   };
-  const analyticsFieldset = document.createElement("fieldset");
-  analyticsFieldset.className = "pg-analytics-fieldset";
-  const analyticsLegend = document.createElement("legend");
-  analyticsLegend.className = "pg-analytics-legend";
-  analyticsLegend.textContent = "Optional Shared District Google Sheets Analytics ($0, Zero PII)";
-  analyticsFieldset.append(analyticsLegend);
-  const enableRow = document.createElement("div");
-  const enableCheckbox = document.createElement("input");
-  enableCheckbox.type = "checkbox";
-  enableCheckbox.id = `${idPrefix}-analytics-enabled`;
-  enableCheckbox.name = "analyticsEnabled";
-  enableCheckbox.className = "rm-checkbox";
-  enableCheckbox.checked = analytics.analyticsEnabled;
-  const enableLabel = document.createElement("label");
-  enableLabel.htmlFor = enableCheckbox.id;
-  enableLabel.className = "rm-checkbox-label";
-  enableLabel.append(enableCheckbox, document.createTextNode("Enable District Google Sheets Analytics across all generated policies"));
-  enableRow.append(enableLabel);
-  analyticsFieldset.append(enableRow);
-  const analyticsGrid = document.createElement("div");
-  analyticsGrid.className = "pg-analytics-grid";
-  const urlRow = document.createElement("div");
-  urlRow.className = "field-row";
-  const urlId = `${idPrefix}-analytics-url`;
-  const urlHintId = `${idPrefix}-analytics-url-hint`;
-  const urlErrorId = `${idPrefix}-analytics-url-error`;
-  const urlLabel = document.createElement("label");
-  urlLabel.htmlFor = urlId;
-  urlLabel.className = "field-label";
-  urlLabel.textContent = "Google Apps Script Web App URL";
-  const urlHint = document.createElement("p");
-  urlHint.id = urlHintId;
-  urlHint.className = "field-hint";
-  urlHint.textContent = "Format: https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec";
-  const urlInput = document.createElement("input");
-  urlInput.type = "url";
-  urlInput.id = urlId;
-  urlInput.name = "analyticsEndpointUrl";
-  urlInput.className = "rm-input";
-  urlInput.placeholder = "https://script.google.com/macros/s/AKfycb.../exec";
-  urlInput.setAttribute("autocorrect", "off");
-  urlInput.setAttribute("autocapitalize", "none");
-  urlInput.setAttribute("spellcheck", "false");
-  urlInput.setAttribute("inputmode", "url");
-  urlInput.setAttribute("aria-invalid", "false");
-  urlInput.setAttribute("aria-describedby", urlHintId);
-  urlInput.dataset.error = urlErrorId;
-  const urlError = document.createElement("p");
-  urlError.id = urlErrorId;
-  urlError.className = "field-error";
-  urlError.hidden = true;
-  urlRow.append(urlLabel, urlHint, urlInput, urlError);
-  const tokenRow = document.createElement("div");
-  tokenRow.className = "field-row";
-  const tokenId = `${idPrefix}-analytics-token`;
-  const tokenHintId = `${idPrefix}-analytics-token-hint`;
-  const tokenLabel = document.createElement("label");
-  tokenLabel.htmlFor = tokenId;
-  tokenLabel.className = "field-label";
-  tokenLabel.textContent = "Optional Shared Token";
-  const tokenHint = document.createElement("p");
-  tokenHint.id = tokenHintId;
-  tokenHint.className = "field-hint";
-  tokenHint.textContent = "Must match SHARED_TOKEN in your district Code.gs (optional anti-spam check).";
-  const tokenInput = document.createElement("input");
-  tokenInput.type = "text";
-  tokenInput.id = tokenId;
-  tokenInput.name = "analyticsSharedToken";
-  tokenInput.className = "rm-input";
-  tokenInput.placeholder = "district-sg-2026";
-  tokenInput.setAttribute("autocorrect", "off");
-  tokenInput.setAttribute("autocapitalize", "none");
-  tokenInput.setAttribute("spellcheck", "false");
-  tokenInput.setAttribute("aria-invalid", "false");
-  tokenInput.setAttribute("aria-describedby", tokenHintId);
-  tokenRow.append(tokenLabel, tokenHint, tokenInput);
-  const intervalRow = document.createElement("div");
-  intervalRow.className = "field-row";
-  const intervalId = `${idPrefix}-analytics-interval`;
-  const intervalHintId = `${idPrefix}-analytics-interval-hint`;
-  const intervalErrorId = `${idPrefix}-analytics-interval-error`;
-  const intervalLabel = document.createElement("label");
-  intervalLabel.htmlFor = intervalId;
-  intervalLabel.className = "field-label";
-  intervalLabel.textContent = "Flush Interval (Minutes)";
-  const intervalHint = document.createElement("p");
-  intervalHint.id = intervalHintId;
-  intervalHint.className = "field-hint";
-  intervalHint.textContent = `Whole number between ${MIN_FLUSH_INTERVAL_MINUTES} and ${MAX_FLUSH_INTERVAL_MINUTES} (default 240).`;
-  const intervalInput = document.createElement("input");
-  intervalInput.type = "number";
-  intervalInput.id = intervalId;
-  intervalInput.name = "analyticsFlushIntervalMinutes";
-  intervalInput.className = "rm-input";
-  intervalInput.min = String(MIN_FLUSH_INTERVAL_MINUTES);
-  intervalInput.max = String(MAX_FLUSH_INTERVAL_MINUTES);
-  intervalInput.step = "1";
-  intervalInput.value = String(analytics.analyticsFlushIntervalMinutes);
-  intervalInput.setAttribute("aria-invalid", "false");
-  intervalInput.setAttribute("aria-describedby", intervalHintId);
-  intervalInput.dataset.error = intervalErrorId;
-  const intervalError = document.createElement("p");
-  intervalError.id = intervalErrorId;
-  intervalError.className = "field-error";
-  intervalError.hidden = true;
-  intervalRow.append(intervalLabel, intervalHint, intervalInput, intervalError);
-  analyticsGrid.append(urlRow, tokenRow, intervalRow);
-  analyticsFieldset.append(analyticsGrid);
-  root.append(analyticsFieldset);
   const matrix = document.createElement("div");
   matrix.className = "pg-matrix";
   const cardRefs = {};
@@ -646,14 +415,8 @@ function mountPolicyGenerator(container, options) {
     copySr.textContent = ` for ${band}`;
     copyBtn.append(document.createTextNode("Copy Google Admin Console JSON"), copySr);
     copyBtn.addEventListener("click", async () => {
-      const draftCheck = validatePolicyDraft({
-        gradeBand: band,
-        analyticsEnabled: analytics.analyticsEnabled,
-        analyticsEndpointUrl: analytics.analyticsEndpointUrl,
-        analyticsFlushIntervalMinutes: analytics.analyticsFlushIntervalMinutes
-      });
-      validateAnalyticsInputs(true);
-      const jsonText = buildBandAdminJsonString(band, bandStates[band], analytics);
+      const draftCheck = validatePolicyDraft({ gradeBand: band });
+      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
       const copied = await copyTextToClipboard(jsonText);
       if (!copied) {
         setStatus(`Could not copy ${band} JSON automatically. Select and copy from the preview box.`, true);
@@ -674,7 +437,7 @@ function mountPolicyGenerator(container, options) {
     dlSr.textContent = ` for ${band}`;
     dlBtn.append(document.createTextNode("Download .json"), dlSr);
     dlBtn.addEventListener("click", () => {
-      const jsonText = buildBandAdminJsonString(band, bandStates[band], analytics);
+      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
       triggerFileDownload(`raisemark-search-guard-${band}.json`, jsonText);
       setStatus(`Downloaded raisemark-search-guard-${band}.json.`);
     });
@@ -702,74 +465,13 @@ function mountPolicyGenerator(container, options) {
     }
     const showAiModeReminder = toggles.masterEnabled && (toggles.blockAiModeNavigation || toggles.hideAiModeUi);
     refs.reminder.hidden = !showAiModeReminder;
-    refs.codeEl.textContent = buildBandAdminJsonString(band, toggles, analytics);
+    refs.codeEl.textContent = buildBandAdminJsonString(band, toggles);
   }
   function renderAllBands() {
     for (const band of ALL_BANDS) {
       renderBandCard(band);
     }
   }
-  function validateAnalyticsInputs(announce = false) {
-    const trimmedUrl = urlInput.value.trim();
-    let urlMessage = "";
-    if (trimmedUrl.length > 0 && !APPS_SCRIPT_URL_REGEX.test(trimmedUrl)) {
-      urlMessage = "Invalid Apps Script URL. Must match https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec.";
-    } else if (analytics.analyticsEnabled && trimmedUrl.length === 0) {
-      urlMessage = "Apps Script Web App URL is required when District Analytics is enabled (https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec).";
-    }
-    const urlInvalid = urlMessage.length > 0;
-    urlInput.setCustomValidity(urlMessage);
-    urlInput.setAttribute("aria-invalid", urlInvalid ? "true" : "false");
-    urlError.textContent = urlMessage;
-    urlError.hidden = !urlInvalid;
-    syncFieldErrorLink(urlInput, urlErrorId, urlInvalid);
-    const parsedInterval = Number(intervalInput.value);
-    const intervalInvalid = analytics.analyticsEnabled && (!Number.isInteger(parsedInterval) || parsedInterval < MIN_FLUSH_INTERVAL_MINUTES || parsedInterval > MAX_FLUSH_INTERVAL_MINUTES);
-    const intervalMessage = intervalInvalid ? `Flush interval must be a whole number between ${MIN_FLUSH_INTERVAL_MINUTES} and ${MAX_FLUSH_INTERVAL_MINUTES} minutes.` : "";
-    intervalInput.setCustomValidity(intervalMessage);
-    intervalInput.setAttribute("aria-invalid", intervalInvalid ? "true" : "false");
-    intervalError.textContent = intervalMessage;
-    intervalError.hidden = !intervalInvalid;
-    syncFieldErrorLink(intervalInput, intervalErrorId, intervalInvalid);
-    if (announce && (urlInvalid || intervalInvalid)) {
-      errorAnnouncer.textContent = "";
-      errorAnnouncer.textContent = urlMessage || intervalMessage;
-    } else if (!urlInvalid && !intervalInvalid) {
-      errorAnnouncer.textContent = "";
-    }
-    return !urlInvalid && !intervalInvalid;
-  }
-  enableCheckbox.addEventListener("change", () => {
-    analytics.analyticsEnabled = enableCheckbox.checked;
-    validateAnalyticsInputs(true);
-    renderAllBands();
-  });
-  urlInput.addEventListener("input", () => {
-    analytics.analyticsEndpointUrl = urlInput.value.trim();
-    validateAnalyticsInputs(false);
-    renderAllBands();
-  });
-  urlInput.addEventListener("blur", () => {
-    analytics.analyticsEndpointUrl = urlInput.value.trim();
-    validateAnalyticsInputs(true);
-    renderAllBands();
-  });
-  tokenInput.addEventListener("input", () => {
-    analytics.analyticsSharedToken = tokenInput.value.trim();
-    renderAllBands();
-  });
-  intervalInput.addEventListener("input", () => {
-    const parsed = Number(intervalInput.value);
-    if (Number.isInteger(parsed) && parsed >= MIN_FLUSH_INTERVAL_MINUTES && parsed <= MAX_FLUSH_INTERVAL_MINUTES) {
-      analytics.analyticsFlushIntervalMinutes = parsed;
-    }
-    validateAnalyticsInputs(false);
-    renderAllBands();
-  });
-  intervalInput.addEventListener("blur", () => {
-    validateAnalyticsInputs(true);
-    renderAllBands();
-  });
   resetBtn.addEventListener("click", () => {
     bandStates = createDefaultBandStates();
     renderAllBands();
@@ -782,42 +484,16 @@ function mountPolicyGenerator(container, options) {
     staffToggleBtn.textContent = showStaffBand ? "Hide Staff OU Preset" : "Show Staff OU Preset";
   });
   downloadAllBtn.addEventListener("click", () => {
-    validateAnalyticsInputs(true);
     for (const band of PRIMARY_BANDS) {
-      const jsonText = buildBandAdminJsonString(band, bandStates[band], analytics);
+      const jsonText = buildBandAdminJsonString(band, bandStates[band]);
       triggerFileDownload(`raisemark-search-guard-${band}.json`, jsonText);
     }
-    const validAnalytics = !analytics.analyticsEnabled || isValidAppsScriptUrl(analytics.analyticsEndpointUrl);
-    if (!validAnalytics) {
-      setStatus(
-        "Downloaded all 4 grade-band JSON files (warning: Apps Script URL is invalid or blank).",
-        true
-      );
-    } else {
-      setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
-    }
-  });
-  copyAppsScriptBtn.addEventListener("click", async () => {
-    const template = options?.appsScriptTemplate;
-    if (!template) {
-      setStatus(
-        "Apps Script template (templates/apps-script/Code.gs) is not bundled in this view. Copy it directly from the repository.",
-        true
-      );
-      return;
-    }
-    const copied = await copyTextToClipboard(template);
-    if (copied) {
-      setStatus("Copied district Google Apps Script template (Code.gs) to clipboard.");
-    } else {
-      setStatus("Could not access clipboard to copy Code.gs.", true);
-    }
+    setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
   });
   renderAllBands();
 }
 
 // src/ui/options.ts
-var EMBEDDED_APPS_SCRIPT_TEMPLATE = true ? "/**\n * RaiseMark AI Search Guard — District-Owned Zero-PII Analytics Sink\n *\n * Deployment Instructions:\n * 1. Create a Google Sheet inside your school district's Google Workspace.\n * 2. Open Extensions -> Apps Script and paste this entire file into Code.gs.\n * 3. (Optional) Set SHARED_TOKEN below to match `analyticsSharedToken` in your\n *    Google Admin Console extension policy JSON.\n * 4. Click Deploy -> New deployment -> Web app:\n *      - Execute as: Me\n *      - Who has access: Anyone\n * 5. Copy the resulting https://script.google.com/macros/s/<ID>/exec URL into\n *    the RaiseMark AI Search Guard Admin Policy Generator.\n *\n * Privacy Guarantee:\n * - Strictly allowlists aggregate counts only (zero PII, zero search queries,\n *   zero student emails, zero device IDs, zero IP logging).\n * - Rejects any payload containing unexpected or non-allowlisted fields.\n */\n\nvar SHARED_TOKEN = '';\nvar DAILY_SHEET_NAME = 'Daily_Rollup';\nvar ERROR_SHEET_NAME = 'Error_Summary';\nvar MAX_COUNT_PER_BATCH = 100000;\n\nvar ALLOWED_TOP_LEVEL_KEYS = [\n  'schemaVersion',\n  'extensionVersion',\n  'token',\n  'gradeBand',\n  'dateBucket',\n  'metrics',\n  'errors',\n];\n\nvar ALLOWED_GRADE_BANDS = ['K-2', '3-5', '6-8', '9-12', 'Staff', 'Unassigned'];\n\nvar ALLOWED_METRIC_KEYS = [\n  'overviewsHidden',\n  'aiModeUiHidden',\n  'aiModeRedirects',\n  'omniboxFallbackRedirects',\n  'auxAiHidden',\n];\n\nvar ALLOWED_ERROR_CODES = [\n  'ERR_POLICY_INVALID',\n  'ERR_DNR_SYNC_FAILED',\n  'ERR_SELECTOR_SYNTAX',\n  'ERR_SAFETY_GUARD_TRIPPED',\n  'ERR_ANALYTICS_ENDPOINT_INVALID',\n  'ERR_ANALYTICS_FLUSH_FAILED',\n  'ERR_STORAGE_FAILURE',\n  'WARN_NO_MANAGED_POLICY',\n  'WARN_OMNIBOX_POLICY_MISSING',\n];\n\nvar DAILY_HEADERS = [\n  'Date',\n  'GradeBand',\n  'ExtensionVersion',\n  'OverviewsHidden',\n  'AiModeUiHidden',\n  'AiModeRedirects',\n  'OmniboxFallbackRedirects',\n  'AuxAiHidden',\n  'ReportingBatches',\n];\n\nvar ERROR_HEADERS = ['Date', 'GradeBand', 'ErrorCode', 'Count'];\n\nfunction doGet() {\n  return jsonResponse_({\n    status: 'ok',\n    service: 'RaiseMark AI Search Guard Analytics Sink',\n    message: 'Endpoint is active. Submit anonymous daily aggregates via HTTP POST.',\n  });\n}\n\nfunction doPost(e) {\n  if (!e || !e.postData || typeof e.postData.contents !== 'string') {\n    return jsonResponse_({ status: 'error', code: 'EMPTY_BODY' });\n  }\n\n  var payload;\n  try {\n    payload = JSON.parse(e.postData.contents);\n  } catch (_err) {\n    return jsonResponse_({ status: 'error', code: 'INVALID_JSON' });\n  }\n\n  if (!isPlainObject_(payload)) {\n    return jsonResponse_({ status: 'error', code: 'INVALID_PAYLOAD' });\n  }\n\n  if (typeof SHARED_TOKEN === 'string' && SHARED_TOKEN.length > 0) {\n    if (typeof payload.token !== 'string' || payload.token !== SHARED_TOKEN) {\n      return jsonResponse_({ status: 'error', code: 'UNAUTHORIZED' });\n    }\n  }\n\n  var validation = validatePayload_(payload);\n  if (!validation.ok) {\n    return jsonResponse_({\n      status: 'error',\n      code: validation.code,\n      message: validation.message,\n    });\n  }\n\n  var lock = LockService.getScriptLock();\n  var lockAcquired = false;\n  try {\n    lock.waitLock(15000);\n    lockAcquired = true;\n\n    var ss = SpreadsheetApp.getActiveSpreadsheet();\n    upsertDailyRollup_(ss, validation.data);\n    upsertErrorSummary_(ss, validation.data);\n\n    return jsonResponse_({ status: 'ok' });\n  } catch (err) {\n    return jsonResponse_({\n      status: 'error',\n      code: lockAcquired ? 'WRITE_FAILED' : 'LOCK_TIMEOUT',\n      message: err && err.message ? String(err.message) : 'Unexpected server error',\n    });\n  } finally {\n    if (lockAcquired) {\n      lock.releaseLock();\n    }\n  }\n}\n\nfunction isPlainObject_(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\n\nfunction isValidCount_(value) {\n  return (\n    typeof value === 'number' &&\n    isFinite(value) &&\n    Math.floor(value) === value &&\n    value >= 0 &&\n    value <= MAX_COUNT_PER_BATCH\n  );\n}\n\nfunction validatePayload_(payload) {\n  var topKeys = Object.keys(payload);\n  for (var i = 0; i < topKeys.length; i++) {\n    if (ALLOWED_TOP_LEVEL_KEYS.indexOf(topKeys[i]) === -1) {\n      return {\n        ok: false,\n        code: 'INVALID_PAYLOAD',\n        message: 'Unexpected field rejected by zero-PII allowlist',\n      };\n    }\n  }\n\n  if (payload.schemaVersion !== 1) {\n    return { ok: false, code: 'INVALID_PAYLOAD', message: 'Unsupported schemaVersion' };\n  }\n\n  if (\n    typeof payload.extensionVersion !== 'string' ||\n    !/^\\d+\\.\\d+\\.\\d+$/.test(payload.extensionVersion)\n  ) {\n    return { ok: false, code: 'INVALID_PAYLOAD', message: 'Invalid extensionVersion' };\n  }\n\n  if (payload.token !== undefined && typeof payload.token !== 'string') {\n    return { ok: false, code: 'INVALID_PAYLOAD', message: 'Invalid token type' };\n  }\n\n  if (\n    typeof payload.gradeBand !== 'string' ||\n    ALLOWED_GRADE_BANDS.indexOf(payload.gradeBand) === -1\n  ) {\n    return { ok: false, code: 'INVALID_PAYLOAD', message: 'Invalid gradeBand' };\n  }\n\n  if (typeof payload.dateBucket !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(payload.dateBucket)) {\n    return { ok: false, code: 'INVALID_PAYLOAD', message: 'Invalid dateBucket' };\n  }\n\n  if (!isPlainObject_(payload.metrics)) {\n    return { ok: false, code: 'INVALID_PAYLOAD', message: 'Missing or invalid metrics object' };\n  }\n\n  var metricKeys = Object.keys(payload.metrics);\n  for (var m = 0; m < metricKeys.length; m++) {\n    if (ALLOWED_METRIC_KEYS.indexOf(metricKeys[m]) === -1) {\n      return {\n        ok: false,\n        code: 'INVALID_PAYLOAD',\n        message: 'Unexpected metric key rejected by allowlist',\n      };\n    }\n  }\n\n  var cleanMetrics = {};\n  for (var k = 0; k < ALLOWED_METRIC_KEYS.length; k++) {\n    var mKey = ALLOWED_METRIC_KEYS[k];\n    var mVal = payload.metrics[mKey];\n    if (mVal === undefined) {\n      cleanMetrics[mKey] = 0;\n    } else if (!isValidCount_(mVal)) {\n      return { ok: false, code: 'INVALID_PAYLOAD', message: 'Invalid metric value' };\n    } else {\n      cleanMetrics[mKey] = mVal;\n    }\n  }\n\n  var cleanErrors = {};\n  if (payload.errors !== undefined) {\n    if (!isPlainObject_(payload.errors)) {\n      return { ok: false, code: 'INVALID_PAYLOAD', message: 'Invalid errors object' };\n    }\n    var errKeys = Object.keys(payload.errors);\n    for (var eIdx = 0; eIdx < errKeys.length; eIdx++) {\n      var errCode = errKeys[eIdx];\n      if (ALLOWED_ERROR_CODES.indexOf(errCode) === -1) {\n        return {\n          ok: false,\n          code: 'INVALID_PAYLOAD',\n          message: 'Unexpected error code rejected by allowlist',\n        };\n      }\n      var errVal = payload.errors[errCode];\n      if (!isValidCount_(errVal)) {\n        return { ok: false, code: 'INVALID_PAYLOAD', message: 'Invalid error count' };\n      }\n      if (errVal > 0) {\n        cleanErrors[errCode] = errVal;\n      }\n    }\n  }\n\n  return {\n    ok: true,\n    data: {\n      schemaVersion: 1,\n      extensionVersion: payload.extensionVersion,\n      gradeBand: payload.gradeBand,\n      dateBucket: payload.dateBucket,\n      metrics: cleanMetrics,\n      errors: cleanErrors,\n    },\n  };\n}\n\nfunction getOrCreateSheet_(ss, name, headers) {\n  var sheet = ss.getSheetByName(name);\n  if (!sheet) {\n    sheet = ss.insertSheet(name);\n  }\n  if (sheet.getLastRow() === 0) {\n    sheet.appendRow(headers);\n  }\n  return sheet;\n}\n\nfunction normalizeDateCell_(value) {\n  if (value instanceof Date && !isNaN(value.getTime())) {\n    return value.toISOString().slice(0, 10);\n  }\n  return String(value);\n}\n\nfunction upsertDailyRollup_(ss, data) {\n  var sheet = getOrCreateSheet_(ss, DAILY_SHEET_NAME, DAILY_HEADERS);\n  var lastRow = sheet.getLastRow();\n  var m = data.metrics;\n\n  if (lastRow > 1) {\n    var rows = sheet.getRange(2, 1, lastRow - 1, DAILY_HEADERS.length).getValues();\n    for (var i = 0; i < rows.length; i++) {\n      var row = rows[i];\n      if (\n        normalizeDateCell_(row[0]) === data.dateBucket &&\n        String(row[1]) === data.gradeBand &&\n        String(row[2]) === data.extensionVersion\n      ) {\n        var updated = [\n          data.dateBucket,\n          data.gradeBand,\n          data.extensionVersion,\n          (Number(row[3]) || 0) + m.overviewsHidden,\n          (Number(row[4]) || 0) + m.aiModeUiHidden,\n          (Number(row[5]) || 0) + m.aiModeRedirects,\n          (Number(row[6]) || 0) + m.omniboxFallbackRedirects,\n          (Number(row[7]) || 0) + m.auxAiHidden,\n          (Number(row[8]) || 0) + 1,\n        ];\n        sheet.getRange(i + 2, 1, 1, DAILY_HEADERS.length).setValues([updated]);\n        return;\n      }\n    }\n  }\n\n  sheet.appendRow([\n    data.dateBucket,\n    data.gradeBand,\n    data.extensionVersion,\n    m.overviewsHidden,\n    m.aiModeUiHidden,\n    m.aiModeRedirects,\n    m.omniboxFallbackRedirects,\n    m.auxAiHidden,\n    1,\n  ]);\n}\n\nfunction upsertErrorSummary_(ss, data) {\n  var sheet = getOrCreateSheet_(ss, ERROR_SHEET_NAME, ERROR_HEADERS);\n  var errorCodes = Object.keys(data.errors);\n  if (errorCodes.length === 0) {\n    return;\n  }\n\n  for (var idx = 0; idx < errorCodes.length; idx++) {\n    var code = errorCodes[idx];\n    var count = data.errors[code];\n    if (!count || count <= 0) {\n      continue;\n    }\n\n    var lastRow = sheet.getLastRow();\n    var matched = false;\n    if (lastRow > 1) {\n      var rows = sheet.getRange(2, 1, lastRow - 1, ERROR_HEADERS.length).getValues();\n      for (var r = 0; r < rows.length; r++) {\n        var row = rows[r];\n        if (\n          normalizeDateCell_(row[0]) === data.dateBucket &&\n          String(row[1]) === data.gradeBand &&\n          String(row[2]) === code\n        ) {\n          var updated = [data.dateBucket, data.gradeBand, code, (Number(row[3]) || 0) + count];\n          sheet.getRange(r + 2, 1, 1, ERROR_HEADERS.length).setValues([updated]);\n          matched = true;\n          break;\n        }\n      }\n    }\n\n    if (!matched) {\n      sheet.appendRow([data.dateBucket, data.gradeBand, code, count]);\n    }\n  }\n}\n\nfunction jsonResponse_(obj) {\n  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(\n    ContentService.MimeType.JSON\n  );\n}\n" : void 0;
 var RESET_CONFIRM_WINDOW_MS = 1e4;
 function sortDiagnosticEntries(entries) {
   return [...entries].sort((a, b) => {
@@ -850,22 +526,10 @@ function buildZeroPiiDiagnosticBundle(snapshot) {
       blockAiModeNavigation: policy.blockAiModeNavigation,
       forceWebOnlySearch: policy.forceWebOnlySearch,
       hideAuxiliaryAiFeatures: policy.hideAuxiliaryAiFeatures,
-      analyticsEnabled: policy.analyticsEnabled,
-      analyticsEndpointConfigured: isValidAppsScriptUrl(policy.analyticsEndpointUrl),
-      analyticsSharedTokenConfigured: policy.analyticsSharedToken.length > 0,
-      analyticsFlushIntervalMinutes: policy.analyticsFlushIntervalMinutes,
       invalidFields: [...policy.invalidFields]
     },
     metrics: {
-      lifetime: { ...telemetry.lifetimeMetrics },
-      pendingDateBuckets: Object.keys(telemetry.pendingMetricsByDate).sort()
-    },
-    analyticsSync: {
-      lastFlushAttemptDate: telemetry.lastFlushAttemptDate,
-      lastFlushSuccessDate: telemetry.lastFlushSuccessDate,
-      lastFlushStatus: telemetry.lastFlushStatus,
-      lastFlushMessage: telemetry.lastFlushMessage,
-      consecutiveFlushFailures: telemetry.consecutiveFlushFailures
+      lifetime: { ...telemetry.lifetimeMetrics }
     },
     diagnosticLog: sortDiagnosticEntries(telemetry.diagnosticLog)
   };
@@ -902,22 +566,6 @@ function buildMetricsCsv(snapshot) {
       snapshot.telemetry.lifetimeMetrics.auxAiHidden
     ]
   ];
-  const sortedDates = Object.keys(snapshot.telemetry.pendingMetricsByDate).sort();
-  for (const dateBucket of sortedDates) {
-    const bucket = snapshot.telemetry.pendingMetricsByDate[dateBucket];
-    if (!bucket) continue;
-    rows.push([
-      "PENDING_DAILY",
-      dateBucket,
-      snapshot.policy.gradeBand,
-      snapshot.extensionVersion,
-      bucket.overviewsHidden,
-      bucket.aiModeUiHidden,
-      bucket.aiModeRedirects,
-      bucket.omniboxFallbackRedirects,
-      bucket.auxAiHidden
-    ]);
-  }
   return [header, ...rows].map((row) => row.map(escapeCsvCell).join(",")).join("\n") + "\n";
 }
 async function copyText(text) {
@@ -1077,7 +725,6 @@ async function bootOptionsPage() {
   const generatorRoot = document.getElementById("options-policy-generator-root");
   if (generatorRoot) {
     mountPolicyGenerator(generatorRoot, {
-      appsScriptTemplate: EMBEDDED_APPS_SCRIPT_TEMPLATE,
       onStatus: (msg) => announce(msg)
     });
   }
@@ -1105,12 +752,6 @@ async function bootOptionsPage() {
     errorsWarnings: document.getElementById("metric-errorsWarnings"),
     errorsCard: document.getElementById("metric-card-errors")
   };
-  const analyticsBadge = document.getElementById("analytics-config-badge");
-  const analyticsLastAttempt = document.getElementById("analytics-last-attempt");
-  const analyticsLastSuccess = document.getElementById("analytics-last-success");
-  const analyticsPendingCount = document.getElementById("analytics-pending-count");
-  const analyticsLastMessage = document.getElementById("analytics-last-message");
-  const testFlushBtn = document.getElementById("btn-test-flush");
   const refreshDiagBtn = document.getElementById("btn-refresh-diag");
   const copyDiagBtn = document.getElementById("btn-copy-diag-json");
   const exportCsvBtn = document.getElementById("btn-export-csv");
@@ -1270,38 +911,6 @@ async function bootOptionsPage() {
     if (metricEls.errorsCard) {
       metricEls.errorsCard.classList.toggle("metric-card-alert", hasError);
     }
-    const endpointValid = isValidAppsScriptUrl(policy.analyticsEndpointUrl);
-    if (analyticsBadge) {
-      analyticsBadge.classList.remove("rm-pill-slate", "rm-pill-teal", "rm-pill-red");
-      if (!policy.analyticsEnabled) {
-        analyticsBadge.classList.add("rm-pill-slate");
-        analyticsBadge.textContent = "Disabled (Local-Only)";
-      } else if (endpointValid) {
-        analyticsBadge.classList.add("rm-pill-teal");
-        analyticsBadge.textContent = `Configured (every ${policy.analyticsFlushIntervalMinutes}m)`;
-      } else {
-        analyticsBadge.classList.add("rm-pill-red");
-        analyticsBadge.textContent = "Configured — Invalid Endpoint URL";
-      }
-    }
-    if (analyticsLastAttempt) {
-      analyticsLastAttempt.textContent = telemetry.lastFlushAttemptDate ?? "Never";
-    }
-    if (analyticsLastSuccess) {
-      analyticsLastSuccess.textContent = telemetry.lastFlushSuccessDate ?? "Never";
-    }
-    if (analyticsPendingCount) {
-      analyticsPendingCount.textContent = String(
-        Object.keys(telemetry.pendingMetricsByDate).length
-      );
-    }
-    if (analyticsLastMessage) {
-      analyticsLastMessage.textContent = telemetry.lastFlushMessage || "";
-    }
-    if (testFlushBtn) {
-      testFlushBtn.hidden = !policy.analyticsEnabled;
-      testFlushBtn.disabled = !policy.analyticsEnabled;
-    }
     renderDiagnosticTable(telemetry.diagnosticLog);
   }
   async function refreshSnapshot() {
@@ -1369,28 +978,6 @@ async function bootOptionsPage() {
       "text/csv;charset=utf-8"
     );
     setDiagFeedback("Exported local metrics CSV.");
-  });
-  testFlushBtn?.addEventListener("click", async () => {
-    if (!testFlushBtn) return;
-    testFlushBtn.disabled = true;
-    setDiagFeedback("Running test flush to district Apps Script endpoint…");
-    try {
-      const result = await chrome.runtime.sendMessage({
-        type: "TRIGGER_TEST_FLUSH"
-      });
-      await refreshSnapshot();
-      if (result) {
-        setDiagFeedback(result.message, result.status === "error");
-      } else {
-        setDiagFeedback("Test flush completed.");
-      }
-    } catch {
-      setDiagFeedback("Failed to trigger test flush.", true);
-    } finally {
-      if (currentSnapshot?.policy.analyticsEnabled) {
-        testFlushBtn.disabled = false;
-      }
-    }
   });
   resetMetricsBtn?.addEventListener("click", async () => {
     if (!resetArmed) {

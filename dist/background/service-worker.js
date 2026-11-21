@@ -7,12 +7,6 @@ var STRICT_LOCKDOWN_TOGGLES = {
   forceWebOnlySearch: true,
   hideAuxiliaryAiFeatures: true
 };
-var DEFAULT_ANALYTICS_POLICY = {
-  analyticsEnabled: false,
-  analyticsEndpointUrl: "",
-  analyticsSharedToken: "",
-  analyticsFlushIntervalMinutes: 240
-};
 var VALID_GRADE_BANDS = [
   "K-2",
   "3-5",
@@ -29,7 +23,6 @@ var FEATURE_TOGGLE_KEYS = [
   "forceWebOnlySearch",
   "hideAuxiliaryAiFeatures"
 ];
-var APPS_SCRIPT_URL_REGEX = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]{10,}\/exec$/;
 var METRIC_KEYS = [
   "overviewsHidden",
   "aiModeUiHidden",
@@ -42,10 +35,7 @@ var STORAGE_KEYS = {
   TELEMETRY: "rmsg_telemetry",
   LAST_POLICY: "rmsg_last_policy"
 };
-var ANALYTICS_ALARM_NAME = "rmsg-analytics-flush";
 var MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
-var MIN_FLUSH_INTERVAL_MINUTES = 60;
-var MAX_FLUSH_INTERVAL_MINUTES = 1440;
 function createEmptyMetrics() {
   return {
     overviewsHidden: 0,
@@ -58,15 +48,7 @@ function createEmptyMetrics() {
 function createInitialTelemetryState() {
   return {
     lifetimeMetrics: createEmptyMetrics(),
-    pendingMetricsByDate: {},
-    pendingErrorsByCode: {},
-    diagnosticLog: [],
-    lastFlushAttemptDate: null,
-    lastFlushSuccessDate: null,
-    lastFlushStatus: "idle",
-    lastFlushMessage: "Analytics disabled (local-only mode).",
-    consecutiveFlushFailures: 0,
-    nextEligibleFlushAtMs: 0
+    diagnosticLog: []
   };
 }
 
@@ -76,8 +58,6 @@ var ALL_ERROR_CODES = [
   "ERR_DNR_SYNC_FAILED",
   "ERR_SELECTOR_SYNTAX",
   "ERR_SAFETY_GUARD_TRIPPED",
-  "ERR_ANALYTICS_ENDPOINT_INVALID",
-  "ERR_ANALYTICS_FLUSH_FAILED",
   "ERR_STORAGE_FAILURE",
   "WARN_NO_MANAGED_POLICY",
   "WARN_OMNIBOX_POLICY_MISSING"
@@ -106,18 +86,6 @@ var ERROR_CATALOG = {
     severity: "error",
     title: "Organic Results Safety Guard Tripped",
     remediationTemplate: "Safety Guard prevented hiding core Google Search results ({detail}). Google likely changed its page structure. Check for an extension update."
-  },
-  ERR_ANALYTICS_ENDPOINT_INVALID: {
-    code: "ERR_ANALYTICS_ENDPOINT_INVALID",
-    severity: "error",
-    title: "Invalid Analytics Endpoint URL",
-    remediationTemplate: "Analytics is enabled, but analyticsEndpointUrl does not match https://script.google.com/macros/s/<ID>/exec. Paste your deployed Google Apps Script Web App URL in the Admin Policy JSON."
-  },
-  ERR_ANALYTICS_FLUSH_FAILED: {
-    code: "ERR_ANALYTICS_FLUSH_FAILED",
-    severity: "error",
-    title: "District Analytics Flush Failed",
-    remediationTemplate: "Failed to flush anonymous counts to district Google Sheet ({detail}). Verify Apps Script is deployed as Web App -> Execute as: Me -> Who has access: Anyone, and that analyticsSharedToken matches Code.gs. Retrying with backoff."
   },
   ERR_STORAGE_FAILURE: {
     code: "ERR_STORAGE_FAILURE",
@@ -163,12 +131,6 @@ function createDiagnosticEntry(code, detail, dateBucket) {
 }
 
 // src/shared/policy.ts
-function isValidAppsScriptUrl(url) {
-  if (typeof url !== "string") {
-    return false;
-  }
-  return APPS_SCRIPT_URL_REGEX.test(url);
-}
 function isValidGradeBand(value) {
   return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
 }
@@ -198,7 +160,6 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
     }
     const policy2 = {
       ...toggles2,
-      ...DEFAULT_ANALYTICS_POLICY,
       gradeBand: gradeBand2,
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
@@ -229,61 +190,14 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
       gradeBand = "Unassigned";
     }
   }
-  let analyticsEnabled = DEFAULT_ANALYTICS_POLICY.analyticsEnabled;
-  if ("analyticsEnabled" in managedRaw && managedRaw.analyticsEnabled !== void 0) {
-    if (typeof managedRaw.analyticsEnabled === "boolean") {
-      analyticsEnabled = managedRaw.analyticsEnabled;
-    } else {
-      invalidFields.push("analyticsEnabled");
-      analyticsEnabled = false;
-    }
-  }
-  let analyticsEndpointUrl = DEFAULT_ANALYTICS_POLICY.analyticsEndpointUrl;
-  if ("analyticsEndpointUrl" in managedRaw && managedRaw.analyticsEndpointUrl !== void 0) {
-    if (typeof managedRaw.analyticsEndpointUrl === "string") {
-      analyticsEndpointUrl = managedRaw.analyticsEndpointUrl.trim();
-    } else {
-      invalidFields.push("analyticsEndpointUrl");
-      analyticsEndpointUrl = "";
-    }
-  }
-  let analyticsSharedToken = DEFAULT_ANALYTICS_POLICY.analyticsSharedToken;
-  if ("analyticsSharedToken" in managedRaw && managedRaw.analyticsSharedToken !== void 0) {
-    if (typeof managedRaw.analyticsSharedToken === "string") {
-      analyticsSharedToken = managedRaw.analyticsSharedToken.trim();
-    } else {
-      invalidFields.push("analyticsSharedToken");
-      analyticsSharedToken = "";
-    }
-  }
-  let analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-  if ("analyticsFlushIntervalMinutes" in managedRaw && managedRaw.analyticsFlushIntervalMinutes !== void 0) {
-    const rawInterval = managedRaw.analyticsFlushIntervalMinutes;
-    if (typeof rawInterval === "number" && Number.isInteger(rawInterval) && rawInterval >= MIN_FLUSH_INTERVAL_MINUTES && rawInterval <= MAX_FLUSH_INTERVAL_MINUTES) {
-      analyticsFlushIntervalMinutes = rawInterval;
-    } else {
-      invalidFields.push("analyticsFlushIntervalMinutes");
-      analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-    }
-  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
       detail: invalidFields.join(", ")
     });
   }
-  if (analyticsEnabled && !isValidAppsScriptUrl(analyticsEndpointUrl)) {
-    errors.push({
-      code: "ERR_ANALYTICS_ENDPOINT_INVALID",
-      detail: analyticsEndpointUrl ? "Configured analyticsEndpointUrl failed Apps Script allowlist validation" : "analyticsEndpointUrl is missing while analyticsEnabled is true"
-    });
-  }
   const policy = {
     ...toggles,
-    analyticsEnabled,
-    analyticsEndpointUrl,
-    analyticsSharedToken,
-    analyticsFlushIntervalMinutes,
     gradeBand,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,
@@ -328,32 +242,6 @@ function sanitizeMetrics(raw) {
   }
   return metrics;
 }
-function sanitizePendingMetricsByDate(raw) {
-  const out = {};
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return out;
-  }
-  for (const [dateKey, value] of Object.entries(raw)) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
-      out[dateKey] = sanitizeMetrics(value);
-    }
-  }
-  return out;
-}
-function sanitizePendingErrorsByCode(raw) {
-  const out = {};
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return out;
-  }
-  const obj = raw;
-  for (const code of ALL_ERROR_CODES) {
-    const val = obj[code];
-    if (typeof val === "number" && Number.isFinite(val) && val > 0) {
-      out[code] = Math.floor(val);
-    }
-  }
-  return out;
-}
 function sanitizeDiagnosticLog(raw) {
   if (!Array.isArray(raw)) {
     return [];
@@ -392,19 +280,9 @@ function normalizeTelemetryState(raw) {
     return initial;
   }
   const obj = raw;
-  const validStatuses = /* @__PURE__ */ new Set(["idle", "ok", "error", "disabled"]);
-  const lastFlushStatus = typeof obj.lastFlushStatus === "string" && validStatuses.has(obj.lastFlushStatus) ? obj.lastFlushStatus : initial.lastFlushStatus;
   return {
     lifetimeMetrics: sanitizeMetrics(obj.lifetimeMetrics),
-    pendingMetricsByDate: sanitizePendingMetricsByDate(obj.pendingMetricsByDate),
-    pendingErrorsByCode: sanitizePendingErrorsByCode(obj.pendingErrorsByCode),
-    diagnosticLog: sanitizeDiagnosticLog(obj.diagnosticLog),
-    lastFlushAttemptDate: typeof obj.lastFlushAttemptDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(obj.lastFlushAttemptDate) ? obj.lastFlushAttemptDate : null,
-    lastFlushSuccessDate: typeof obj.lastFlushSuccessDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(obj.lastFlushSuccessDate) ? obj.lastFlushSuccessDate : null,
-    lastFlushStatus,
-    lastFlushMessage: typeof obj.lastFlushMessage === "string" ? obj.lastFlushMessage : initial.lastFlushMessage,
-    consecutiveFlushFailures: typeof obj.consecutiveFlushFailures === "number" && Number.isFinite(obj.consecutiveFlushFailures) && obj.consecutiveFlushFailures >= 0 ? Math.floor(obj.consecutiveFlushFailures) : 0,
-    nextEligibleFlushAtMs: typeof obj.nextEligibleFlushAtMs === "number" && Number.isFinite(obj.nextEligibleFlushAtMs) && obj.nextEligibleFlushAtMs >= 0 ? obj.nextEligibleFlushAtMs : 0
+    diagnosticLog: sanitizeDiagnosticLog(obj.diagnosticLog)
   };
 }
 async function readManagedPolicyRaw() {
@@ -457,11 +335,9 @@ async function writeTelemetryState(state) {
   }
   await chrome.storage.local.set({ [STORAGE_KEYS.TELEMETRY]: state });
 }
-async function incrementTelemetryMetrics(deltas, now = /* @__PURE__ */ new Date()) {
+async function incrementTelemetryMetrics(deltas) {
   return enqueueStorageOp(async () => {
     const state = await readTelemetryState();
-    const dateBucket = getTodayDateBucket(now);
-    const existingBucket = state.pendingMetricsByDate[dateBucket] ?? createEmptyMetrics();
     let changed = false;
     for (const key of METRIC_KEYS) {
       const rawDelta = deltas[key];
@@ -469,13 +345,11 @@ async function incrementTelemetryMetrics(deltas, now = /* @__PURE__ */ new Date(
         const delta = Math.floor(rawDelta);
         if (delta > 0) {
           state.lifetimeMetrics[key] = (state.lifetimeMetrics[key] ?? 0) + delta;
-          existingBucket[key] = (existingBucket[key] ?? 0) + delta;
           changed = true;
         }
       }
     }
     if (changed) {
-      state.pendingMetricsByDate[dateBucket] = existingBucket;
       await writeTelemetryState(state);
     }
     return state;
@@ -486,7 +360,6 @@ async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ ne
     const state = await readTelemetryState();
     const dateBucket = getTodayDateBucket(now);
     const cleanDetail = detail.trim().replace(/\s+/g, " ").slice(0, 240);
-    state.pendingErrorsByCode[code] = (state.pendingErrorsByCode[code] ?? 0) + 1;
     const existingIndex = state.diagnosticLog.findIndex(
       (entry) => entry.code === code && entry.detail === cleanDetail
     );
@@ -518,363 +391,6 @@ async function resetLocalTelemetry() {
     await writeTelemetryState(fresh);
     return fresh;
   });
-}
-
-// src/background/analytics.ts
-var ALLOWED_PAYLOAD_KEYS = [
-  "schemaVersion",
-  "extensionVersion",
-  "token",
-  "gradeBand",
-  "dateBucket",
-  "metrics",
-  "errors"
-];
-var ALLOWED_PAYLOAD_KEY_SET = new Set(ALLOWED_PAYLOAD_KEYS);
-var VALID_GRADE_BAND_SET = new Set(VALID_GRADE_BANDS);
-var VALID_METRIC_KEY_SET = new Set(METRIC_KEYS);
-var VALID_ERROR_CODE_SET = new Set(ALL_ERROR_CODES);
-var SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
-var DATE_BUCKET_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-var MAX_COUNT_VALUE = 1e5;
-var MAX_BACKOFF_MS = 24 * 60 * 60 * 1e3;
-var BASE_BACKOFF_MS = 15 * 60 * 1e3;
-var FETCH_TIMEOUT_MS = 15e3;
-function sanitizeIntegerCount(value) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return 0;
-  }
-  return Math.min(MAX_COUNT_VALUE, Math.floor(value));
-}
-function isPlainObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function sumMetrics(metrics) {
-  let total = 0;
-  for (const key of METRIC_KEYS) {
-    total += sanitizeIntegerCount(metrics[key]);
-  }
-  return total;
-}
-function buildSanitizedPayload(input) {
-  const cleanVersion = typeof input.extensionVersion === "string" && SEMVER_REGEX.test(input.extensionVersion.trim()) ? input.extensionVersion.trim() : "1.0.0";
-  const cleanGradeBand = typeof input.gradeBand === "string" && VALID_GRADE_BAND_SET.has(input.gradeBand) ? input.gradeBand : "Unassigned";
-  const cleanDateBucket = typeof input.dateBucket === "string" && DATE_BUCKET_REGEX.test(input.dateBucket) ? input.dateBucket : getTodayDateBucket();
-  const cleanMetrics = createEmptyMetrics();
-  if (isPlainObject(input.metrics)) {
-    for (const key of METRIC_KEYS) {
-      cleanMetrics[key] = sanitizeIntegerCount(input.metrics[key]);
-    }
-  }
-  const cleanErrors = {};
-  if (isPlainObject(input.errors)) {
-    for (const code of ALL_ERROR_CODES) {
-      const count = sanitizeIntegerCount(input.errors[code]);
-      if (count > 0) {
-        cleanErrors[code] = count;
-      }
-    }
-  }
-  const payload = {
-    schemaVersion: 1,
-    extensionVersion: cleanVersion,
-    gradeBand: cleanGradeBand,
-    dateBucket: cleanDateBucket,
-    metrics: cleanMetrics,
-    errors: cleanErrors
-  };
-  if (typeof input.token === "string") {
-    const trimmedToken = input.token.trim();
-    if (trimmedToken.length > 0) {
-      payload.token = trimmedToken;
-    }
-  }
-  return payload;
-}
-function assertNoPiiPayload(payload) {
-  if (!isPlainObject(payload)) {
-    return false;
-  }
-  const ownKeys = Object.getOwnPropertyNames(payload);
-  for (const key of ownKeys) {
-    if (!ALLOWED_PAYLOAD_KEY_SET.has(key)) {
-      return false;
-    }
-  }
-  if (payload.schemaVersion !== 1) {
-    return false;
-  }
-  if (typeof payload.extensionVersion !== "string" || !SEMVER_REGEX.test(payload.extensionVersion)) {
-    return false;
-  }
-  if (typeof payload.gradeBand !== "string" || !VALID_GRADE_BAND_SET.has(payload.gradeBand)) {
-    return false;
-  }
-  if (typeof payload.dateBucket !== "string" || !DATE_BUCKET_REGEX.test(payload.dateBucket)) {
-    return false;
-  }
-  if ("token" in payload) {
-    if (typeof payload.token !== "string" || payload.token.trim().length === 0 || payload.token.length > 256) {
-      return false;
-    }
-  }
-  if (!isPlainObject(payload.metrics)) {
-    return false;
-  }
-  const metricKeys = Object.getOwnPropertyNames(payload.metrics);
-  if (metricKeys.length !== METRIC_KEYS.length) {
-    return false;
-  }
-  for (const key of metricKeys) {
-    if (!VALID_METRIC_KEY_SET.has(key)) {
-      return false;
-    }
-    const val = payload.metrics[key];
-    if (typeof val !== "number" || !Number.isInteger(val) || val < 0 || val > MAX_COUNT_VALUE) {
-      return false;
-    }
-  }
-  if (!isPlainObject(payload.errors)) {
-    return false;
-  }
-  const errorKeys = Object.getOwnPropertyNames(payload.errors);
-  for (const key of errorKeys) {
-    if (!VALID_ERROR_CODE_SET.has(key)) {
-      return false;
-    }
-    const val = payload.errors[key];
-    if (typeof val !== "number" || !Number.isInteger(val) || val < 0 || val > MAX_COUNT_VALUE) {
-      return false;
-    }
-  }
-  return true;
-}
-function calculateBackoffMs(consecutiveFailures) {
-  return Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** Math.max(0, consecutiveFailures - 1));
-}
-async function scheduleAnalyticsAlarm(policy, rng = Math.random) {
-  if (!policy.analyticsEnabled || !isValidAppsScriptUrl(policy.analyticsEndpointUrl)) {
-    await chrome.alarms.clear(ANALYTICS_ALARM_NAME);
-    return;
-  }
-  const delayInMinutes = policy.analyticsFlushIntervalMinutes + Math.floor(rng() * 31);
-  await chrome.alarms.create(ANALYTICS_ALARM_NAME, { delayInMinutes });
-}
-function getDefaultExtensionVersion() {
-  if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
-    const version = chrome.runtime.getManifest().version;
-    if (typeof version === "string" && SEMVER_REGEX.test(version)) {
-      return version;
-    }
-  }
-  return "1.0.0";
-}
-async function flushAnalyticsIfDue(policy, options) {
-  const force = options?.force ?? false;
-  const fetchFn = options?.fetchImpl ?? fetch;
-  const now = options?.now ?? /* @__PURE__ */ new Date();
-  const today = getTodayDateBucket(now);
-  const extensionVersion = options?.extensionVersion ?? getDefaultExtensionVersion();
-  if (!policy.analyticsEnabled) {
-    await enqueueStorageOp(async () => {
-      const state = await readTelemetryState();
-      state.lastFlushStatus = "disabled";
-      state.lastFlushMessage = "Analytics disabled (local-only mode).";
-      await writeTelemetryState(state);
-    });
-    return {
-      attempted: false,
-      status: "disabled",
-      flushedBuckets: 0,
-      message: "Analytics disabled (local-only mode)."
-    };
-  }
-  if (!isValidAppsScriptUrl(policy.analyticsEndpointUrl)) {
-    const detail = policy.analyticsEndpointUrl ? "analyticsEndpointUrl failed Apps Script allowlist validation" : "analyticsEndpointUrl is missing";
-    await enqueueStorageOp(async () => {
-      const state = await readTelemetryState();
-      state.lastFlushAttemptDate = today;
-      state.lastFlushStatus = "error";
-      state.lastFlushMessage = "Invalid Apps Script endpoint URL.";
-      await writeTelemetryState(state);
-    });
-    await recordDiagnosticEntry("ERR_ANALYTICS_ENDPOINT_INVALID", detail, now);
-    return {
-      attempted: false,
-      status: "error",
-      flushedBuckets: 0,
-      message: "Invalid Apps Script endpoint URL.",
-      errorCode: "ERR_ANALYTICS_ENDPOINT_INVALID"
-    };
-  }
-  const initialState = await readTelemetryState();
-  if (!force && initialState.nextEligibleFlushAtMs > now.getTime()) {
-    return {
-      attempted: false,
-      status: "idle",
-      flushedBuckets: 0,
-      message: "Flush deferred until exponential backoff window elapses."
-    };
-  }
-  const errorsSnapshot = {};
-  let hasPendingErrors = false;
-  for (const code of ALL_ERROR_CODES) {
-    const count = sanitizeIntegerCount(initialState.pendingErrorsByCode[code]);
-    if (count > 0) {
-      errorsSnapshot[code] = count;
-      hasPendingErrors = true;
-    }
-  }
-  const dateBuckets = Object.keys(initialState.pendingMetricsByDate).sort();
-  const nonEmptyMetricBuckets = [];
-  for (const dateBucket of dateBuckets) {
-    if (!DATE_BUCKET_REGEX.test(dateBucket)) {
-      continue;
-    }
-    const rawBucket = initialState.pendingMetricsByDate[dateBucket];
-    const clonedMetrics = createEmptyMetrics();
-    for (const key of METRIC_KEYS) {
-      clonedMetrics[key] = sanitizeIntegerCount(rawBucket?.[key]);
-    }
-    if (sumMetrics(clonedMetrics) > 0) {
-      nonEmptyMetricBuckets.push({ dateBucket, metrics: clonedMetrics });
-    }
-  }
-  const snapshots = [];
-  if (nonEmptyMetricBuckets.length > 0) {
-    nonEmptyMetricBuckets.forEach((bucket, index) => {
-      const isLast = index === nonEmptyMetricBuckets.length - 1;
-      snapshots.push({
-        dateBucket: bucket.dateBucket,
-        metrics: bucket.metrics,
-        errors: isLast ? errorsSnapshot : {}
-      });
-    });
-  } else if (hasPendingErrors) {
-    snapshots.push({
-      dateBucket: today,
-      metrics: createEmptyMetrics(),
-      errors: errorsSnapshot
-    });
-  } else if (force) {
-    snapshots.push({
-      dateBucket: today,
-      metrics: createEmptyMetrics(),
-      errors: {}
-    });
-  } else {
-    return {
-      attempted: false,
-      status: "idle",
-      flushedBuckets: 0,
-      message: "No pending metrics or errors to flush."
-    };
-  }
-  let flushedBuckets = 0;
-  try {
-    for (const bucket of snapshots) {
-      const payload = buildSanitizedPayload({
-        extensionVersion,
-        gradeBand: policy.gradeBand,
-        dateBucket: bucket.dateBucket,
-        metrics: bucket.metrics,
-        errors: bucket.errors,
-        token: policy.analyticsSharedToken || void 0
-      });
-      if (!assertNoPiiPayload(payload)) {
-        throw new Error("Sanitized analytics payload failed zero-PII validation");
-      }
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, FETCH_TIMEOUT_MS);
-      let response;
-      try {
-        response = await fetchFn(policy.analyticsEndpointUrl, {
-          method: "POST",
-          // text/plain keeps this a CORS "simple request"; Apps Script web apps cannot answer a preflight.
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          redirect: "follow",
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      let body;
-      try {
-        body = await response.json();
-      } catch {
-        throw new Error("Invalid JSON response from Apps Script endpoint");
-      }
-      if (!isPlainObject(body) || body.status !== "ok") {
-        const remoteCode = isPlainObject(body) && typeof body.code === "string" ? body.code : "NON_OK_RESPONSE";
-        throw new Error(`Apps Script rejected batch (${remoteCode})`);
-      }
-      flushedBuckets += 1;
-      await enqueueStorageOp(async () => {
-        const current = await readTelemetryState();
-        const currentBucket = current.pendingMetricsByDate[bucket.dateBucket];
-        if (currentBucket) {
-          let remainingSum = 0;
-          for (const key of METRIC_KEYS) {
-            const nextVal = Math.max(0, (currentBucket[key] ?? 0) - (bucket.metrics[key] ?? 0));
-            currentBucket[key] = nextVal;
-            remainingSum += nextVal;
-          }
-          if (remainingSum === 0) {
-            delete current.pendingMetricsByDate[bucket.dateBucket];
-          }
-        }
-        for (const [code, sentCount] of Object.entries(bucket.errors)) {
-          const curCount = current.pendingErrorsByCode[code] ?? 0;
-          const nextCount = Math.max(0, curCount - sentCount);
-          if (nextCount === 0) {
-            delete current.pendingErrorsByCode[code];
-          } else {
-            current.pendingErrorsByCode[code] = nextCount;
-          }
-        }
-        current.lastFlushAttemptDate = today;
-        current.lastFlushSuccessDate = today;
-        current.lastFlushStatus = "ok";
-        current.lastFlushMessage = `Flushed ${flushedBuckets} daily bucket(s) successfully.`;
-        current.consecutiveFlushFailures = 0;
-        current.nextEligibleFlushAtMs = 0;
-        await writeTelemetryState(current);
-      });
-    }
-    return {
-      attempted: true,
-      status: "ok",
-      flushedBuckets,
-      message: `Flushed ${flushedBuckets} daily bucket(s) successfully.`
-    };
-  } catch (err) {
-    const detail = err instanceof Error ? err.name === "AbortError" ? "Request timed out after 15s" : err.message : String(err);
-    await enqueueStorageOp(async () => {
-      const current = await readTelemetryState();
-      const nextFailures = current.consecutiveFlushFailures + 1;
-      const backoffMs = calculateBackoffMs(nextFailures);
-      current.consecutiveFlushFailures = nextFailures;
-      current.nextEligibleFlushAtMs = now.getTime() + backoffMs;
-      current.lastFlushAttemptDate = today;
-      current.lastFlushStatus = "error";
-      current.lastFlushMessage = detail;
-      await writeTelemetryState(current);
-    });
-    await recordDiagnosticEntry("ERR_ANALYTICS_FLUSH_FAILED", detail, now);
-    return {
-      attempted: true,
-      status: "error",
-      flushedBuckets,
-      message: detail,
-      errorCode: "ERR_ANALYTICS_FLUSH_FAILED"
-    };
-  }
 }
 
 // src/background/dnr-rules.ts
@@ -1072,17 +588,6 @@ async function syncRuntimeState(options) {
   if (dnrResult.error) {
     await recordDiagnosticEntry("ERR_DNR_SYNC_FAILED", dnrResult.error);
   }
-  if (options.alarmMode === "reschedule") {
-    await scheduleAnalyticsAlarm(policy);
-  } else if (options.alarmMode === "ensure") {
-    const existingAlarm = await chrome.alarms.get(ANALYTICS_ALARM_NAME);
-    const shouldHaveAlarm = policy.analyticsEnabled && isValidAppsScriptUrl(policy.analyticsEndpointUrl);
-    if (shouldHaveAlarm && !existingAlarm) {
-      await scheduleAnalyticsAlarm(policy);
-    } else if (!shouldHaveAlarm && existingAlarm) {
-      await chrome.alarms.clear(ANALYTICS_ALARM_NAME);
-    }
-  }
   return { policy, activeRuleCount: dnrResult.activeRuleCount };
 }
 async function handleRuntimeMessage(message) {
@@ -1143,25 +648,19 @@ async function handleRuntimeMessage(message) {
       };
       await writeLocalOverrides(merged);
       const { policy: updatedPolicy } = await syncRuntimeState({
-        recordPolicyDiagnostics: false,
-        alarmMode: "none"
+        recordPolicyDiagnostics: false
       });
       return updatedPolicy;
     }
     case "RESET_LOCAL_METRICS": {
       return await resetLocalTelemetry();
     }
-    case "TRIGGER_TEST_FLUSH": {
-      const { policy } = await resolvePolicyFromStorage();
-      return await flushAnalyticsIfDue(policy, { force: true });
-    }
   }
 }
 chrome.runtime.onInstalled.addListener(async () => {
   try {
     await syncRuntimeState({
-      recordPolicyDiagnostics: true,
-      alarmMode: "reschedule"
+      recordPolicyDiagnostics: true
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -1171,8 +670,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.runtime.onStartup.addListener(async () => {
   try {
     await syncRuntimeState({
-      recordPolicyDiagnostics: true,
-      alarmMode: "ensure"
+      recordPolicyDiagnostics: true
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -1183,33 +681,18 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
   try {
     if (areaName === "managed") {
       await syncRuntimeState({
-        recordPolicyDiagnostics: true,
-        alarmMode: "reschedule"
+        recordPolicyDiagnostics: true
       });
       return;
     }
     if (areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
       await syncRuntimeState({
-        recordPolicyDiagnostics: false,
-        alarmMode: "ensure"
+        recordPolicyDiagnostics: false
       });
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `storage.onChanged: ${detail}`);
-  }
-});
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== ANALYTICS_ALARM_NAME) {
-    return;
-  }
-  try {
-    const { policy } = await resolvePolicyFromStorage();
-    await flushAnalyticsIfDue(policy);
-    await scheduleAnalyticsAlarm(policy);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    await recordDiagnosticEntry("ERR_ANALYTICS_FLUSH_FAILED", detail);
   }
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

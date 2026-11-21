@@ -32,7 +32,7 @@
     <div class="tabs-bar">
       <div role="tablist" aria-label="Search Guard IT Hub Sections">
         <button type="button" role="tab" id="tab-status" aria-selected="true" tabindex="0">Status &amp; Local Testing</button>
-        <button type="button" role="tab" id="tab-diagnostics" aria-selected="false" tabindex="-1">IT Diagnostics &amp; Analytics</button>
+        <button type="button" role="tab" id="tab-diagnostics" aria-selected="false" tabindex="-1">IT Diagnostics</button>
         <button type="button" role="tab" id="tab-generator" aria-selected="false" tabindex="-1">4-Band Admin Policy Generator</button>
       </div>
     </div>
@@ -168,7 +168,7 @@
         </div>
       </section>
 
-      <!-- Tab 2: IT Diagnostics & Analytics -->
+      <!-- Tab 2: IT Diagnostics -->
       <section id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden="until-found">
         <div class="tabpanel-inner">
           <section aria-labelledby="metrics-heading">
@@ -201,27 +201,11 @@
             </div>
           </section>
 
-          <section id="analytics-status-bar" class="analytics-status-bar" aria-labelledby="analytics-sync-heading">
-            <div>
-              <h2 id="analytics-sync-heading" class="rm-section-title">District Google Sheets Analytics Sync</h2>
-              <div class="analytics-status-details">
-                <span id="analytics-config-badge" class="rm-pill rm-pill-slate">Disabled (Local-Only)</span>
-                <span>Last attempt: <strong id="analytics-last-attempt">Never</strong></span>
-                <span>Last success: <strong id="analytics-last-success">Never</strong></span>
-                <span>Pending batches: <strong id="analytics-pending-count">0</strong></span>
-                <span id="analytics-last-message"></span>
-              </div>
-            </div>
-            <div class="btn-row">
-              <button type="button" id="btn-test-flush" class="rm-btn rm-btn-primary" hidden>Test Flush Now</button>
-            </div>
-          </section>
-
           <section class="rm-card" aria-labelledby="diag-actions-heading">
             <div class="rm-card-header">
               <div>
                 <h2 id="diag-actions-heading" class="rm-section-title">Diagnostic Tools (Zero PII)</h2>
-                <p class="rm-section-subtitle">Exports contain strictly policy state, aggregate daily counts, and diagnostic codes — never student identities or search queries.</p>
+                <p class="rm-section-subtitle">Exports contain strictly policy state, aggregate counts, and diagnostic codes — never student identities or search queries.</p>
               </div>
             </div>
             <div class="btn-row">

@@ -14,7 +14,9 @@
  * (see tests/record-known-failures.mjs).
  *
  * RM_IGNORE_FIELDS (comma list) drops those object keys from observations before comparing.
- * It exists only for Phase 0b, where the D6 analytics fields are an allowed difference.
+ * RM_ALLOWED_DIFF (comma list of test IDs) reports a cross-build difference as TODO instead of
+ * failing. Both exist only for comparing builds with a documented allowed difference
+ * (Phase 0b vs 0a: the D6 analytics removal). Every allowed ID must be justified in the commit.
  */
 import assert from "node:assert/strict";
 import { appendFileSync, readFileSync } from "node:fs";
@@ -26,6 +28,7 @@ const KNOWN = JSON.parse(readFileSync(path.join(ROOT, "tests/known-failures.json
 const RECORD = process.env.RM_RECORD_KNOWN_FAILURES || "";
 
 const IGNORE = new Set((process.env.RM_IGNORE_FIELDS || "").split(",").map((s) => s.trim()).filter(Boolean));
+const ALLOWED_DIFF = new Set((process.env.RM_ALLOWED_DIFF || "").split(",").map((s) => s.trim()).filter(Boolean));
 
 /**
  * Deep-copy through JSON (strips vm-realm prototypes) and drop ignored keys.
@@ -72,8 +75,10 @@ export function equivalent(id, title, fn, opts = {}) {
         if (r.status === "fail" && i === TARGETS.length - 1) appendFileSync(RECORD, JSON.stringify({ id, bp: opts.bp ?? null, message: r.message }) + "\n");
         continue;
       }
+      // For an allowed difference only the newest (last) target is held to the list.
+      const olderAllowed = ALLOWED_DIFF.has(id) && i < TARGETS.length - 1;
       const label = mustPass ? `[${TARGETS[i].name}]` : `[${TARGETS[i].name}] known failure (${known.bp}, phase ${known.phase})`;
-      await t.test(label, () => {
+      await t.test(label, olderAllowed ? { todo: "older build; allowed difference" } : {}, () => {
         if (mustPass) {
           if (r.status === "fail") throw r.error;
           return;
@@ -83,7 +88,8 @@ export function equivalent(id, title, fn, opts = {}) {
       });
     }
     if (TARGETS.length > 1) {
-      await t.test(`identical across ${TARGETS.map((x) => x.name).join(" / ")}`, () => {
+      const allowed = ALLOWED_DIFF.has(id) ? { todo: "allowed difference (RM_ALLOWED_DIFF)" } : {};
+      await t.test(`identical across ${TARGETS.map((x) => x.name).join(" / ")}`, allowed, () => {
         const strip = ({ status, message, observation }) => ({ status, message, observation });
         for (let i = 1; i < results.length; i += 1) assert.deepEqual(strip(results[i]), strip(results[0]));
       });

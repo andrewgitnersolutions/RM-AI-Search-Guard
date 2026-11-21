@@ -12,9 +12,9 @@ import { ROOT, TARGETS } from "../helpers/targets.mjs";
 const MODULE_SCRIPTS = ["background/service-worker.js", "ui/popup.js", "ui/options.js"];
 const CLASSIC_SCRIPTS = ["content/content.js"];
 
-// S-03 expectations. Phase 0a keeps the original permissions; Phase 0b (D6) removes analytics.
-const EXPECTED_PERMISSIONS = ["storage", "declarativeNetRequestWithHostAccess", "alarms"];
-const EXPECTED_HOSTS = ["https://www.google.com/*", "https://google.com/*", "https://script.google.com/*", "https://script.googleusercontent.com/*"];
+// S-03 expectations from Phase 0b on (D6 removed `alarms` and the two script.* hosts).
+const EXPECTED_PERMISSIONS = ["storage", "declarativeNetRequestWithHostAccess"];
+const EXPECTED_HOSTS = ["https://www.google.com/*", "https://google.com/*"];
 
 /** List every file under a folder, relative and sorted. */
 function listFiles(dir, base = dir) {
@@ -136,3 +136,18 @@ equivalent("S-06", "error codes: ALL_ERROR_CODES = ERROR_CATALOG keys; every cod
   }
   return { codes, literals };
 });
+
+/** Every text file under a folder, relative path → contents. */
+function readTree(dir) {
+  return listFiles(dir).filter((f) => /\.(ts|js|json|html|css)$/.test(f)).map((f) => [f, readFileSync(path.join(dir, f), "utf8")]);
+}
+
+const S06B_DIRS = [["src", path.join(ROOT, "src")], ...TARGETS.map((t) => [t.name, t.dir])];
+if (process.env.RM_PRE_PROMOTE !== "1" && !TARGETS.some((t) => t.name === "dist")) S06B_DIRS.push(["dist", path.join(ROOT, "dist")]);
+for (const [name, dir] of S06B_DIRS) {
+  test(`S-06b no ERR_ANALYTICS_* code, analytics field or script.google host in ${name}/ (D6)`, () => {
+    for (const [file, text] of readTree(dir)) {
+      assert.doesNotMatch(text, /ERR_ANALYTICS_|analyticsEndpointUrl|analyticsSharedToken|script\.google(usercontent)?\.com|TRIGGER_TEST_FLUSH|chrome\.alarms/, `${name}/${file}`);
+    }
+  });
+}

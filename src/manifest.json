@@ -24,14 +24,11 @@
   },
   "permissions": [
     "storage",
-    "declarativeNetRequestWithHostAccess",
-    "alarms"
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "https://www.google.com/*",
-    "https://google.com/*",
-    "https://script.google.com/*",
-    "https://script.googleusercontent.com/*"
+    "https://google.com/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",

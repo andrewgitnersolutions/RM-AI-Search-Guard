@@ -8,19 +8,7 @@
  * ui/policy-generator-core.ts.
  */
 
-import { APPS_SCRIPT_URL_REGEX, DEFAULT_ANALYTICS_POLICY, FEATURE_TOGGLE_KEYS, MAX_FLUSH_INTERVAL_MINUTES, MIN_FLUSH_INTERVAL_MINUTES, STRICT_LOCKDOWN_TOGGLES, VALID_GRADE_BANDS } from "./defaults";
-
-/**
- * Check an analytics endpoint against the strict Apps Script /exec URL pattern.
- * @param url - Candidate URL.
- * @returns true only for https://script.google.com/macros/s/<id>/exec. Anything else is rejected.
- */
-export function isValidAppsScriptUrl(url) {
-  if (typeof url !== "string") {
-    return false;
-  }
-  return APPS_SCRIPT_URL_REGEX.test(url);
-}
+import { FEATURE_TOGGLE_KEYS, STRICT_LOCKDOWN_TOGGLES, VALID_GRADE_BANDS } from "./defaults";
 
 /**
  * Check that a value is one of VALID_GRADE_BANDS.
@@ -39,7 +27,7 @@ export function isValidGradeBand(value) {
  * @param localRaw - Raw local overrides object (or null).
  * @param now - Evaluation time, recorded as evaluatedAt.
  * @returns { policy, errors }. Never throws for bad input: it fails closed and reports
- * ERR_POLICY_INVALID / WARN_NO_MANAGED_POLICY / ERR_ANALYTICS_ENDPOINT_INVALID in errors.
+ * ERR_POLICY_INVALID / WARN_NO_MANAGED_POLICY in errors.
  */
 export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
   const evaluatedAt = now.toISOString();
@@ -67,7 +55,6 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
     }
     const policy = {
       ...toggles,
-      ...DEFAULT_ANALYTICS_POLICY,
       gradeBand,
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
@@ -98,61 +85,14 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
       gradeBand = "Unassigned";
     }
   }
-  let analyticsEnabled = DEFAULT_ANALYTICS_POLICY.analyticsEnabled;
-  if ("analyticsEnabled" in managedRaw && managedRaw.analyticsEnabled !== void 0) {
-    if (typeof managedRaw.analyticsEnabled === "boolean") {
-      analyticsEnabled = managedRaw.analyticsEnabled;
-    } else {
-      invalidFields.push("analyticsEnabled");
-      analyticsEnabled = false;
-    }
-  }
-  let analyticsEndpointUrl = DEFAULT_ANALYTICS_POLICY.analyticsEndpointUrl;
-  if ("analyticsEndpointUrl" in managedRaw && managedRaw.analyticsEndpointUrl !== void 0) {
-    if (typeof managedRaw.analyticsEndpointUrl === "string") {
-      analyticsEndpointUrl = managedRaw.analyticsEndpointUrl.trim();
-    } else {
-      invalidFields.push("analyticsEndpointUrl");
-      analyticsEndpointUrl = "";
-    }
-  }
-  let analyticsSharedToken = DEFAULT_ANALYTICS_POLICY.analyticsSharedToken;
-  if ("analyticsSharedToken" in managedRaw && managedRaw.analyticsSharedToken !== void 0) {
-    if (typeof managedRaw.analyticsSharedToken === "string") {
-      analyticsSharedToken = managedRaw.analyticsSharedToken.trim();
-    } else {
-      invalidFields.push("analyticsSharedToken");
-      analyticsSharedToken = "";
-    }
-  }
-  let analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-  if ("analyticsFlushIntervalMinutes" in managedRaw && managedRaw.analyticsFlushIntervalMinutes !== void 0) {
-    const rawInterval = managedRaw.analyticsFlushIntervalMinutes;
-    if (typeof rawInterval === "number" && Number.isInteger(rawInterval) && rawInterval >= MIN_FLUSH_INTERVAL_MINUTES && rawInterval <= MAX_FLUSH_INTERVAL_MINUTES) {
-      analyticsFlushIntervalMinutes = rawInterval;
-    } else {
-      invalidFields.push("analyticsFlushIntervalMinutes");
-      analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-    }
-  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
       detail: invalidFields.join(", ")
     });
   }
-  if (analyticsEnabled && !isValidAppsScriptUrl(analyticsEndpointUrl)) {
-    errors.push({
-      code: "ERR_ANALYTICS_ENDPOINT_INVALID",
-      detail: analyticsEndpointUrl ? "Configured analyticsEndpointUrl failed Apps Script allowlist validation" : "analyticsEndpointUrl is missing while analyticsEnabled is true"
-    });
-  }
   const policy = {
     ...toggles,
-    analyticsEnabled,
-    analyticsEndpointUrl,
-    analyticsSharedToken,
-    analyticsFlushIntervalMinutes,
     gradeBand,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,
@@ -164,62 +104,30 @@ export function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date
 
 /**
  * Wrap a generator config in Admin Console {"key": {"Value": …}} form.
- * @param config - Band toggles plus analytics settings.
- * @returns Policy object. Analytics fields are included only when analytics is enabled;
- * an out-of-range interval is replaced with the default.
+ * @param config - Grade band plus the six feature toggles.
+ * @returns Policy object ready to paste into the Admin Console.
  */
 export function formatAdminConsolePolicyJson(config) {
-  const result: Record<string, { Value: unknown }> = {
+  return {
     gradeBand: { Value: config.gradeBand },
     masterEnabled: { Value: Boolean(config.masterEnabled) },
     hideAiOverviews: { Value: Boolean(config.hideAiOverviews) },
     hideAiModeUi: { Value: Boolean(config.hideAiModeUi) },
     blockAiModeNavigation: { Value: Boolean(config.blockAiModeNavigation) },
     forceWebOnlySearch: { Value: Boolean(config.forceWebOnlySearch) },
-    hideAuxiliaryAiFeatures: { Value: Boolean(config.hideAuxiliaryAiFeatures) },
-    analyticsEnabled: { Value: Boolean(config.analyticsEnabled) }
+    hideAuxiliaryAiFeatures: { Value: Boolean(config.hideAuxiliaryAiFeatures) }
   };
-  if (config.analyticsEnabled) {
-    const trimmedUrl = (config.analyticsEndpointUrl ?? "").trim();
-    result.analyticsEndpointUrl = { Value: trimmedUrl };
-    const trimmedToken = (config.analyticsSharedToken ?? "").trim();
-    if (trimmedToken.length > 0) {
-      result.analyticsSharedToken = { Value: trimmedToken };
-    }
-    const interval = config.analyticsFlushIntervalMinutes;
-    const validInterval = typeof interval === "number" && Number.isInteger(interval) && interval >= MIN_FLUSH_INTERVAL_MINUTES && interval <= MAX_FLUSH_INTERVAL_MINUTES ? interval : DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-    result.analyticsFlushIntervalMinutes = { Value: validInterval };
-  }
-  return result;
 }
 
 /**
  * Validate a generator draft before it can be copied or downloaded.
- * @param config - Band toggles plus analytics settings.
+ * @param config - Grade band plus the six feature toggles.
  * @returns { valid, errors } with admin-readable messages.
  */
 export function validatePolicyDraft(config) {
   const errors = [];
   if (!isValidGradeBand(config.gradeBand)) {
     errors.push(`Invalid grade band "${String(config.gradeBand)}".`);
-  }
-  if (config.analyticsEnabled) {
-    const trimmedUrl = (config.analyticsEndpointUrl ?? "").trim();
-    if (!trimmedUrl) {
-      errors.push("District Google Apps Script Web App URL is required when analytics is enabled.");
-    } else if (!isValidAppsScriptUrl(trimmedUrl)) {
-      errors.push(
-        "Analytics Endpoint URL must match https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec"
-      );
-    }
-    if (config.analyticsFlushIntervalMinutes !== void 0) {
-      const interval = config.analyticsFlushIntervalMinutes;
-      if (typeof interval !== "number" || !Number.isInteger(interval) || interval < MIN_FLUSH_INTERVAL_MINUTES || interval > MAX_FLUSH_INTERVAL_MINUTES) {
-        errors.push(
-          `Analytics flush interval must be a whole number between ${MIN_FLUSH_INTERVAL_MINUTES} and ${MAX_FLUSH_INTERVAL_MINUTES} minutes.`
-        );
-      }
-    }
   }
   return { valid: errors.length === 0, errors };
 }

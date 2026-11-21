@@ -67,44 +67,6 @@ export function sanitizeMetrics(raw) {
 }
 
 /**
- * Normalize the date-bucketed pending metrics map.
- * @param raw - Untrusted stored value.
- * @returns Map keyed by YYYY-MM-DD; other keys are dropped.
- */
-export function sanitizePendingMetricsByDate(raw) {
-  const out = {};
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return out;
-  }
-  for (const [dateKey, value] of Object.entries(raw)) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
-      out[dateKey] = sanitizeMetrics(value);
-    }
-  }
-  return out;
-}
-
-/**
- * Normalize the pending error-count map against ALL_ERROR_CODES.
- * @param raw - Untrusted stored value.
- * @returns Map of known codes with positive integer counts.
- */
-export function sanitizePendingErrorsByCode(raw) {
-  const out = {};
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return out;
-  }
-  const obj = raw;
-  for (const code of ALL_ERROR_CODES) {
-    const val = obj[code];
-    if (typeof val === "number" && Number.isFinite(val) && val > 0) {
-      out[code] = Math.floor(val);
-    }
-  }
-  return out;
-}
-
-/**
  * Normalize the stored diagnostic log.
  * @param raw - Untrusted stored value.
  * @returns Up to MAX_DIAGNOSTIC_LOG_ENTRIES entries with known codes; others are dropped.
@@ -152,20 +114,12 @@ export function normalizeTelemetryState(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return initial;
   }
+  // Only known fields are kept, so leftovers from older versions (e.g. the removed
+  // analytics buckets) are dropped on the next write.
   const obj = raw;
-  const validStatuses = /* @__PURE__ */ new Set(["idle", "ok", "error", "disabled"]);
-  const lastFlushStatus = typeof obj.lastFlushStatus === "string" && validStatuses.has(obj.lastFlushStatus) ? obj.lastFlushStatus : initial.lastFlushStatus;
   return {
     lifetimeMetrics: sanitizeMetrics(obj.lifetimeMetrics),
-    pendingMetricsByDate: sanitizePendingMetricsByDate(obj.pendingMetricsByDate),
-    pendingErrorsByCode: sanitizePendingErrorsByCode(obj.pendingErrorsByCode),
-    diagnosticLog: sanitizeDiagnosticLog(obj.diagnosticLog),
-    lastFlushAttemptDate: typeof obj.lastFlushAttemptDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(obj.lastFlushAttemptDate) ? obj.lastFlushAttemptDate : null,
-    lastFlushSuccessDate: typeof obj.lastFlushSuccessDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(obj.lastFlushSuccessDate) ? obj.lastFlushSuccessDate : null,
-    lastFlushStatus,
-    lastFlushMessage: typeof obj.lastFlushMessage === "string" ? obj.lastFlushMessage : initial.lastFlushMessage,
-    consecutiveFlushFailures: typeof obj.consecutiveFlushFailures === "number" && Number.isFinite(obj.consecutiveFlushFailures) && obj.consecutiveFlushFailures >= 0 ? Math.floor(obj.consecutiveFlushFailures) : 0,
-    nextEligibleFlushAtMs: typeof obj.nextEligibleFlushAtMs === "number" && Number.isFinite(obj.nextEligibleFlushAtMs) && obj.nextEligibleFlushAtMs >= 0 ? obj.nextEligibleFlushAtMs : 0
+    diagnosticLog: sanitizeDiagnosticLog(obj.diagnosticLog)
   };
 }
 
@@ -248,16 +202,13 @@ export async function writeTelemetryState(state) {
 }
 
 /**
- * Add aggregate counter deltas to lifetime totals and today's pending bucket.
+ * Add aggregate counter deltas to the lifetime totals.
  * @param deltas - Partial metrics; non-positive or non-numeric values are ignored.
- * @param now - Time used for the date bucket.
  * @returns Updated state. Writes only if something changed. A missing deltas object throws (BP-13).
  */
-export async function incrementTelemetryMetrics(deltas, now = /* @__PURE__ */ new Date()) {
+export async function incrementTelemetryMetrics(deltas) {
   return enqueueStorageOp(async () => {
     const state = await readTelemetryState();
-    const dateBucket = getTodayDateBucket(now);
-    const existingBucket = state.pendingMetricsByDate[dateBucket] ?? createEmptyMetrics();
     let changed = false;
     for (const key of METRIC_KEYS) {
       const rawDelta = deltas[key];
@@ -265,13 +216,11 @@ export async function incrementTelemetryMetrics(deltas, now = /* @__PURE__ */ ne
         const delta = Math.floor(rawDelta);
         if (delta > 0) {
           state.lifetimeMetrics[key] = (state.lifetimeMetrics[key] ?? 0) + delta;
-          existingBucket[key] = (existingBucket[key] ?? 0) + delta;
           changed = true;
         }
       }
     }
     if (changed) {
-      state.pendingMetricsByDate[dateBucket] = existingBucket;
       await writeTelemetryState(state);
     }
     return state;
@@ -279,7 +228,7 @@ export async function incrementTelemetryMetrics(deltas, now = /* @__PURE__ */ ne
 }
 
 /**
- * Log a diagnostic code: bump its pending count and add or merge a log entry.
+ * Log a diagnostic code: add a new log entry or merge into a matching one.
  * Same code + detail merges into one entry; when full, the least recently seen entry is evicted.
  * @param code - Catalog code; an unknown code throws (BP-13).
  * @param detail - Detail text (cleaned and capped).
@@ -291,7 +240,6 @@ export async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE_
     const state = await readTelemetryState();
     const dateBucket = getTodayDateBucket(now);
     const cleanDetail = detail.trim().replace(/\s+/g, " ").slice(0, 240);
-    state.pendingErrorsByCode[code] = (state.pendingErrorsByCode[code] ?? 0) + 1;
     const existingIndex = state.diagnosticLog.findIndex(
       (entry) => entry.code === code && entry.detail === cleanDetail
     );
@@ -319,7 +267,7 @@ export async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE_
 }
 
 /**
- * Replace telemetry with a fresh state (counters, pending buckets and log).
+ * Replace telemetry with a fresh state (counters and log).
  * @returns The fresh state.
  */
 export async function resetLocalTelemetry() {

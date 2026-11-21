@@ -7,12 +7,6 @@ var STRICT_LOCKDOWN_TOGGLES = {
   forceWebOnlySearch: true,
   hideAuxiliaryAiFeatures: true
 };
-var DEFAULT_ANALYTICS_POLICY = {
-  analyticsEnabled: false,
-  analyticsEndpointUrl: "",
-  analyticsSharedToken: "",
-  analyticsFlushIntervalMinutes: 240
-};
 var VALID_GRADE_BANDS = [
   "K-2",
   "3-5",
@@ -29,22 +23,13 @@ var FEATURE_TOGGLE_KEYS = [
   "forceWebOnlySearch",
   "hideAuxiliaryAiFeatures"
 ];
-var APPS_SCRIPT_URL_REGEX = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]{10,}\/exec$/;
 var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
   LAST_POLICY: "rmsg_last_policy"
 };
-var MIN_FLUSH_INTERVAL_MINUTES = 60;
-var MAX_FLUSH_INTERVAL_MINUTES = 1440;
 
 // src/shared/policy.ts
-function isValidAppsScriptUrl(url) {
-  if (typeof url !== "string") {
-    return false;
-  }
-  return APPS_SCRIPT_URL_REGEX.test(url);
-}
 function isValidGradeBand(value) {
   return typeof value === "string" && VALID_GRADE_BANDS.includes(value);
 }
@@ -74,7 +59,6 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
     }
     const policy2 = {
       ...toggles2,
-      ...DEFAULT_ANALYTICS_POLICY,
       gradeBand: gradeBand2,
       source: appliedLocalOverride ? "local-unmanaged" : "defaults",
       isManaged: false,
@@ -105,61 +89,14 @@ function parsePolicy(managedRaw, localRaw, now = /* @__PURE__ */ new Date()) {
       gradeBand = "Unassigned";
     }
   }
-  let analyticsEnabled = DEFAULT_ANALYTICS_POLICY.analyticsEnabled;
-  if ("analyticsEnabled" in managedRaw && managedRaw.analyticsEnabled !== void 0) {
-    if (typeof managedRaw.analyticsEnabled === "boolean") {
-      analyticsEnabled = managedRaw.analyticsEnabled;
-    } else {
-      invalidFields.push("analyticsEnabled");
-      analyticsEnabled = false;
-    }
-  }
-  let analyticsEndpointUrl = DEFAULT_ANALYTICS_POLICY.analyticsEndpointUrl;
-  if ("analyticsEndpointUrl" in managedRaw && managedRaw.analyticsEndpointUrl !== void 0) {
-    if (typeof managedRaw.analyticsEndpointUrl === "string") {
-      analyticsEndpointUrl = managedRaw.analyticsEndpointUrl.trim();
-    } else {
-      invalidFields.push("analyticsEndpointUrl");
-      analyticsEndpointUrl = "";
-    }
-  }
-  let analyticsSharedToken = DEFAULT_ANALYTICS_POLICY.analyticsSharedToken;
-  if ("analyticsSharedToken" in managedRaw && managedRaw.analyticsSharedToken !== void 0) {
-    if (typeof managedRaw.analyticsSharedToken === "string") {
-      analyticsSharedToken = managedRaw.analyticsSharedToken.trim();
-    } else {
-      invalidFields.push("analyticsSharedToken");
-      analyticsSharedToken = "";
-    }
-  }
-  let analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-  if ("analyticsFlushIntervalMinutes" in managedRaw && managedRaw.analyticsFlushIntervalMinutes !== void 0) {
-    const rawInterval = managedRaw.analyticsFlushIntervalMinutes;
-    if (typeof rawInterval === "number" && Number.isInteger(rawInterval) && rawInterval >= MIN_FLUSH_INTERVAL_MINUTES && rawInterval <= MAX_FLUSH_INTERVAL_MINUTES) {
-      analyticsFlushIntervalMinutes = rawInterval;
-    } else {
-      invalidFields.push("analyticsFlushIntervalMinutes");
-      analyticsFlushIntervalMinutes = DEFAULT_ANALYTICS_POLICY.analyticsFlushIntervalMinutes;
-    }
-  }
   if (invalidFields.length > 0) {
     errors.push({
       code: "ERR_POLICY_INVALID",
       detail: invalidFields.join(", ")
     });
   }
-  if (analyticsEnabled && !isValidAppsScriptUrl(analyticsEndpointUrl)) {
-    errors.push({
-      code: "ERR_ANALYTICS_ENDPOINT_INVALID",
-      detail: analyticsEndpointUrl ? "Configured analyticsEndpointUrl failed Apps Script allowlist validation" : "analyticsEndpointUrl is missing while analyticsEnabled is true"
-    });
-  }
   const policy = {
     ...toggles,
-    analyticsEnabled,
-    analyticsEndpointUrl,
-    analyticsSharedToken,
-    analyticsFlushIntervalMinutes,
     gradeBand,
     source: invalidFields.length > 0 ? "managed-degraded" : "managed",
     isManaged: true,

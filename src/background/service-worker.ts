@@ -1,17 +1,16 @@
 /**
- * MV3 service worker entry point: keeps DNR rules and the analytics alarm in sync with
- * policy, and routes runtime messages from the content script, popup and options page.
+ * MV3 service worker entry point: keeps DNR rules in sync with policy and routes runtime
+ * messages from the content script, popup and options page.
  * Runs in: service worker (ephemeral; all state lives in chrome.storage).
- * Must never: send page content, queries, URLs or identifiers anywhere (only analytics.ts
- * talks to the network, with allowlisted aggregate counts).
- * Shared with: background/analytics.ts, background/dnr-rules.ts, shared/*.
+ * Must never: make network requests or send page content, queries, URLs or identifiers
+ * anywhere. Counters and diagnostics stay in chrome.storage.local on the device.
+ * Shared with: background/dnr-rules.ts, shared/*.
  */
 
-import { ANALYTICS_ALARM_NAME, FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS } from "../shared/defaults";
+import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS } from "../shared/defaults";
 import { getTodayDateBucket } from "../shared/errors";
-import { isValidAppsScriptUrl, parsePolicy } from "../shared/policy";
+import { parsePolicy } from "../shared/policy";
 import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, writeLocalOverrides } from "../shared/storage";
-import { flushAnalyticsIfDue, scheduleAnalyticsAlarm } from "./analytics";
 import { syncDynamicRules } from "./dnr-rules";
 
 /**
@@ -79,8 +78,8 @@ async function resolvePolicyFromStorage() {
 }
 
 /**
- * Bring DNR rules and the analytics alarm in line with the current policy.
- * @param options - recordPolicyDiagnostics (log policy warnings), alarmMode ("reschedule" | "ensure" | "none").
+ * Bring DNR rules in line with the current policy.
+ * @param options - recordPolicyDiagnostics: log policy warnings and errors.
  * @returns { policy, activeRuleCount }. DNR failures are logged as ERR_DNR_SYNC_FAILED, not thrown.
  */
 async function syncRuntimeState(options) {
@@ -93,17 +92,6 @@ async function syncRuntimeState(options) {
   const dnrResult = await syncDynamicRules(policy);
   if (dnrResult.error) {
     await recordDiagnosticEntry("ERR_DNR_SYNC_FAILED", dnrResult.error);
-  }
-  if (options.alarmMode === "reschedule") {
-    await scheduleAnalyticsAlarm(policy);
-  } else if (options.alarmMode === "ensure") {
-    const existingAlarm = await chrome.alarms.get(ANALYTICS_ALARM_NAME);
-    const shouldHaveAlarm = policy.analyticsEnabled && isValidAppsScriptUrl(policy.analyticsEndpointUrl);
-    if (shouldHaveAlarm && !existingAlarm) {
-      await scheduleAnalyticsAlarm(policy);
-    } else if (!shouldHaveAlarm && existingAlarm) {
-      await chrome.alarms.clear(ANALYTICS_ALARM_NAME);
-    }
   }
   return { policy, activeRuleCount: dnrResult.activeRuleCount };
 }
@@ -172,27 +160,21 @@ async function handleRuntimeMessage(message) {
       };
       await writeLocalOverrides(merged);
       const { policy: updatedPolicy } = await syncRuntimeState({
-        recordPolicyDiagnostics: false,
-        alarmMode: "none"
+        recordPolicyDiagnostics: false
       });
       return updatedPolicy;
     }
     case "RESET_LOCAL_METRICS": {
       return await resetLocalTelemetry();
     }
-    case "TRIGGER_TEST_FLUSH": {
-      const { policy } = await resolvePolicyFromStorage();
-      return await flushAnalyticsIfDue(policy, { force: true });
-    }
   }
 }
 
-// Install/update: sync rules, log policy warnings and reschedule the alarm.
+// Install/update: sync rules and log policy warnings.
 chrome.runtime.onInstalled.addListener(async () => {
   try {
     await syncRuntimeState({
-      recordPolicyDiagnostics: true,
-      alarmMode: "reschedule"
+      recordPolicyDiagnostics: true
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -200,12 +182,11 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-// Browser start: re-sync rules and make sure the alarm exists if analytics is on.
+// Browser start: re-sync rules in case policy changed while Chrome was closed.
 chrome.runtime.onStartup.addListener(async () => {
   try {
     await syncRuntimeState({
-      recordPolicyDiagnostics: true,
-      alarmMode: "ensure"
+      recordPolicyDiagnostics: true
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -218,35 +199,18 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
   try {
     if (areaName === "managed") {
       await syncRuntimeState({
-        recordPolicyDiagnostics: true,
-        alarmMode: "reschedule"
+        recordPolicyDiagnostics: true
       });
       return;
     }
     if (areaName === "local" && STORAGE_KEYS.LOCAL_OVERRIDES in changes) {
       await syncRuntimeState({
-        recordPolicyDiagnostics: false,
-        alarmMode: "ensure"
+        recordPolicyDiagnostics: false
       });
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     await recordDiagnosticEntry("ERR_STORAGE_FAILURE", `storage.onChanged: ${detail}`);
-  }
-});
-
-// One-shot alarm: flush, then schedule the next one (see BP-12 for the failure gap).
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== ANALYTICS_ALARM_NAME) {
-    return;
-  }
-  try {
-    const { policy } = await resolvePolicyFromStorage();
-    await flushAnalyticsIfDue(policy);
-    await scheduleAnalyticsAlarm(policy);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    await recordDiagnosticEntry("ERR_ANALYTICS_FLUSH_FAILED", detail);
   }
 });
 

@@ -17,13 +17,6 @@ export const STRICT_LOCKDOWN_TOGGLES = {
   hideAuxiliaryAiFeatures: true
 };
 
-export const DEFAULT_ANALYTICS_POLICY = {
-  analyticsEnabled: false,
-  analyticsEndpointUrl: "",
-  analyticsSharedToken: "",
-  analyticsFlushIntervalMinutes: 240
-};
-
 export const VALID_GRADE_BANDS = [
   "K-2",
   "3-5",
@@ -105,8 +98,6 @@ export const GRADE_BAND_PRESETS = {
   }
 };
 
-export const APPS_SCRIPT_URL_REGEX = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]{10,}\/exec$/;
-
 export const METRIC_KEYS = [
   "overviewsHidden",
   "aiModeUiHidden",
@@ -121,13 +112,7 @@ export const STORAGE_KEYS = {
   LAST_POLICY: "rmsg_last_policy"
 };
 
-export const ANALYTICS_ALARM_NAME = "rmsg-analytics-flush";
-
 export const MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
-
-export const MIN_FLUSH_INTERVAL_MINUTES = 60;
-
-export const MAX_FLUSH_INTERVAL_MINUTES = 1440;
 
 /**
  * Create a zeroed aggregate counter object.
@@ -145,19 +130,11 @@ export function createEmptyMetrics() {
 
 /**
  * Create the telemetry state for a new install or a reset.
- * @returns Zero counters, empty log, analytics status "idle".
+ * @returns Zero lifetime counters and an empty diagnostic log.
  */
 export function createInitialTelemetryState() {
   return {
     lifetimeMetrics: createEmptyMetrics(),
-    pendingMetricsByDate: {},
-    pendingErrorsByCode: {},
-    diagnosticLog: [],
-    lastFlushAttemptDate: null,
-    lastFlushSuccessDate: null,
-    lastFlushStatus: "idle",
-    lastFlushMessage: "Analytics disabled (local-only mode).",
-    consecutiveFlushFailures: 0,
-    nextEligibleFlushAtMs: 0
+    diagnosticLog: []
   };
 }

@@ -2,7 +2,7 @@
  * Diagnostic code catalog (ERR_* / WARN_*) with IT remediation text, plus log-entry helpers.
  * Runs in: service worker and options page.
  * Must never: put page text, URLs, queries or identifiers into an entry's detail.
- * Shared with: shared/storage.ts (diagnostic log), background/analytics.ts (code allowlist), ui/options.ts.
+ * Shared with: shared/storage.ts (diagnostic log), background/service-worker.ts, ui/options.ts.
  */
 
 export const ALL_ERROR_CODES = [
@@ -10,8 +10,6 @@ export const ALL_ERROR_CODES = [
   "ERR_DNR_SYNC_FAILED",
   "ERR_SELECTOR_SYNTAX",
   "ERR_SAFETY_GUARD_TRIPPED",
-  "ERR_ANALYTICS_ENDPOINT_INVALID",
-  "ERR_ANALYTICS_FLUSH_FAILED",
   "ERR_STORAGE_FAILURE",
   "WARN_NO_MANAGED_POLICY",
   "WARN_OMNIBOX_POLICY_MISSING"
@@ -41,18 +39,6 @@ export const ERROR_CATALOG = {
     severity: "error",
     title: "Organic Results Safety Guard Tripped",
     remediationTemplate: "Safety Guard prevented hiding core Google Search results ({detail}). Google likely changed its page structure. Check for an extension update."
-  },
-  ERR_ANALYTICS_ENDPOINT_INVALID: {
-    code: "ERR_ANALYTICS_ENDPOINT_INVALID",
-    severity: "error",
-    title: "Invalid Analytics Endpoint URL",
-    remediationTemplate: "Analytics is enabled, but analyticsEndpointUrl does not match https://script.google.com/macros/s/<ID>/exec. Paste your deployed Google Apps Script Web App URL in the Admin Policy JSON."
-  },
-  ERR_ANALYTICS_FLUSH_FAILED: {
-    code: "ERR_ANALYTICS_FLUSH_FAILED",
-    severity: "error",
-    title: "District Analytics Flush Failed",
-    remediationTemplate: "Failed to flush anonymous counts to district Google Sheet ({detail}). Verify Apps Script is deployed as Web App -> Execute as: Me -> Who has access: Anyone, and that analyticsSharedToken matches Code.gs. Retrying with backoff."
   },
   ERR_STORAGE_FAILURE: {
     code: "ERR_STORAGE_FAILURE",

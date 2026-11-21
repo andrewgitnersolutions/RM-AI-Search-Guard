@@ -2,7 +2,7 @@
 
 **Audience:** Google Workspace for Education Super Admins & District IT Directors  
 **Time to Deploy:** ~15 minutes for all 4 grade bands (`K-2`, `3-5`, `6-8`, `9-12`)  
-**Hosting Cost:** \$0.00 | **Third-Party DPA Needed:** None (Zero PII; optional analytics stay inside your own Google Workspace)
+**Hosting Cost:** \$0.00 | **Third-Party DPA Needed:** None (Zero PII; nothing is sent off the device)
 
 ---
 
@@ -63,8 +63,7 @@ Hides AI Overviews, AI Mode buttons/tabs, auxiliary AI/Labs/Lens, redirects all 
   "hideAiModeUi": { "Value": true },
   "blockAiModeNavigation": { "Value": true },
   "forceWebOnlySearch": { "Value": true },
-  "hideAuxiliaryAiFeatures": { "Value": true },
-  "analyticsEnabled": { "Value": false }
+  "hideAuxiliaryAiFeatures": { "Value": true }
 }
 ```
 
@@ -77,8 +76,7 @@ Hides AI Overviews, AI Mode buttons/tabs, auxiliary AI/Labs/Lens, redirects all 
   "hideAiModeUi": { "Value": true },
   "blockAiModeNavigation": { "Value": true },
   "forceWebOnlySearch": { "Value": true },
-  "hideAuxiliaryAiFeatures": { "Value": true },
-  "analyticsEnabled": { "Value": false }
+  "hideAuxiliaryAiFeatures": { "Value": true }
 }
 ```
 
@@ -92,8 +90,7 @@ Keeps Google Calculator, Dictionary, Unit Converter, and Knowledge Panels (`forc
   "hideAiModeUi": { "Value": true },
   "blockAiModeNavigation": { "Value": true },
   "forceWebOnlySearch": { "Value": false },
-  "hideAuxiliaryAiFeatures": { "Value": true },
-  "analyticsEnabled": { "Value": false }
+  "hideAuxiliaryAiFeatures": { "Value": true }
 }
 ```
 
@@ -107,8 +104,7 @@ Allows AI Overviews for source-critique lessons while keeping full conversationa
   "hideAiModeUi": { "Value": true },
   "blockAiModeNavigation": { "Value": true },
   "forceWebOnlySearch": { "Value": false },
-  "hideAuxiliaryAiFeatures": { "Value": false },
-  "analyticsEnabled": { "Value": false }
+  "hideAuxiliaryAiFeatures": { "Value": false }
 }
 ```
 
@@ -116,26 +112,11 @@ Allows AI Overviews for source-critique lessons while keeping full conversationa
 
 ---
 
-## Step 4 (Optional): Enable \$0 District-Owned Google Sheets Analytics (5 Minutes)
+## Step 4: Usage Counts Stay on Each Device
 
-By default (`analyticsEnabled: false`), all counters stay locally on each Chromebook with zero network traffic. To see district-wide totals (AI Overviews hidden, AI Mode attempts redirected, errors by grade band) inside your own Google Workspace:
+District-wide Google Sheets analytics were removed on 2026-11-20 (owner decision D6): an extension can't hold a secret, so the endpoint couldn't tell real reports from fake ones, and restricting it to district sign-in would have tied every report to a student account. There is nothing to set up for this step.
 
-1. Create a new **Google Sheet** in a district IT folder (e.g., `Search Guard District Analytics`).
-2. Open **Extensions → Apps Script**.
-3. Delete the placeholder code and paste `templates/apps-script/Code.gs` from the repository.
-4. *(Optional)* Set a non-secret `SHARED_TOKEN` string at the top of `Code.gs` (e.g., `"district-sg-2026"`).
-5. Click **Deploy → New deployment → Select type: Web app**:
-   * **Execute as:** `Me` (service/IT account)
-   * **Who has access:** `Anyone` *(required so managed Chromebooks can POST anonymous aggregate counts without interactive OAuth popups)*
-6. Click **Deploy**, authorize the script to edit its own spreadsheet, and copy the resulting Web App URL (`https://script.google.com/macros/s/.../exec`).
-7. Add these fields to each grade-band OU's **Policy for extensions** JSON:
-   ```json
-   "analyticsEnabled": { "Value": true },
-   "analyticsEndpointUrl": { "Value": "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec" },
-   "analyticsSharedToken": { "Value": "district-sg-2026" },
-   "analyticsFlushIntervalMinutes": { "Value": 240 }
-   ```
-8. **Zero PII Guarantee:** Your Google Sheet receives **only** daily aggregate rows (`Date`, `GradeBand`, `ExtensionVersion`, integer block counts, integer error counts)—never student names, emails, device IDs, or search queries.
+Each Chromebook still keeps its own aggregate counters (AI Overviews hidden, AI Mode redirects, and so on) and diagnostic codes. IT staff can view them on the device under **Options → IT Diagnostics** and export them with **Export Local Metrics CSV**. Nothing is sent off the device. If an older policy JSON still contains `analyticsEnabled`, `analyticsEndpointUrl`, `analyticsSharedToken` or `analyticsFlushIntervalMinutes`, remove those fields: they are no longer in the policy schema and the extension ignores them.
 
 ---
 
@@ -161,5 +142,4 @@ By default (`analyticsEnabled: false`), all counters stay locally on each Chrome
 | `WARN_OMNIBOX_POLICY_MISSING` | Student clicked Chrome's native Omnibox/NTP AI button; extension blocked it, but button is still visible. | Enable `AIModeSettings = 1` in Step 1 for this OU (requires ChromeOS/Chrome 138+). |
 | `WARN_NO_MANAGED_POLICY` | Extension is running on Strict Maximum Lockdown defaults because Admin Console JSON wasn't pushed yet. | Paste valid JSON in **Policy for extensions** and run `chrome://policy` → Reload policies. |
 | `ERR_POLICY_INVALID` | Syntax/type error in Admin Console JSON (e.g., missing `{"Value": ...}` wrapper or string `"true"` instead of boolean `true`). | Re-generate JSON via the **Admin Policy Generator** tab and re-save. |
-| `ERR_ANALYTICS_FLUSH_FAILED` | District Google Apps Script returned an error or redirect auth screen. | Re-deploy Apps Script with **Who has access: Anyone** and ensure `analyticsSharedToken` matches `Code.gs`. |
 | `ERR_SAFETY_GUARD_TRIPPED` | Google changed Search DOM structure; safety guard protected organic results. | Check Chrome Web Store for a selector update or report diagnostic JSON to RaiseMark Support. |
