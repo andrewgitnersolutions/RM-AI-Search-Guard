@@ -592,9 +592,18 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 
 **Recommendation:** **A**, owner to confirm (it changes documented behavior).
 
+**Owner decision 2026-11-21: option A (keep the student's search).**
+
 **To-do:**
-- [ ] Owner decision: A or B.
-- [ ] If A: split rule 111 (with query → `/search` + transform; without → homepage), update U-06's expectations, L-02 and `docs/04`.
+- [x] Owner decision: A or B.
+- [x] If A: split rule 111 (with query → `/search` + transform; without → homepage), update U-06's expectations, L-02 and `docs/04`.
+
+**2026-11-21, fixed in `src/` (Phase 2):**
+- **Rule 111 (priority 50):** matches `/ai` or `/aimode` (optionally followed by a sub-path) with a non-empty `q=`. It changes the path to `/search` and applies the same AI Mode query transform as rule 110: `q` and other params are kept, `udm` becomes 14 or is removed, and the session params are stripped. It also adds `#rm_sg_aimode`.
+- **New rule 112 (priority 45):** keeps the old homepage redirect for queryless or empty-`q` URLs. `ALL_MANAGED_RULE_IDS` now includes 112.
+- **Simulator:** the DNR simulator applies `transform.path`.
+- **Tests:** new U-19 (six URLs, both Web-only settings, ≤2 hops), U-05, U-06 (`/aimode?q=x` → `/search?q=x&udm=14#rm_sg_aimode`), X-02, U-17 and B-03b all pass. B-03b confirms Chromium applies the path and query transform together.
+- **`docs/04`:** the verification step now covers `/aimode?q=…`.
 
 **Done when:** U-19 (`/aimode?q=fractions` → `/search?q=fractions…` with the `#rm_sg_aimode` marker, `/ai` → `/`, ≤2 hops) passes, if A is chosen.
 
@@ -659,7 +668,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-03 | Invalid managed values (string `"true"`, out-of-range interval, bad enum) fall back fail-closed and are listed in `invalidFields` | Regression |
 | U-04 | `extraHideSelectors`: accepts valid string arrays; rejects non-arrays, over-long strings and >20 items into `invalidFields`; ignored when unmanaged | BP-04 |
 | U-05 | DNR rules for all 4 combinations of `blockAiModeNavigation` × `forceWebOnlySearch`, plus `masterEnabled:false` → `[]` | Regression |
-| U-06 | Redirect simulation, with each rule's pattern run as a JS RegExp and its transform applied, until no rule matches. `?q=x&udm=50` → `udm=14` or no `udm`; `sourceid=chrome` + `udm=50` → `#rm_sg_omnibox`; `/ai` and `/aimode` → `/`; `?q=x` → `udm=14`; `udm=2` and `tbm=nws` untouched; **every URL settles within 2 hops (no loops)** | Regression, BP-05 |
+| U-06 | Redirect simulation, with each rule's pattern run as a JS RegExp and its transform applied, until no rule matches. `?q=x&udm=50` → `udm=14` or no `udm`; `sourceid=chrome` + `udm=50` → `#rm_sg_omnibox`; `/ai` and `/aimode` with no query → `/` (with a query: `/search`, query kept, BP-19); `?q=x` → `udm=14`; `udm=2` and `tbm=nws` untouched; **every URL settles within 2 hops (no loops)** | Regression, BP-05 |
 | U-07 | `cleanAiModeUrl()` (BP-05 JS copy) returns the same URL as the U-06 simulation for every test URL | BP-05 |
 | U-08 | ~~Payload v2: allowlisted keys only; `buckets` capped at 14; extra/unknown keys or PII-shaped fields make `assertNoPiiPayload` reject~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-09 | ~~Flush with mock fetch: 3 pending days → exactly 1 POST; on `{status:"ok"}` the sent counts are subtracted, and counts that arrived during the request are kept~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
@@ -672,7 +681,7 @@ Each test has an ID, what it proves, which break point it covers, and how it run
 | U-16 | ~~Code.gs in `vm` with mock `SpreadsheetApp`/`LockService`: `doPost` appends one row and never calls `getValues()`; token mismatch → `UNAUTHORIZED`; bad payload rejected; `rollup_()` totals match a fixed sample~~ **Removed by D6** (analytics dropped). Restore with analytics; see `archive/analytics-v1/README.md`. | BP-11 |
 | U-17 | Two overlapping `syncRuntimeState` runs where the older resolves last → the newer policy's DNR rules are installed | BP-17 |
 | U-18 | Two concurrent `SET_LOCAL_OVERRIDES` (different toggles) → both edits stored | BP-17 |
-| U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (only if BP-19 option A is chosen) | BP-19 |
+| U-19 | `/aimode?q=fractions` → `/search?q=fractions…#rm_sg_aimode`; `/ai` → `/`; ≤2 hops (option A chosen 2026-11-21) | BP-19 |
 | U-20 | Content script (vm, controlled message timing): an older disabled policy load finishing after a newer enabled one is dropped; the tab stays protected | BP-17 |
 
 ### 6.3 Browser tests on local mock pages (Auto: Playwright)
@@ -705,7 +714,7 @@ Never retry through a CAPTCHA or "unusual traffic" page; record the test as **IN
 | ID | Test | Covers |
 |---|---|---|
 | L-01 | English: "what is photosynthesis" → no Overview, no AI Mode tab, ≥5 organic results | Regression |
-| L-02 | `?q=photosynthesis&udm=50` → clean results, query kept; `/ai` and `/aimode` → homepage | Regression |
+| L-02 | `?q=photosynthesis&udm=50` → clean results, query kept; `/ai` and `/aimode` with no query → homepage; `/aimode?q=photosynthesis` → clean results, query kept (BP-19, 2026-11-21) | Regression, BP-19 |
 | L-03 | Images (`udm=2`) and News (`tbm=nws`) load unmodified with `forceWebOnlySearch` on | Regression |
 | L-04 | `hl=es`: Overview and AI Mode tab hidden (also the moment to collect and confirm the Spanish strings) | BP-03 |
 | L-05 | `hl=fr`: `WARN_UNSUPPORTED_UI_LANGUAGE` appears in IT Diagnostics | BP-03 |

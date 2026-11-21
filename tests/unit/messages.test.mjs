@@ -160,7 +160,7 @@ equivalent("X-02", "lifecycle listeners: install, startup, managed change and lo
   await sw.fire("onChanged", { rmsg_local_overrides: { newValue: {} } }, "local");
   out.afterLocalChange = { rules: sw.dynamicRules.map((r) => r.id), updates: sw.chrome.declarativeNetRequest.updates.length };
   assert.deepEqual(out.afterManagedChange.rules, []);
-  assert.deepEqual(out.afterLocalChange.rules, [101, 102, 110, 111]);
+  assert.deepEqual(out.afterLocalChange.rules, [101, 102, 110, 111, 112]);
   return out;
 });
 

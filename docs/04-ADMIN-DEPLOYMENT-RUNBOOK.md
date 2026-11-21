@@ -132,6 +132,7 @@ Each Chromebook still keeps its own aggregate counters (AI Overviews hidden, AI 
    * Search `"what is photosynthesis"` → confirm **no AI Overview** and **no AI Mode tab**, and organic search links load normally.
    * Navigate directly to `https://www.google.com/search?q=photosynthesis&udm=50` → confirm silent redirect to clean search preserving `q=photosynthesis`.
    * Navigate directly to `https://www.google.com/ai` → confirm silent redirect to `https://www.google.com/`.
+   * Navigate directly to `https://www.google.com/aimode?q=photosynthesis` → confirm silent redirect to ordinary search results for `photosynthesis` (the student's search is kept; Web-only `udm=14` is added when `forceWebOnlySearch` is ON).
    * Click the **Images** tab (`udm=2`) → confirm Images load normally even when `forceWebOnlySearch` is ON.
 4. Visit `chrome-extension://<EXTENSION_ID>/ui/options.html` → **IT Diagnostics** tab → confirm zero `ERR_*` entries and active counters incrementing.
 

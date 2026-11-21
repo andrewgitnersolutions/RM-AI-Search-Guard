@@ -23,8 +23,8 @@ equivalent("U-05", "DNR rules for blockAiModeNavigation × forceWebOnlySearch; m
     neither: rulesFor(sw, false, false),
     masterOff: rulesFor(sw, true, true, false),
   };
-  assert.deepEqual(ids(out.both), [101, 102, 110, 111, 120, 130]);
-  assert.deepEqual(ids(out.blockOnly), [101, 102, 110, 111]);
+  assert.deepEqual(ids(out.both), [101, 102, 110, 111, 112, 120, 130]);
+  assert.deepEqual(ids(out.blockOnly), [101, 102, 110, 111, 112]);
   assert.deepEqual(ids(out.forceOnly), [120, 130]);
   assert.deepEqual(ids(out.neither), []);
   assert.deepEqual(out.masterOff, []);
@@ -45,7 +45,7 @@ const URLS = [
   "https://www.google.com/search?q=x&udm=14",
 ];
 
-equivalent("U-06", "redirect simulation: AI Mode → Web/clean results, omnibox marker, /ai → /, other tabs untouched, ≤2 hops", (target) => {
+equivalent("U-06", "redirect simulation: AI Mode → Web/clean results, omnibox marker, /ai → /, /aimode?q= keeps the search (BP-19), other tabs untouched, ≤2 hops", (target) => {
   const sw = loadServiceWorker(target);
   const out = {};
   for (const [label, force] of [["force", true], ["noForce", false]]) {
@@ -57,7 +57,7 @@ equivalent("U-06", "redirect simulation: AI Mode → Web/clean results, omnibox 
   assert.ok(f[URLS[2]].url.endsWith("#rm_sg_omnibox"));
   assert.ok(f[URLS[3]].url.endsWith("#rm_sg_omnibox"));
   assert.equal(f[URLS[4]].url, "https://www.google.com/#rm_sg_aimode");
-  assert.equal(f[URLS[5]].url, "https://www.google.com/#rm_sg_aimode");
+  assert.equal(f[URLS[5]].url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
   assert.match(f[URLS[6]].url, /[?&]udm=14/);
   assert.equal(f[URLS[7]].url, URLS[7]);
   assert.equal(f[URLS[8]].url, URLS[8]);
@@ -65,6 +65,30 @@ equivalent("U-06", "redirect simulation: AI Mode → Web/clean results, omnibox 
   for (const mode of Object.values(out)) for (const r of Object.values(mode)) assert.ok(r.hops <= 2, `loop or >2 hops: ${JSON.stringify(r)}`);
   return out;
 });
+
+equivalent("U-19", "BP-19: /ai and /aimode with a query keep the search on /search (marker, udm cleaned); without one → homepage; ≤2 hops", (target) => {
+  const sw = loadServiceWorker(target);
+  const cases = {
+    "https://www.google.com/aimode?q=fractions": ["https://www.google.com/search?q=fractions&udm=14#rm_sg_aimode", "https://www.google.com/search?q=fractions#rm_sg_aimode"],
+    "https://google.com/ai?q=fractions&udm=50&aep=1": ["https://google.com/search?q=fractions&udm=14#rm_sg_aimode", "https://google.com/search?q=fractions#rm_sg_aimode"],
+    "https://www.google.com/aimode/session?hl=en&q=photosynthesis": ["https://www.google.com/search?hl=en&q=photosynthesis&udm=14#rm_sg_aimode", "https://www.google.com/search?hl=en&q=photosynthesis#rm_sg_aimode"],
+    "https://www.google.com/ai": ["https://www.google.com/#rm_sg_aimode", "https://www.google.com/#rm_sg_aimode"],
+    "https://www.google.com/aimode?q=": ["https://www.google.com/#rm_sg_aimode", "https://www.google.com/#rm_sg_aimode"],
+    "https://www.google.com/aimode?hl=en": ["https://www.google.com/#rm_sg_aimode", "https://www.google.com/#rm_sg_aimode"],
+  };
+  const out = {};
+  for (const [label, force, idx] of [["force", true, 0], ["noForce", false, 1]]) {
+    const rules = rulesFor(sw, true, force);
+    out[label] = {};
+    for (const [from, expected] of Object.entries(cases)) {
+      const r = simulate(rules, from);
+      out[label][from] = r;
+      assert.equal(r.url, expected[idx], `${label}: ${from}`);
+      assert.ok(r.hops <= 2, `${label}: ${from} took ${r.hops} hops`);
+    }
+  }
+  return out;
+}, { bp: "BP-19" });
 
 equivalent("U-07", "cleanAiModeUrl() (BP-05 JS copy) matches the DNR simulation for every test URL", (target) => {
   const sw = loadServiceWorker(target);

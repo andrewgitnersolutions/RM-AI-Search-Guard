@@ -3,8 +3,8 @@
  * and (optionally) force Web-only results.
  * Runs in: service worker.
  * Must never: touch subresource requests or hosts other than google.com / www.google.com.
- * Shared with: background/service-worker.ts. BP-05 will add a JS copy of this transform in the
- * content script; the two must stay in sync.
+ * Shared with: background/service-worker.ts. BP-05 adds a JS copy of these redirects for
+ * in-page navigation (shared/ai-mode-url.ts); the two must stay in sync (test U-07).
  */
 
 import { enqueueStorageOp } from "../shared/storage";
@@ -16,7 +16,7 @@ type QueryTransform = chrome.declarativeNetRequest.QueryTransform;
 /**
  * Every dynamic rule ID this extension owns; all are removed before each re-sync.
  */
-export const ALL_MANAGED_RULE_IDS = [101, 102, 110, 111, 120, 130];
+export const ALL_MANAGED_RULE_IDS = [101, 102, 110, 111, 112, 120, 130];
 
 export const ACTION_REDIRECT = "redirect" as chrome.declarativeNetRequest.RuleActionType.REDIRECT;
 
@@ -43,8 +43,9 @@ export function createAiModeQueryTransform(forceWebOnlySearch: boolean): QueryTr
 }
 
 // RE2 has no lookahead, so rule order is done with priorities: 101/102 (55) catch omnibox
-// entries before generic AI Mode 110 (50); allow 120 (40) exempts explicit tabs (udm=/tbm=)
-// from the Web-only rewrite 130 (30).
+// entries before generic AI Mode 110 (50); /ai and /aimode with a query (111, 50) keep the
+// student's search, the queryless fallback 112 (45) goes to the homepage; allow 120 (40)
+// exempts explicit tabs (udm=/tbm=) from the Web-only rewrite 130 (30).
 // FRAGILE(google-dom, last verified NONE, see test L-07): udm=50 = AI Mode, sourceid=chrome / aep= = omnibox entry, /ai and /aimode paths.
 /**
  * Build the dynamic DNR rules for a policy.
@@ -108,9 +109,30 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         resourceTypes: [RESOURCE_MAIN_FRAME]
       }
     });
+    // BP-19 (owner decision 2026-11-21): /aimode?q=fractions keeps the search. The path becomes
+    // /search and the same AI Mode query transform as 110 applies (q kept, udm/session params
+    // cleaned), so the student lands on ordinary results instead of retyping on the homepage.
     rules.push({
       id: 111,
       priority: 50,
+      action: {
+        type: ACTION_REDIRECT,
+        redirect: {
+          transform: {
+            path: "/search",
+            queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
+            fragment: "#rm_sg_aimode"
+          }
+        }
+      },
+      condition: {
+        regexFilter: "^https://(www\\.)?google\\.com/(ai|aimode)(/[^?#]*)?\\?([^#]*&)?q=[^&#]",
+        resourceTypes: [RESOURCE_MAIN_FRAME]
+      }
+    });
+    rules.push({
+      id: 112,
+      priority: 45,
       action: {
         type: ACTION_REDIRECT,
         redirect: {

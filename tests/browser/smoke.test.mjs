@@ -47,7 +47,7 @@ equivalent("B-03", "every AI surface hidden; search box, other tabs and ≥5 org
     return { serp, home, attrs, lifetime: telemetry.lifetimeMetrics, log: telemetry.diagnosticLog.map((e) => e.code) };
   }));
 
-equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counted, /aimode → homepage, plain search → udm=14, Images untouched", (target) =>
+equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counted, /aimode?q= keeps the search, /ai → homepage, plain search → udm=14, Images untouched", (target) =>
   withBrowser(target, async (b) => {
     const page = await b.context.newPage();
     const finals = {};
@@ -55,6 +55,7 @@ equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counte
       "https://www.google.com/search?q=x&udm=50",
       "https://www.google.com/search?q=x&sourceid=chrome&udm=50",
       "https://www.google.com/aimode?q=x",
+      "https://www.google.com/ai",
       "https://www.google.com/search?q=x",
       "https://www.google.com/search?q=x&udm=2",
     ]) {
@@ -64,10 +65,11 @@ equivalent("B-03b", "DNR in the browser: udm=50 → udm=14, omnibox entry counte
     }
     const telemetry = await readTelemetry(b.sw);
     assert.equal(finals["https://www.google.com/search?q=x&udm=50"], "https://www.google.com/search?q=x&udm=14");
-    assert.equal(finals["https://www.google.com/aimode?q=x"], "https://www.google.com/");
+    assert.equal(finals["https://www.google.com/aimode?q=x"], "https://www.google.com/search?q=x&udm=14");
+    assert.equal(finals["https://www.google.com/ai"], "https://www.google.com/");
     assert.equal(finals["https://www.google.com/search?q=x"], "https://www.google.com/search?q=x&udm=14");
     assert.equal(finals["https://www.google.com/search?q=x&udm=2"], "https://www.google.com/search?q=x&udm=2");
-    assert.equal(telemetry.lifetimeMetrics.aiModeRedirects, 3);
+    assert.equal(telemetry.lifetimeMetrics.aiModeRedirects, 4);
     assert.equal(telemetry.lifetimeMetrics.omniboxFallbackRedirects, 1);
     return { finals, requests: b.requests, lifetime: telemetry.lifetimeMetrics, log: telemetry.diagnosticLog.map((e) => e.code) };
   }));
