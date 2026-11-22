@@ -725,7 +725,7 @@ These are by design and outside the extension's reach. They belong in `docs/04` 
 | 2. Close bypasses and tampering | BP-05, BP-07, BP-08, BP-13, BP-18, BP-19 (BP-19 option A, owner decision 2026-11-21). **Done 2026-11-21**: all their tests pass and `tests/known-failures.json` has `currentPhase: 2`. Still open: M-05 (managed device) and L-06/L-07 (live Google). | Depends on BP-01's "is locked" decision. BP-18 rides with BP-08, BP-19 with BP-05. |
 | 3. Performance and accuracy | BP-09, BP-14, BP-12 (N/A per D6). **Done 2026-11-21**: BP-09 and BP-14 fixed; BP-12 N/A per D6; `tests/known-failures.json` has `currentPhase: 3`. | Touch the same sweep/metrics paths, so do them together. |
 | 4. Longevity | BP-03, BP-04, BP-11 (N/A per D6). **Done 2026-11-21**: BP-03 and BP-04 fixed; BP-11 N/A per D6; `tests/known-failures.json` has `currentPhase: 4` and empty `failures`. Still open: `L-04`/`L-05` with extension loaded on live Google and `M-*` on a managed device. | Need live Google strings (BP-03) and a schema change (BP-04/BP-11); do them in one schema update. |
-| 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above. **Done 2026-11-21**: §4 comment-only audit (`R-01`/`R-02` verified), `O-01` Chrome 134 API/CSS floor check, `BP-10` supported versions doc, `BP-15` `v1.0.1` bump (no zip rebuild/upload), `BP-16` non-covered surfaces doc, and final doc pass (`README.md`, `PRIVACY.md`, `docs/01`–`05`, `tests/README.md`, local `local-cws/` store drafts). `tests/known-failures.json` has `currentPhase: 5` and empty `failures`. Still open (manual): `L-01`–`L-07` with extension loaded, `M-01`–`M-05` on a managed device, and `O-02` on Chrome 134. | Comment once, after the code is stable. |
+| 5. Re-comment + docs | §4 standard, BP-16, doc updates for every BP above. **Done 2026-11-21**: §4 comment-only audit (`R-01`/`R-02` verified), `O-01` Chrome 134 API/CSS floor check, `BP-10` supported versions doc, `BP-15` `v1.0.1` bump (no zip rebuild/upload), `BP-16` non-covered surfaces doc, and final doc pass (`README.md`, `PRIVACY.md`, `docs/01`–`05`, `tests/README.md`, local `local-cws/` store drafts). `tests/known-failures.json` has `currentPhase: 5` and empty `failures`. **Live Google `L-01`–`L-06` passed 2026-11-21** with `dist/` (`v1.0.1`) loaded unpacked. Still open (manual): `L-07` (programmatic Tier 2 DOM counts with extension loaded), `M-01`–`M-05` on a managed device, and `O-02` on Chrome 134. | Comment once, after the code is stable. |
 
 **Verification for every phase:** load `dist/` unpacked in Chrome, run each BP's "Done when" check, run `scripts/check-shared-sync.mjs` and `scripts/syntax-check.mjs`. Managed-policy checks (BP-01, BP-07, BP-04) need a real managed profile or Chromebook in a test OU; the agent must report which checks it could not run, not mark them passed.
 
@@ -812,13 +812,13 @@ Never retry through a CAPTCHA or "unusual traffic" page; record the test as **IN
 
 | ID | Test | Covers |
 |---|---|---|
-| L-01 | English: "what is photosynthesis" → no Overview, no AI Mode tab, ≥5 organic results | Regression |
-| L-02 | `?q=photosynthesis&udm=50` → clean results, query kept; `/ai` and `/aimode` with no query → homepage; `/aimode?q=photosynthesis` → clean results, query kept (BP-19, 2026-11-21) | Regression, BP-19 |
-| L-03 | Images (`udm=2`) and News (`tbm=nws`) load unmodified with `forceWebOnlySearch` on | Regression |
-| L-04 | `hl=es`: Overview and AI Mode tab hidden (also the moment to collect and confirm the Spanish strings) | BP-03 |
-| L-05 | `hl=fr`: `WARN_UNSUPPORTED_UI_LANGUAGE` appears in IT Diagnostics | BP-03 |
-| L-06 | Enter AI Mode from inside the page (AI Mode tab click with hiding temporarily off) → redirected | BP-05 |
-| L-07 | Re-confirm every Tier 2 selector still matches; update its "last verified" date comment | BP-04 |
+| L-01 | English: "what is photosynthesis" → no Overview, no AI Mode tab, ≥5 organic results (**PASS 2026-11-21** on `v1.0.1` unpacked; `udm=14` active, 6+ organic results) | Regression |
+| L-02 | `?q=photosynthesis&udm=50` → clean results, query kept; `/ai` and `/aimode` with no query → homepage; `/aimode?q=photosynthesis` → clean results, query kept (BP-19, 2026-11-21) (**PASS 2026-11-21** across all 4 URLs) | Regression, BP-19 |
+| L-03 | Images (`udm=2`) and News (`tbm=nws`) load unmodified with `forceWebOnlySearch` on (**PASS 2026-11-21**) | Regression |
+| L-04 | `hl=es`: Overview and AI Mode tab hidden (also the moment to collect and confirm the Spanish strings) (**PASS 2026-11-21** on `v1.0.1` unpacked; `udm=14` active, no `Modo IA`, 5+ organic results) | BP-03 |
+| L-05 | `hl=fr`: `WARN_UNSUPPORTED_UI_LANGUAGE` appears in IT Diagnostics (**PASS 2026-11-21**; logged `WARNING \| WARN_UNSUPPORTED_UI_LANGUAGE \| Count: 1 \| Detail: fr`) | BP-03 |
+| L-06 | Enter AI Mode from inside the page (AI Mode tab click with hiding temporarily off) → redirected (**PASS 2026-11-21**; redirected to `&udm=14`) | BP-05 |
+| L-07 | Re-confirm every Tier 2 selector still matches; update its "last verified" date comment (**NOT RUN 2026-11-21** in live-extension session: `evaluate_script` unavailable in MCP; read-only Tier 2 check completed in Phase 4) | BP-04 |
 
 ### 6.5 Managed-device tests (Managed, test OU, manual)
 
