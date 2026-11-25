@@ -29,7 +29,10 @@ equivalent("U-05", "DNR rules for blockAiModeNavigation × forceWebOnlySearch; m
   assert.deepEqual(ids(out.forceOnly), [120, 130]);
   assert.deepEqual(ids(out.neither), []);
   assert.deepEqual(out.masterOff, []);
-  for (const r of out.both) assert.deepEqual(r.condition.resourceTypes, ["main_frame"]);
+  for (const r of out.both) {
+    const expectedTypes = r.id <= 112 ? ["main_frame", "sub_frame"] : ["main_frame"];
+    assert.deepEqual(r.condition.resourceTypes, expectedTypes);
+  }
   return out;
 });
 
@@ -67,6 +70,25 @@ equivalent("U-06", "redirect simulation: AI Mode → Web/clean results, omnibox 
   return out;
 });
 
+equivalent("U-06b", "DNR handles /webhp, root /?, percent-encoded udm=%35%30, and empty udm= without bypassing udm=14", (target) => {
+  const sw = loadServiceWorker(target);
+  const forceRules = rulesFor(sw, true, true);
+  const noForceRules = rulesFor(sw, true, false);
+  const webhp = simulate(forceRules, "https://www.google.com/webhp?q=x&udm=50");
+  const rootSearch = simulate(forceRules, "https://www.google.com/?q=x&udm=50");
+  const encoded = simulate(forceRules, "https://www.google.com/search?q=x&udm=%35%30");
+  const emptyUdm = simulate(forceRules, "https://www.google.com/search?q=x&udm=");
+  const homeHl = simulate(forceRules, "https://www.google.com/?hl=en");
+  const webhpNoForce = simulate(noForceRules, "https://www.google.com/webhp?q=x&udm=50");
+  assert.equal(webhp.url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
+  assert.equal(rootSearch.url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
+  assert.equal(encoded.url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
+  assert.equal(emptyUdm.url, "https://www.google.com/search?q=x&udm=14");
+  assert.equal(homeHl.url, "https://www.google.com/?hl=en");
+  assert.equal(webhpNoForce.url, "https://www.google.com/search?q=x#rm_sg_aimode");
+  return { webhp, rootSearch, encoded, emptyUdm, homeHl, webhpNoForce };
+});
+
 equivalent("U-19", "BP-19: /ai and /aimode with a query keep the search on /search (marker, udm cleaned); without one → homepage; ≤2 hops", (target) => {
   const sw = loadServiceWorker(target);
   const cases = {
@@ -100,6 +122,11 @@ const U07_URLS = [
   "https://www.google.com/aimode?hl=en",
   "https://www.google.com/aimode?q=&q=fractions",
   "https://www.google.com/search?q=x&udm=50#frag",
+  "https://www.google.com/webhp?q=x&udm=50",
+  "https://www.google.com/?q=x&udm=50",
+  "https://www.google.com/search?q=x&udm=%35%30",
+  "https://www.google.com/search?q=x&udm=",
+  "https://www.google.com/?hl=en",
   "https://example.com/search?q=x&udm=50",
 ];
 
@@ -149,6 +176,16 @@ equivalent("U-07b", "content script: popstate and pageshow into an AI Mode URL e
     out[event] = [...cs.replaced];
     assert.deepEqual(out[event], ["https://www.google.com/search?q=x&udm=14#rm_sg_aimode"], `${event}: one clean redirect`);
   }
+  const retryCs = loadContentScript(target, { href: "https://www.google.com/search?q=x&udm=14", fakeTimers: true });
+  await retryCs.flush();
+  retryCs.policyRequests[0]?.({ ...BASE, blockAiModeNavigation: true, forceWebOnlySearch: true, isManaged: false });
+  await retryCs.flush();
+  retryCs.setHref("https://www.google.com/search?q=x&udm=50");
+  retryCs.fireWindowEvent("popstate");
+  retryCs.advanceTime(1_000);
+  retryCs.fireWindowEvent("popstate");
+  assert.equal(retryCs.replaced.length, 2, "aborted redirect must recover after cooldown");
+  out.cooldownRecovery = [...retryCs.replaced];
   return out;
 }, { bp: "BP-05" });
 

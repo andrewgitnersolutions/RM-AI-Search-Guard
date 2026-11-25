@@ -65,10 +65,10 @@ export const SELECTORS = {
       "#searchform"
     ],
     // FRAGILE(google-dom, last verified NONE, see tests L-01/L-07): organic result heading selectors used by the safety guard.
-    organicResultSelector: "a > h3, h3.LC20lb",
-    // Refuse to hide anything holding this many organic results. AI Overview candidates are held
-    // to 1 (BP-08): an Overview card never legitimately contains a real result, so a candidate
-    // that does is a wrapper and hiding it would remove real results.
+    organicResultSelector: "a > h3, a h3, h3.LC20lb",
+    // Refuse to hide anything holding this many organic results. AI Overview and AI Mode
+    // candidates are held to 1 (BP-08 / security hardening): neither legitimately contains a real
+    // organic search result, so a candidate that does is a wrapper and hiding it would remove real results.
     organicResultThreshold: 3,
     overviewOrganicResultThreshold: 1,
     // How far findOverviewHeadingContainer may walk up from an "AI Overview" heading (BP-08).

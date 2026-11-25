@@ -17,6 +17,7 @@ export type PresetBand = Exclude<GradeBand, "Unassigned">;
 interface BandCardRefs {
   article: HTMLElement;
   reminder: HTMLElement;
+  advancedDetails: HTMLDetailsElement;
   codeEl: HTMLElement;
   toggleInputs: Record<ToggleKey, HTMLInputElement>;
   toggleItems: Record<ToggleKey, HTMLElement>;
@@ -78,13 +79,14 @@ export function createDefaultExtraRawStates(): Record<PresetBand, Record<ExtraSe
 
 /**
  * Parse and validate newline-separated CSS selectors from one extraHideSelectors textarea.
- * Checks line count (<=20), length (<=300 chars) and native CSS selector syntax via a
- * detached DocumentFragment probe when DOM APIs exist.
+ * Checks line count (<=20), length (<=300 chars) and (when checkSyntax is true) native CSS
+ * selector syntax via a detached DocumentFragment probe when DOM APIs exist.
  * @param raw - Raw textarea string.
+ * @param checkSyntax - Whether to run DocumentFragment.querySelector syntax probing (skip during live keystroke previews).
  * @returns Trimmed non-empty selector list and optional validation error message.
  * Fails safe: invalid CSS selector syntax is caught and returned in error without throwing.
  */
-export function parseExtraSelectorsInput(raw: string): { selectors: string[]; error: string | null } {
+export function parseExtraSelectorsInput(raw: string, checkSyntax = true): { selectors: string[]; error: string | null } {
   const selectors = raw
     .split(/\r?\n/)
     .map((line) => trimCssWhitespace(line))
@@ -103,7 +105,7 @@ export function parseExtraSelectorsInput(raw: string): { selectors: string[]; er
       };
     }
   }
-  if (typeof document !== "undefined" && typeof document.createDocumentFragment === "function") {
+  if (checkSyntax && typeof document !== "undefined" && typeof document.createDocumentFragment === "function") {
     const probe = document.createDocumentFragment();
     for (const line of selectors) {
       try {
@@ -220,7 +222,7 @@ export function syncFieldErrorLink(input: Element, errorId: string, shown: boole
  * Render the generator UI into a container and wire its controls.
  * @param container - Mount element (its children are replaced).
  * @param options - Optional callbacks (onStatus).
- * A draft that fails validation is still copied, with a warning in the status line.
+ * A draft that fails validation blocks Copy/Download until the invalid field is fixed.
  */
 export function mountPolicyGenerator(container: HTMLElement, options?: { onStatus?: (message: string) => void }): void {
   mountInstanceCounter += 1;
@@ -429,18 +431,19 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
         gradeBand: band,
         extraHideSelectors: extraValidation.selectors
       });
+      const validationError = extraValidation.firstError ?? draftCheck.errors[0];
+      if (validationError) {
+        cardRefs[band].advancedDetails.open = true;
+        setStatus(`Fix invalid selector before copying ${band} JSON: ${validationError}`, true);
+        return;
+      }
       const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       const copied = await copyTextToClipboard(jsonText);
       if (!copied) {
         setStatus(`Could not copy ${band} JSON automatically. Select and copy from the preview box.`, true);
         return;
       }
-      const warning = extraValidation.firstError ?? draftCheck.errors[0];
-      if (warning) {
-        setStatus(`Copied ${band} JSON (warning: ${warning}).`, true);
-      } else {
-        setStatus(`Copied Google Admin Console JSON for ${band}.`);
-      }
+      setStatus(`Copied Google Admin Console JSON for ${band}.`);
     });
     const dlBtn = document.createElement("button");
     dlBtn.type = "button";
@@ -456,14 +459,15 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
         gradeBand: band,
         extraHideSelectors: extraValidation.selectors
       });
+      const validationError = extraValidation.firstError ?? draftCheck.errors[0];
+      if (validationError) {
+        cardRefs[band].advancedDetails.open = true;
+        setStatus(`Fix invalid selector before downloading ${band} JSON: ${validationError}`, true);
+        return;
+      }
       const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
-      const warning = extraValidation.firstError ?? draftCheck.errors[0];
-      if (warning) {
-        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json (warning: ${warning}).`, true);
-      } else {
-        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
-      }
+      setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
     });
     actions.append(copyBtn, dlBtn);
     article.append(header, reminder, togglesContainer, advancedDetails, pre, actions);
@@ -471,6 +475,7 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
     cardRefs[band] = {
       article,
       reminder,
+      advancedDetails,
       codeEl,
       toggleInputs,
       toggleItems,
@@ -527,9 +532,9 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
    */
   function getBandExtraSelectors(band: PresetBand): Record<ExtraSelectorCategory, string[]> {
     return {
-      overview: parseExtraSelectorsInput(extraRawStates[band].overview).selectors,
-      aimode: parseExtraSelectorsInput(extraRawStates[band].aimode).selectors,
-      aux: parseExtraSelectorsInput(extraRawStates[band].aux).selectors
+      overview: parseExtraSelectorsInput(extraRawStates[band].overview, false).selectors,
+      aimode: parseExtraSelectorsInput(extraRawStates[band].aimode, false).selectors,
+      aux: parseExtraSelectorsInput(extraRawStates[band].aux, false).selectors
     };
   }
   /**
@@ -584,20 +589,32 @@ export function mountPolicyGenerator(container: HTMLElement, options?: { onStatu
     staffToggleBtn.textContent = showStaffBand ? "Hide Staff OU Preset" : "Show Staff OU Preset";
   });
   downloadAllBtn.addEventListener("click", () => {
-    let firstWarning: string | null = null;
+    const validatedBands: Array<{ band: PresetBand; selectors: Record<ExtraSelectorCategory, string[]> }> = [];
+    let firstError: string | null = null;
     for (const band of PRIMARY_BANDS) {
       const extraValidation = collectAndValidateBandExtras(band);
-      if (!firstWarning && extraValidation.firstError) {
-        firstWarning = `${band}: ${extraValidation.firstError}`;
+      const draftCheck = validatePolicyDraft({
+        gradeBand: band,
+        extraHideSelectors: extraValidation.selectors
+      });
+      const bandError = extraValidation.firstError ?? draftCheck.errors[0];
+      if (bandError) {
+        cardRefs[band].advancedDetails.open = true;
+        if (!firstError) {
+          firstError = `${band}: ${bandError}`;
+        }
       }
-      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
+      validatedBands.push({ band, selectors: extraValidation.selectors });
+    }
+    if (firstError) {
+      setStatus(`Fix invalid selector before downloading JSON files (${firstError}).`, true);
+      return;
+    }
+    for (const { band, selectors } of validatedBands) {
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
     }
-    if (firstWarning) {
-      setStatus(`Downloaded all 4 grade-band JSON files (warning in ${firstWarning}).`, true);
-    } else {
-      setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
-    }
+    setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
   });
   renderAllBands();
 }

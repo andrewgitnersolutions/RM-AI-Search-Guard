@@ -589,6 +589,11 @@ equivalent("B-13d", "Options: locked banner, disabled switches and disabled Rese
   withBrowser(target, async (b) => {
     const out = {};
     for (const mode of ["locked", "unreachable"]) {
+      if (mode === "unreachable") {
+        await b.sw.evaluate(async () => {
+          await chrome.storage.local.set({ rmsg_telemetry: { lifetimeMetrics: "corrupt", diagnosticLog: "bad" } });
+        });
+      }
       const page = await openWithStubbedWorker(b, "ui/options.html", mode);
       out[mode] = await page.evaluate(() => ({
         title: document.getElementById("policy-source-title")?.textContent ?? null,
@@ -695,6 +700,11 @@ equivalent("B-14", "Policy generator: each band's JSON parses, uses {\"key\":{\"
     assert.equal(invalidState.errorVisible, true, "field error should become visible on blur");
     assert.match(invalidState.errorText, /Invalid CSS selector syntax/);
 
+    // Invalid draft must block Copy with an error status instead of copying broken JSON.
+    await page.click('button[data-copy-band="K-2"]');
+    const blockedStatus = await page.locator(".pg-root .status-line").textContent();
+    assert.match(blockedStatus ?? "", /Fix invalid selector before copying K-2 JSON/);
+
     // Reset to Recommended Presets clears extra selectors and error state.
     await page.getByRole("button", { name: "Reset to Recommended Presets" }).click();
     const afterReset = await page.evaluate(() => {
@@ -765,17 +775,26 @@ equivalent("B-17", "Spanish Google SERP (es-419 and es-US): hides Spanish AI Ove
       q3.name = "q";
       q3.value = "x";
       lensWrap.append(q3);
-      rcnt.append(plate, ov, lensWrap);
+      const enLensWrap = document.createElement("div");
+      enLensWrap.id = "protected-en-lens";
+      enLensWrap.setAttribute("data-base-lens-url", "https://lens.google.com");
+      const q4 = document.createElement("textarea");
+      q4.name = "q";
+      q4.value = "x";
+      enLensWrap.append(q4);
+      rcnt.append(plate, ov, lensWrap, enLensWrap);
     });
     await settle(page);
     const protectedVis = await page.evaluate(() => ({
       plate: document.getElementById("protected-plate")?.checkVisibility() ?? false,
       esOv: document.getElementById("protected-es-ov")?.checkVisibility() ?? false,
       esLens: document.getElementById("protected-es-lens")?.checkVisibility() ?? false,
+      enLens: document.getElementById("protected-en-lens")?.checkVisibility() ?? false,
     }));
     assert.equal(protectedVis.plate, true, "plate containing textarea[name=q] must remain visible");
     assert.equal(protectedVis.esOv, true, "Spanish overview containing textarea[name=q] must remain visible");
     assert.equal(protectedVis.esLens, true, "Spanish image-search wrapper containing textarea[name=q] must remain visible");
+    assert.equal(protectedVis.enLens, true, "data-base-lens-url wrapper containing textarea[name=q] must remain visible");
 
     const telemetry = await readTelemetry(b.sw);
     const codes = telemetry.diagnosticLog.map((e) => e.code);

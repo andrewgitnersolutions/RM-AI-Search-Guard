@@ -58,7 +58,10 @@ export function cleanAiModeUrl(href: string, policy: Toggles): string | null {
   const params = url.searchParams;
   // DNR regexFilter matching is case-insensitive by default, so compare lowercased.
   const path = url.pathname.toLowerCase();
-  if (path === "/search" && params.getAll("udm").includes("50")) {
+  const isSearchLikePath = path === "/search" || path === "/webhp" || path === "/";
+  if (isSearchLikePath && params.getAll("udm").some((v) => /^0*50$/.test(v))) {
+    // Normalize /webhp and / to /search, matching DNR rules 101, 102, and 110.
+    url.pathname = "/search";
     // Rules 101/102: an omnibox / New Tab Page entry carries sourceid=chrome or aep=.
     const fromOmnibox = params.has("aep") || params.getAll("sourceid").some((v) => v.toLowerCase().startsWith("chrome"));
     applyAiModeQueryTransform(params, policy.forceWebOnlySearch);

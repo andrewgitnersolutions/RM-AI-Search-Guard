@@ -85,13 +85,20 @@ var GRADE_BAND_PRESETS = {
     }
   }
 };
+var METRIC_KEYS = [
+  "overviewsHidden",
+  "aiModeUiHidden",
+  "aiModeRedirects",
+  "omniboxFallbackRedirects",
+  "auxAiHidden"
+];
 var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
-  LAST_POLICY: "rmsg_last_policy",
   METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch",
   UNSUPPORTED_LANG_DATES: "rmsg_unsupported_lang_dates"
 };
+var MAX_DIAGNOSTIC_LOG_ENTRIES = 50;
 var EXTRA_SELECTOR_CATEGORIES = ["overview", "aimode", "aux"];
 var MAX_EXTRA_SELECTORS_PER_CATEGORY = 20;
 var MAX_EXTRA_SELECTOR_LENGTH = 300;
@@ -119,8 +126,95 @@ function createInitialTelemetryState() {
 }
 
 // src/shared/errors.ts
+var ALL_ERROR_CODES = [
+  "ERR_POLICY_INVALID",
+  "ERR_DNR_SYNC_FAILED",
+  "ERR_SELECTOR_SYNTAX",
+  "ERR_SAFETY_GUARD_TRIPPED",
+  "ERR_STORAGE_FAILURE",
+  "WARN_NO_MANAGED_POLICY",
+  "WARN_OMNIBOX_POLICY_MISSING",
+  "WARN_UNSUPPORTED_UI_LANGUAGE",
+  "WARN_AI_SURFACE_VISIBLE"
+];
+var ERROR_CATALOG = {
+  ERR_POLICY_INVALID: {
+    code: "ERR_POLICY_INVALID",
+    severity: "error",
+    title: "Invalid Managed Policy Configuration",
+    remediationTemplate: "One or more fields in your Google Admin Console 'Policy for extensions' JSON are invalid (fields: {detail}). Invalid boolean toggles fell back to locked-down ON. Regenerate valid JSON in the Admin Policy Generator tab and re-save under Devices > Chrome > Apps & extensions."
+  },
+  ERR_DNR_SYNC_FAILED: {
+    code: "ERR_DNR_SYNC_FAILED",
+    severity: "error",
+    title: "Dynamic Redirect Rule Sync Failed",
+    remediationTemplate: "Chrome rejected a dynamic redirect rule update ({detail}). Reload the extension or verify Chrome version is 134+. If persistent, copy diagnostics and report to RaiseMark Support."
+  },
+  ERR_SELECTOR_SYNTAX: {
+    code: "ERR_SELECTOR_SYNTAX",
+    severity: "error",
+    title: "DOM Selector Validation Error",
+    remediationTemplate: "A bundled or custom extraHideSelectors CSS selector failed browser validation ({detail}). Other selectors and detection tiers remain active. Fix invalid managed extraHideSelectors JSON or update to the latest RaiseMark: AI Search Controls for K-12 release."
+  },
+  ERR_SAFETY_GUARD_TRIPPED: {
+    code: "ERR_SAFETY_GUARD_TRIPPED",
+    severity: "error",
+    title: "Organic Results Safety Guard Tripped",
+    remediationTemplate: "Safety Guard prevented hiding core Google Search results ({detail}). Google likely changed its page structure. Check for an extension update."
+  },
+  ERR_STORAGE_FAILURE: {
+    code: "ERR_STORAGE_FAILURE",
+    severity: "error",
+    title: "Extension Storage Read/Write Error",
+    remediationTemplate: "Browser extension storage error ({detail}). Check Chrome profile disk quota or reload the browser."
+  },
+  WARN_NO_MANAGED_POLICY: {
+    code: "WARN_NO_MANAGED_POLICY",
+    severity: "warning",
+    title: "No Google Admin Console Policy Detected",
+    remediationTemplate: "No Google Admin Console policy detected. Strict Maximum Lockdown defaults are active (or local test toggles on unmanaged devices). To configure by grade level, paste JSON from the Admin Policy Generator into Devices > Chrome > Apps & extensions > Policy for extensions."
+  },
+  WARN_OMNIBOX_POLICY_MISSING: {
+    code: "WARN_OMNIBOX_POLICY_MISSING",
+    severity: "warning",
+    title: "Chrome Native Omnibox AI Mode Policy Not Configured",
+    remediationTemplate: "An AI Mode click arrived from Chrome's native Omnibox or New Tab Page and was silently blocked. To remove the native browser button itself, set AIModeSettings = 'Do not allow' (1) under Devices > Chrome > Settings > Users & browsers for this grade OU (Chrome/ChromeOS 138+)."
+  },
+  WARN_UNSUPPORTED_UI_LANGUAGE: {
+    code: "WARN_UNSUPPORTED_UI_LANGUAGE",
+    severity: "warning",
+    title: "Unsupported Google UI Language Detected",
+    remediationTemplate: "Google Search rendered in UI language '{detail}', which is outside the supported English and Spanish text-matching sets. Language-neutral structural selectors and AI Mode URL redirects remain active, while label-based fallback matching may miss translated headings or buttons."
+  },
+  WARN_AI_SURFACE_VISIBLE: {
+    code: "WARN_AI_SURFACE_VISIBLE",
+    severity: "warning",
+    title: "Possible Unhidden AI Surface Detected",
+    remediationTemplate: "A visible AI heading or button remained unhidden after DOM sweep (category: {detail}). Google likely changed its Search markup. Check for a RaiseMark: AI Search Controls for K-12 update or push hotfix CSS selectors via managed extraHideSelectors."
+  }
+};
+function formatRemediation(code, detail) {
+  const entry = ERROR_CATALOG[code];
+  const sanitizedDetail = typeof detail === "string" && detail.trim().length > 0 ? detail.trim().replace(/\s+/g, " ").slice(0, 240) : "unspecified";
+  return entry.remediationTemplate.replace("{detail}", sanitizedDetail);
+}
 function getTodayDateBucket(now = /* @__PURE__ */ new Date()) {
   return now.toISOString().slice(0, 10);
+}
+function createDiagnosticEntry(code, detail, dateBucket) {
+  const catalogEntry = ERROR_CATALOG[code];
+  const date = dateBucket ?? getTodayDateBucket();
+  const cleanDetail = detail.trim().replace(/\s+/g, " ").slice(0, 240);
+  return {
+    code,
+    severity: catalogEntry.severity,
+    title: catalogEntry.title,
+    detail: cleanDetail,
+    remediation: formatRemediation(code, cleanDetail),
+    count: 1,
+    firstSeenDate: date,
+    lastSeenDate: date
+  };
 }
 
 // src/shared/policy.ts
@@ -156,12 +250,12 @@ function parseExtraHideSelectors(raw) {
       continue;
     }
     for (const item of rawList) {
-      if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+      if (typeof item !== "string") {
         valid = false;
         continue;
       }
       const trimmed = trimCssWhitespace(item);
-      if (trimmed.length === 0) {
+      if (trimmed.length === 0 || trimmed.length > MAX_EXTRA_SELECTOR_LENGTH) {
         valid = false;
         continue;
       }
@@ -319,7 +413,7 @@ function validatePolicyDraft(config) {
             errors.push(`extraHideSelectors.${category} must contain strings only.`);
             break;
           }
-          if (trimCssWhitespace(item).length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+          if (trimCssWhitespace(item).length > MAX_EXTRA_SELECTOR_LENGTH) {
             errors.push(`extraHideSelectors.${category} exceeds ${MAX_EXTRA_SELECTOR_LENGTH} characters per selector.`);
             break;
           }
@@ -328,6 +422,66 @@ function validatePolicyDraft(config) {
     }
   }
   return { valid: errors.length === 0, errors };
+}
+
+// src/shared/storage.ts
+var storageQueueTail = Promise.resolve();
+function sanitizeMetrics(raw) {
+  const metrics = createEmptyMetrics();
+  if (!raw || typeof raw !== "object") {
+    return metrics;
+  }
+  const obj = raw;
+  for (const key of METRIC_KEYS) {
+    const val = obj[key];
+    if (typeof val === "number" && Number.isFinite(val) && val >= 0) {
+      metrics[key] = Math.floor(val);
+    }
+  }
+  return metrics;
+}
+function sanitizeDiagnosticLog(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const validCodes = new Set(ALL_ERROR_CODES);
+  const entries = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const candidate = item;
+    if (typeof candidate.code !== "string" || !validCodes.has(candidate.code)) {
+      continue;
+    }
+    const code = candidate.code;
+    const detail = typeof candidate.detail === "string" ? candidate.detail : "";
+    const firstSeenDate = typeof candidate.firstSeenDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(candidate.firstSeenDate) ? candidate.firstSeenDate : getTodayDateBucket();
+    const lastSeenDate = typeof candidate.lastSeenDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(candidate.lastSeenDate) ? candidate.lastSeenDate : firstSeenDate;
+    const count = typeof candidate.count === "number" && Number.isFinite(candidate.count) && candidate.count > 0 ? Math.floor(candidate.count) : 1;
+    const base = createDiagnosticEntry(code, detail, firstSeenDate);
+    entries.push({
+      ...base,
+      count,
+      firstSeenDate,
+      lastSeenDate
+    });
+    if (entries.length >= MAX_DIAGNOSTIC_LOG_ENTRIES) {
+      break;
+    }
+  }
+  return entries;
+}
+function normalizeTelemetryState(raw) {
+  const initial = createInitialTelemetryState();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return initial;
+  }
+  const obj = raw;
+  return {
+    lifetimeMetrics: sanitizeMetrics(obj.lifetimeMetrics),
+    diagnosticLog: sanitizeDiagnosticLog(obj.diagnosticLog)
+  };
 }
 
 // src/ui/policy-generator-core.ts
@@ -365,7 +519,7 @@ function createDefaultExtraRawStates() {
     Staff: { overview: "", aimode: "", aux: "" }
   };
 }
-function parseExtraSelectorsInput(raw) {
+function parseExtraSelectorsInput(raw, checkSyntax = true) {
   const selectors = raw.split(/\r?\n/).map((line) => trimCssWhitespace(line)).filter((line) => line.length > 0);
   if (selectors.length > MAX_EXTRA_SELECTORS_PER_CATEGORY) {
     return {
@@ -381,7 +535,7 @@ function parseExtraSelectorsInput(raw) {
       };
     }
   }
-  if (typeof document !== "undefined" && typeof document.createDocumentFragment === "function") {
+  if (checkSyntax && typeof document !== "undefined" && typeof document.createDocumentFragment === "function") {
     const probe = document.createDocumentFragment();
     for (const line of selectors) {
       try {
@@ -665,18 +819,19 @@ function mountPolicyGenerator(container, options) {
         gradeBand: band,
         extraHideSelectors: extraValidation.selectors
       });
+      const validationError = extraValidation.firstError ?? draftCheck.errors[0];
+      if (validationError) {
+        cardRefs[band].advancedDetails.open = true;
+        setStatus(`Fix invalid selector before copying ${band} JSON: ${validationError}`, true);
+        return;
+      }
       const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       const copied = await copyTextToClipboard(jsonText);
       if (!copied) {
         setStatus(`Could not copy ${band} JSON automatically. Select and copy from the preview box.`, true);
         return;
       }
-      const warning = extraValidation.firstError ?? draftCheck.errors[0];
-      if (warning) {
-        setStatus(`Copied ${band} JSON (warning: ${warning}).`, true);
-      } else {
-        setStatus(`Copied Google Admin Console JSON for ${band}.`);
-      }
+      setStatus(`Copied Google Admin Console JSON for ${band}.`);
     });
     const dlBtn = document.createElement("button");
     dlBtn.type = "button";
@@ -692,14 +847,15 @@ function mountPolicyGenerator(container, options) {
         gradeBand: band,
         extraHideSelectors: extraValidation.selectors
       });
+      const validationError = extraValidation.firstError ?? draftCheck.errors[0];
+      if (validationError) {
+        cardRefs[band].advancedDetails.open = true;
+        setStatus(`Fix invalid selector before downloading ${band} JSON: ${validationError}`, true);
+        return;
+      }
       const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
-      const warning = extraValidation.firstError ?? draftCheck.errors[0];
-      if (warning) {
-        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json (warning: ${warning}).`, true);
-      } else {
-        setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
-      }
+      setStatus(`Downloaded raisemark-ai-search-controls-${band}.json.`);
     });
     actions.append(copyBtn, dlBtn);
     article.append(header, reminder, togglesContainer, advancedDetails, pre, actions);
@@ -707,6 +863,7 @@ function mountPolicyGenerator(container, options) {
     cardRefs[band] = {
       article,
       reminder,
+      advancedDetails,
       codeEl,
       toggleInputs,
       toggleItems,
@@ -746,9 +903,9 @@ function mountPolicyGenerator(container, options) {
   }
   function getBandExtraSelectors(band) {
     return {
-      overview: parseExtraSelectorsInput(extraRawStates[band].overview).selectors,
-      aimode: parseExtraSelectorsInput(extraRawStates[band].aimode).selectors,
-      aux: parseExtraSelectorsInput(extraRawStates[band].aux).selectors
+      overview: parseExtraSelectorsInput(extraRawStates[band].overview, false).selectors,
+      aimode: parseExtraSelectorsInput(extraRawStates[band].aimode, false).selectors,
+      aux: parseExtraSelectorsInput(extraRawStates[band].aux, false).selectors
     };
   }
   function renderBandCard(band) {
@@ -794,20 +951,32 @@ function mountPolicyGenerator(container, options) {
     staffToggleBtn.textContent = showStaffBand ? "Hide Staff OU Preset" : "Show Staff OU Preset";
   });
   downloadAllBtn.addEventListener("click", () => {
-    let firstWarning = null;
+    const validatedBands = [];
+    let firstError = null;
     for (const band of PRIMARY_BANDS) {
       const extraValidation = collectAndValidateBandExtras(band);
-      if (!firstWarning && extraValidation.firstError) {
-        firstWarning = `${band}: ${extraValidation.firstError}`;
+      const draftCheck = validatePolicyDraft({
+        gradeBand: band,
+        extraHideSelectors: extraValidation.selectors
+      });
+      const bandError = extraValidation.firstError ?? draftCheck.errors[0];
+      if (bandError) {
+        cardRefs[band].advancedDetails.open = true;
+        if (!firstError) {
+          firstError = `${band}: ${bandError}`;
+        }
       }
-      const jsonText = buildBandAdminJsonString(band, bandStates[band], extraValidation.selectors);
+      validatedBands.push({ band, selectors: extraValidation.selectors });
+    }
+    if (firstError) {
+      setStatus(`Fix invalid selector before downloading JSON files (${firstError}).`, true);
+      return;
+    }
+    for (const { band, selectors } of validatedBands) {
+      const jsonText = buildBandAdminJsonString(band, bandStates[band], selectors);
       triggerFileDownload(`raisemark-ai-search-controls-${band}.json`, jsonText);
     }
-    if (firstWarning) {
-      setStatus(`Downloaded all 4 grade-band JSON files (warning in ${firstWarning}).`, true);
-    } else {
-      setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
-    }
+    setStatus("Downloaded all 4 grade-band JSON files (K-2, 3-5, 6-8, 9-12).");
   });
   renderAllBands();
 }
@@ -892,44 +1061,6 @@ function buildMetricsCsv(snapshot) {
   ];
   return [header, ...rows].map((row) => row.map(escapeCsvCell).join(",")).join("\n") + "\n";
 }
-async function copyText(text) {
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-    }
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "true");
-  textarea.className = "visually-hidden";
-  document.body.append(textarea);
-  textarea.select();
-  let ok = false;
-  try {
-    ok = typeof document.execCommand === "function" && document.execCommand("copy");
-  } catch {
-    ok = false;
-  } finally {
-    textarea.remove();
-  }
-  return ok;
-}
-function downloadFile(filename, content, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.className = "visually-hidden";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 1e3);
-}
 async function fetchDiagnosticSnapshot() {
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
     try {
@@ -960,7 +1091,7 @@ async function fetchDiagnosticSnapshot() {
       ]);
       localRaw = localData[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null;
       if (localData[STORAGE_KEYS.TELEMETRY]) {
-        telemetry = localData[STORAGE_KEYS.TELEMETRY];
+        telemetry = normalizeTelemetryState(localData[STORAGE_KEYS.TELEMETRY]);
       }
     } catch {
     }
@@ -1320,7 +1451,7 @@ async function bootOptionsPage() {
   copyDiagBtn?.addEventListener("click", async () => {
     const snapshot = currentSnapshot ?? await fetchDiagnosticSnapshot();
     const bundle = buildZeroPiiDiagnosticBundle(snapshot);
-    const copied = await copyText(JSON.stringify(bundle, null, 2));
+    const copied = await copyTextToClipboard(JSON.stringify(bundle, null, 2));
     if (copied) {
       setDiagFeedback("Copied zero-PII Diagnostic JSON to clipboard.");
     } else {
@@ -1330,7 +1461,7 @@ async function bootOptionsPage() {
   exportCsvBtn?.addEventListener("click", async () => {
     const snapshot = currentSnapshot ?? await fetchDiagnosticSnapshot();
     const csv = buildMetricsCsv(snapshot);
-    downloadFile(
+    triggerFileDownload(
       `raisemark-ai-search-controls-metrics-${snapshot.generatedAtDate}.csv`,
       csv,
       "text/csv;charset=utf-8"

@@ -97,8 +97,21 @@ equivalent("U-13b", "content scripts get only the content-safe policy (toggles, 
   assert.equal(fromPage.source, "managed", "extension page sees the full policy");
   const unknown = await sw.send({ type: "NOT_A_TYPE" }, OPTIONS_SENDER);
   assert.equal(unknown?.error, "bad_message");
+  const untrustedSender = { id: "other-ext", url: "https://evil.example/" };
+  const untrustedPolicy = await sw.send({ type: "GET_EFFECTIVE_POLICY" }, untrustedSender);
+  assert.equal(untrustedPolicy?.error, "forbidden", "untrusted sender must be rejected");
+  const tabPolicyErr = await sw.send({ type: "LOG_DIAGNOSTIC", code: "ERR_POLICY_INVALID", detail: "spoof" }, GOOGLE_TAB_SENDER);
+  assert.equal(tabPolicyErr?.error, "forbidden", "google.com tab must not log policy-invalid diagnostic");
+  const badLeakDetail = await sw.send({ type: "LOG_DIAGNOSTIC", code: "WARN_AI_SURFACE_VISIBLE", detail: "leaked query" }, GOOGLE_TAB_SENDER);
+  assert.equal(badLeakDetail?.error, "bad_message", "WARN_AI_SURFACE_VISIBLE detail must be overview or aimode only");
+  const swDisabled = loadServiceWorker(target, { managed: { masterEnabled: false } });
+  await swDisabled.send({ type: "RECORD_REDIRECT", source: "omnibox" }, GOOGLE_TAB_SENDER);
+  assert.equal(telemetry(swDisabled)?.lifetimeMetrics?.aiModeRedirects ?? 0, 0, "RECORD_REDIRECT ignored when masterEnabled is false");
+  assert.equal(telemetry(swDisabled)?.diagnosticLog?.length ?? 0, 0, "WARN_OMNIBOX_POLICY_MISSING ignored when masterEnabled is false");
+  await swDisabled.send({ type: "INCREMENT_METRICS", deltas: { overviewsHidden: 999999 } }, GOOGLE_TAB_SENDER);
+  assert.equal(telemetry(swDisabled)?.lifetimeMetrics?.overviewsHidden, 50, "per-batch metric delta must be clamped");
   assert.equal(telemetry(sw)?.diagnosticLog?.length ?? 0, 0, "bad messages are not logged");
-  return { tabKeys, pageSource: fromPage.source, unknown };
+  return { tabKeys, pageSource: fromPage.source, unknown, untrustedPolicy, tabPolicyErr, badLeakDetail };
 }, { bp: "BP-13" });
 
 // The former Test Flush rate-limit half of U-14 was dropped with analytics (D6; docs/07 §6.2).

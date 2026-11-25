@@ -79,12 +79,12 @@ export function parseExtraHideSelectors(raw: unknown): { value: ExtraHideSelecto
       continue;
     }
     for (const item of rawList) {
-      if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+      if (typeof item !== "string") {
         valid = false;
         continue;
       }
       const trimmed = trimCssWhitespace(item);
-      if (trimmed.length === 0) {
+      if (trimmed.length === 0 || trimmed.length > MAX_EXTRA_SELECTOR_LENGTH) {
         valid = false;
         continue;
       }
@@ -290,7 +290,7 @@ export function validatePolicyDraft(config: PolicyDraft): { valid: boolean; erro
             errors.push(`extraHideSelectors.${category} must contain strings only.`);
             break;
           }
-          if (trimCssWhitespace(item).length > MAX_EXTRA_SELECTOR_LENGTH || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+          if (trimCssWhitespace(item).length > MAX_EXTRA_SELECTOR_LENGTH) {
             errors.push(`extraHideSelectors.${category} exceeds ${MAX_EXTRA_SELECTOR_LENGTH} characters per selector.`);
             break;
           }

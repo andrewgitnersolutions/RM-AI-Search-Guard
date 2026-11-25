@@ -33,10 +33,22 @@ export type ContentPolicy = Toggles & {
  */
 export const PRIVILEGED_MESSAGE_TYPES = new Set(["SET_LOCAL_OVERRIDES", "RESET_LOCAL_METRICS", "GET_DIAGNOSTIC_SNAPSHOT"]);
 
+/**
+ * Diagnostic codes a google.com content script may log; admin/policy/DNR/omnibox codes belong
+ * to extension pages or the service worker only.
+ */
+export const CONTENT_ALLOWED_DIAGNOSTIC_CODES = new Set<ErrorCode>([
+  "ERR_SELECTOR_SYNTAX",
+  "ERR_SAFETY_GUARD_TRIPPED",
+  "ERR_STORAGE_FAILURE",
+  "WARN_UNSUPPORTED_UI_LANGUAGE",
+  "WARN_AI_SURFACE_VISIBLE"
+]);
+
 /** Response for a message that fails validateMessage(). It is not logged as a diagnostic. */
 export const BAD_MESSAGE = { ok: false, error: "bad_message" } as const;
 
-/** Response for a privileged message from a sender that isn't an extension page. */
+/** Response for a privileged or untrusted-sender message. */
 export const FORBIDDEN = { ok: false, error: "forbidden" } as const;
 
 const ERROR_CODE_SET = new Set<string>(ALL_ERROR_CODES);
@@ -66,11 +78,43 @@ export function isFromExtensionPage(sender: chrome.runtime.MessageSender | undef
 }
 
 /**
+ * Whether a message came from this extension's content script on https://google.com or
+ * https://www.google.com.
+ * @param sender - chrome.runtime.onMessage sender.
+ * @returns true only when sender.id matches this extension and sender.url parses as
+ * https://www.google.com or https://google.com. Fails closed on missing or invalid URLs.
+ */
+export function isFromGoogleTab(sender: chrome.runtime.MessageSender | undefined): boolean {
+  const id = typeof chrome !== "undefined" ? chrome.runtime?.id : undefined;
+  if (!id || !sender || sender.id !== id || typeof sender.url !== "string") {
+    return false;
+  }
+  try {
+    const parsed = new URL(sender.url);
+    return (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "www.google.com" || parsed.hostname === "google.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a runtime message sender is either one of our extension pages or a google.com tab.
+ * @param sender - chrome.runtime.onMessage sender.
+ * @returns true when the sender is trusted; fails closed otherwise.
+ */
+export function isTrustedSender(sender: chrome.runtime.MessageSender | undefined): boolean {
+  return isFromExtensionPage(sender) || isFromGoogleTab(sender);
+}
+
+/**
  * Check a message's shape for its type.
  * @param message - Untrusted message.
  * @returns true if it is a known type with valid fields. Unknown types, a LOG_DIAGNOSTIC code
- * outside the catalog and a missing INCREMENT_METRICS deltas object all fail, so the caller
- * answers bad_message instead of throwing a misleading storage error.
+ * outside the catalog, malformed code-specific details and a missing INCREMENT_METRICS deltas
+ * object all fail, so the caller answers bad_message instead of throwing a misleading storage error.
  */
 export function validateMessage(message: unknown): message is RuntimeMessage {
   if (!isPlainObject(message) || typeof message.type !== "string") {
@@ -90,7 +134,16 @@ export function validateMessage(message: unknown): message is RuntimeMessage {
     case "RECORD_REDIRECT":
       return message.source === "omnibox" || message.source === "aimode";
     case "LOG_DIAGNOSTIC":
-      return typeof message.code === "string" && ERROR_CODE_SET.has(message.code) && (message.detail === undefined || typeof message.detail === "string");
+      if (typeof message.code !== "string" || !ERROR_CODE_SET.has(message.code)) {
+        return false;
+      }
+      if (message.code === "WARN_AI_SURFACE_VISIBLE") {
+        return message.detail === "overview" || message.detail === "aimode";
+      }
+      if (message.code === "WARN_UNSUPPORTED_UI_LANGUAGE") {
+        return typeof message.detail === "string" && /^[a-z0-9-]{1,16}$/.test(message.detail);
+      }
+      return message.detail === undefined || typeof message.detail === "string";
     case "SET_LOCAL_OVERRIDES":
       return isPlainObject(message.toggles);
     default:

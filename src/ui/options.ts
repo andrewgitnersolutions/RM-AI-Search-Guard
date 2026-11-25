@@ -4,13 +4,14 @@
  * Runs in: extension page (options.html).
  * Must never: export or display page content, queries, URLs or identifiers; diagnostics and
  * CSV exports are aggregate counts and catalog codes only.
- * Shared with: shared/defaults.ts, shared/errors.ts, shared/policy.ts, ui/policy-generator-core.ts.
+ * Shared with: shared/defaults.ts, shared/errors.ts, shared/policy.ts, shared/storage.ts, ui/policy-generator-core.ts.
  */
 
 import { FEATURE_TOGGLE_KEYS, STORAGE_KEYS, VALID_GRADE_BANDS, createInitialTelemetryState } from "../shared/defaults";
 import { getTodayDateBucket } from "../shared/errors";
 import { parsePolicy, formatAdminConsolePolicyJson, validatePolicyDraft } from "../shared/policy";
-import { mountPolicyGenerator, parseExtraSelectorsInput } from "./policy-generator-core";
+import { normalizeTelemetryState } from "../shared/storage";
+import { copyTextToClipboard, mountPolicyGenerator, parseExtraSelectorsInput, triggerFileDownload } from "./policy-generator-core";
 import type { DiagnosticEntry, DiagnosticSnapshot, RawRecord, TelemetryState, ToggleKey } from "../shared/types";
 
 // Reset needs a second click within this window.
@@ -121,61 +122,9 @@ function buildMetricsCsv(snapshot: DiagnosticSnapshot): string {
 }
 
 /**
- * Copy text with the Clipboard API, falling back to execCommand.
- * @param text - Text to copy.
- * @returns true if copied; returns false if both Clipboard API and execCommand fail.
- */
-async function copyText(text: string): Promise<boolean> {
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-    }
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "true");
-  textarea.className = "visually-hidden";
-  document.body.append(textarea);
-  textarea.select();
-  let ok = false;
-  try {
-    ok = typeof document.execCommand === "function" && document.execCommand("copy");
-  } catch {
-    ok = false;
-  } finally {
-    textarea.remove();
-  }
-  return ok;
-}
-
-/**
- * Download text as a file through a temporary Blob URL.
- * @param filename - Suggested file name.
- * @param content - File contents.
- * @param mimeType - MIME type.
- * @returns Nothing; revokes Blob URL after 1 s.
- */
-function downloadFile(filename: string, content: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.className = "visually-hidden";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 1e3);
-}
-
-/**
  * Get the diagnostic snapshot from the service worker, or build one from storage if it doesn't answer.
  * @returns Snapshot; activeRuleCount is 0 in the fallback. Fails closed: fallback omits
- * installType, so missing managed keys lock.
+ * installType, so missing managed keys lock, and raw local telemetry is normalized before use.
  */
 async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
@@ -207,7 +156,7 @@ async function fetchDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
       ]);
       localRaw = (localData[STORAGE_KEYS.LOCAL_OVERRIDES] ?? null) as RawRecord | null;
       if (localData[STORAGE_KEYS.TELEMETRY]) {
-        telemetry = localData[STORAGE_KEYS.TELEMETRY] as typeof telemetry;
+        telemetry = normalizeTelemetryState(localData[STORAGE_KEYS.TELEMETRY]);
       }
     } catch {
     }
@@ -625,7 +574,7 @@ async function bootOptionsPage() {
   copyDiagBtn?.addEventListener("click", async () => {
     const snapshot = currentSnapshot ?? await fetchDiagnosticSnapshot();
     const bundle = buildZeroPiiDiagnosticBundle(snapshot);
-    const copied = await copyText(JSON.stringify(bundle, null, 2));
+    const copied = await copyTextToClipboard(JSON.stringify(bundle, null, 2));
     if (copied) {
       setDiagFeedback("Copied zero-PII Diagnostic JSON to clipboard.");
     } else {
@@ -635,7 +584,7 @@ async function bootOptionsPage() {
   exportCsvBtn?.addEventListener("click", async () => {
     const snapshot = currentSnapshot ?? await fetchDiagnosticSnapshot();
     const csv = buildMetricsCsv(snapshot);
-    downloadFile(
+    triggerFileDownload(
       `raisemark-ai-search-controls-metrics-${snapshot.generatedAtDate}.csv`,
       csv,
       "text/csv;charset=utf-8"

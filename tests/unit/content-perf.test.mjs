@@ -112,6 +112,24 @@ equivalent("U-21", "content script throttles burst mutations to >=150 ms, keeps 
   cs.flushRaf();
   assert.equal(sweepCount, 3);
 
+  // Stripping data-rmsg-hide-overviews from <html> self-heals on sweep without scheduling runaway loops.
+  const csHeal = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll: () => [],
+  });
+  await csHeal.flush();
+  csHeal.policyRequests[0]({ ...ENABLED_POLICY });
+  await csHeal.flush();
+  csHeal.flushRaf();
+  csHeal.attrs.delete("data-rmsg-hide-overviews");
+  csHeal.advanceTime(200);
+  csHeal.triggerMutation();
+  csHeal.flushRaf();
+  assert.equal(csHeal.attrs.get("data-rmsg-hide-overviews"), "1", "stripped root attribute must self-heal");
+  assert.equal(csHeal.pendingTimers(), 0);
+  assert.equal(csHeal.pendingRafCount(), 0);
+
   return { sweepCount };
 }, { bp: "BP-09" });
 
