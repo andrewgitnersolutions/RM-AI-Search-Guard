@@ -76,7 +76,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?(sourceid=chrome|aep=)[^#]*&udm=(0*50|%350|5%30|%35%30)(&|$)",
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?(sourceid=chrome|aep=)[^#]*&udm=(0|%30)*(5|%35)(0|%30)(&|$)",
         resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
@@ -94,7 +94,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0*50|%350|5%30|%35%30)&[^#]*(sourceid=chrome|aep=)",
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0|%30)*(5|%35)(0|%30)&[^#]*(sourceid=chrome|aep=)",
         resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
@@ -112,7 +112,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0*50|%350|5%30|%35%30)(&|$)",
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0|%30)*(5|%35)(0|%30)(&|$)",
         resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });

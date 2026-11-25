@@ -112,9 +112,10 @@ equivalent("U-21", "content script throttles burst mutations to >=150 ms, keeps 
   cs.flushRaf();
   assert.equal(sweepCount, 3);
 
-  // Stripping data-rmsg-hide-overviews from <html> self-heals on sweep without scheduling runaway loops.
+  // Stripping data-rmsg-hide-overviews from <html> self-heals via attribute observer notifications without looping.
   const csHeal = loadContentScript(target, {
     fakeTimers: true,
+    notifyRootAttributes: true,
     body: { tagName: "BODY" },
     querySelectorAll: () => [],
   });
@@ -122,11 +123,20 @@ equivalent("U-21", "content script throttles burst mutations to >=150 ms, keeps 
   csHeal.policyRequests[0]({ ...ENABLED_POLICY });
   await csHeal.flush();
   csHeal.flushRaf();
-  csHeal.attrs.delete("data-rmsg-hide-overviews");
+  await csHeal.flush();
+  assert.equal(csHeal.rootAttrDeliveries(), 0, "idempotent bootstrap/sweep must not emit root attribute writes");
+
   csHeal.advanceTime(200);
-  csHeal.triggerMutation();
+  csHeal.removeRootAttr("data-rmsg-hide-overviews");
+  await csHeal.flush();
+  assert.equal(csHeal.attrs.get("data-rmsg-hide-overviews"), "1", "stripped root attribute must self-heal via rootObserver");
+  assert.equal(csHeal.rootAttrDeliveries(), 2, "only removal + single restoration should trigger rootObserver");
+  assert.equal(csHeal.pendingTimers(), 0);
+  assert.equal(csHeal.pendingRafCount(), 1);
+
   csHeal.flushRaf();
-  assert.equal(csHeal.attrs.get("data-rmsg-hide-overviews"), "1", "stripped root attribute must self-heal");
+  await csHeal.flush();
+  assert.equal(csHeal.rootAttrDeliveries(), 2, "trailing sweep must not emit extra root attribute writes");
   assert.equal(csHeal.pendingTimers(), 0);
   assert.equal(csHeal.pendingRafCount(), 0);
 

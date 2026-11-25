@@ -77,16 +77,22 @@ equivalent("U-06b", "DNR handles /webhp, root /?, percent-encoded udm=%35%30, an
   const webhp = simulate(forceRules, "https://www.google.com/webhp?q=x&udm=50");
   const rootSearch = simulate(forceRules, "https://www.google.com/?q=x&udm=50");
   const encoded = simulate(forceRules, "https://www.google.com/search?q=x&udm=%35%30");
+  const paddedEncodedWebhp = simulate(forceRules, "https://www.google.com/webhp?q=x&udm=0%35%30");
+  const paddedEncodedNoForce = simulate(noForceRules, "https://www.google.com/webhp?q=x&udm=0%35%30");
+  const fullEncodedPadded = simulate(noForceRules, "https://www.google.com/search?q=x&udm=%30%35%30");
   const emptyUdm = simulate(forceRules, "https://www.google.com/search?q=x&udm=");
   const homeHl = simulate(forceRules, "https://www.google.com/?hl=en");
   const webhpNoForce = simulate(noForceRules, "https://www.google.com/webhp?q=x&udm=50");
   assert.equal(webhp.url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
   assert.equal(rootSearch.url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
   assert.equal(encoded.url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
+  assert.equal(paddedEncodedWebhp.url, "https://www.google.com/search?q=x&udm=14#rm_sg_aimode");
+  assert.equal(paddedEncodedNoForce.url, "https://www.google.com/search?q=x#rm_sg_aimode");
+  assert.equal(fullEncodedPadded.url, "https://www.google.com/search?q=x#rm_sg_aimode");
   assert.equal(emptyUdm.url, "https://www.google.com/search?q=x&udm=14");
   assert.equal(homeHl.url, "https://www.google.com/?hl=en");
   assert.equal(webhpNoForce.url, "https://www.google.com/search?q=x#rm_sg_aimode");
-  return { webhp, rootSearch, encoded, emptyUdm, homeHl, webhpNoForce };
+  return { webhp, rootSearch, encoded, paddedEncodedWebhp, paddedEncodedNoForce, fullEncodedPadded, emptyUdm, homeHl, webhpNoForce };
 });
 
 equivalent("U-19", "BP-19: /ai and /aimode with a query keep the search on /search (marker, udm cleaned); without one → homepage; ≤2 hops", (target) => {
@@ -123,8 +129,10 @@ const U07_URLS = [
   "https://www.google.com/aimode?q=&q=fractions",
   "https://www.google.com/search?q=x&udm=50#frag",
   "https://www.google.com/webhp?q=x&udm=50",
+  "https://www.google.com/webhp?q=x&udm=0%35%30",
   "https://www.google.com/?q=x&udm=50",
   "https://www.google.com/search?q=x&udm=%35%30",
+  "https://www.google.com/search?q=x&udm=%30%35%30",
   "https://www.google.com/search?q=x&udm=",
   "https://www.google.com/?hl=en",
   "https://example.com/search?q=x&udm=50",

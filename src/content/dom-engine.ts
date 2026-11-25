@@ -326,11 +326,31 @@ export function applyPolicyAttributes(doc: Document, policy: Toggles): void {
 const savedInlineDisplay = /* @__PURE__ */ new WeakMap<Element, { value: string; priority: string } | null>();
 
 /**
+ * Isolated-world ownership table for elements currently hidden by hideElement(), so un-hiding
+ * restores every extension-hidden element even if page scripts altered data-rmsg-hidden.
+ */
+const ownedHiddenCategories = /* @__PURE__ */ new Map<Element, HideCategory>();
+
+/**
+ * Drop disconnected DOM nodes from ownership tracking so churning SERPs never retain detached elements.
+ * @returns Nothing.
+ */
+function pruneDisconnectedOwnedElements(): void {
+  for (const el of Array.from(ownedHiddenCategories.keys())) {
+    if (!el.isConnected) {
+      ownedHiddenCategories.delete(el);
+      savedInlineDisplay.delete(el);
+    }
+  }
+}
+
+/**
  * Undo hideElement(): restore the saved inline display and remove marker attributes.
  * @param el - Previously hidden element.
  * @returns Nothing. Skips inline style restoration if style is absent on the element.
  */
 export function restoreElementVisibility(el: Element): void {
+  ownedHiddenCategories.delete(el);
   el.removeAttribute("data-rmsg-hidden");
   const htmlEl = el as HTMLElement;
   if (htmlEl.style) {
@@ -405,13 +425,25 @@ export function getActiveHiddenFilter(policy?: Toggles): ActiveHiddenFilter {
 
 /**
  * Restore every element this extension hid (used when masterEnabled turns off).
+ * Restores all extension-owned elements tracked in ownedHiddenCategories even if their
+ * data-rmsg-hidden marker was modified, then any remaining valid-category elements; unowned
+ * elements with arbitrary marker values stay untouched.
  * @param doc - Page document.
- * @returns Nothing. No-op when no elements are marked under extension categories.
+ * @returns Nothing. No-op when no owned or valid-category elements exist.
  */
 export function unhideAllElements(doc: Document): void {
+  const restored = /* @__PURE__ */ new Set<Element>();
+  for (const el of Array.from(ownedHiddenCategories.keys())) {
+    if (!el.ownerDocument || el.ownerDocument === doc) {
+      restored.add(el);
+      restoreElementVisibility(el);
+    }
+  }
   const hiddenElements = doc.querySelectorAll(ALL_HIDDEN_CATEGORIES_SELECTOR);
   for (const el of hiddenElements) {
-    restoreElementVisibility(el);
+    if (!restored.has(el)) {
+      restoreElementVisibility(el);
+    }
   }
 }
 
@@ -419,12 +451,21 @@ export function unhideAllElements(doc: Document): void {
  * Restore elements hidden under one category after that toggle turns off.
  * @param doc - Page document.
  * @param category - "overview" | "aimode" | "aux".
- * @returns Nothing. No-op when no elements are marked under that category.
+ * @returns Nothing. No-op when no owned or marked elements exist under that category.
  */
 export function unhideCategoryElements(doc: Document, category: HideCategory): void {
+  const restored = /* @__PURE__ */ new Set<Element>();
+  for (const [el, ownedCategory] of Array.from(ownedHiddenCategories.entries())) {
+    if (ownedCategory === category && (!el.ownerDocument || el.ownerDocument === doc)) {
+      restored.add(el);
+      restoreElementVisibility(el);
+    }
+  }
   const hiddenElements = doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`);
   for (const el of hiddenElements) {
-    restoreElementVisibility(el);
+    if (!restored.has(el)) {
+      restoreElementVisibility(el);
+    }
   }
 }
 
@@ -435,6 +476,7 @@ export function unhideCategoryElements(doc: Document, category: HideCategory): v
  * @returns Nothing. Always sets data-rmsg-hidden; skips inline style if style is absent.
  */
 export function hideElement(el: Element, category: HideCategory): void {
+  ownedHiddenCategories.set(el, category);
   el.setAttribute("data-rmsg-hidden", category);
   const htmlEl = el as HTMLElement;
   if (htmlEl.style) {
@@ -1001,6 +1043,7 @@ export function sweepDom(
   if (!policy.masterEnabled) {
     return { deltas, errors };
   }
+  pruneDisconnectedOwnedElements();
   const uiLang = resolveUiLanguage(doc.documentElement?.lang);
   if (!uiLang.supported) {
     errors.push({

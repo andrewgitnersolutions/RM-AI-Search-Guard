@@ -328,6 +328,50 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
   csStale.flushRaf();
   assert.equal(innerAiBtn.getAttribute("data-rmsg-hidden"), "aimode", "disabled-category overview marker must not blind active aimode hiding");
 
+  // Disabling masterEnabled must restore extension-owned elements even if data-rmsg-hidden was
+  // rewritten to an unrecognized value, while leaving unowned page-marked elements untouched.
+  const ownedMutable = makeStubEl({
+    id: "owned-mutable",
+    attrs: { "data-attrid": "AIOverview" },
+    matchSelector: (sel) => sel.includes('data-attrid="AIOverview"'),
+  });
+  ownedMutable.style.setProperty("display", "flex", "");
+  const unownedPageMarked = makeStubEl({
+    id: "unowned-page-marked",
+    attrs: { "data-rmsg-hidden": "stale" },
+    matchSelector: () => false,
+  });
+  unownedPageMarked.style.setProperty("display", "block", "");
+  const csOwned = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll(sel) {
+      if (sel.includes("data-rmsg-hidden=")) {
+        return [ownedMutable, unownedPageMarked].filter((e) => {
+          const val = e.getAttribute("data-rmsg-hidden");
+          return val !== null && sel.includes(`"${val}"`);
+        });
+      }
+      return ownedMutable.matches(sel) ? [ownedMutable] : [];
+    },
+  });
+  await csOwned.flush();
+  csOwned.policyRequests[0]({ ...ENABLED_POLICY });
+  await csOwned.flush();
+  csOwned.flushRaf();
+  assert.equal(ownedMutable.getAttribute("data-rmsg-hidden"), "overview");
+  assert.equal(ownedMutable.style.getPropertyValue("display"), "none");
+
+  ownedMutable.setAttribute("data-rmsg-hidden", "stale");
+  csOwned.fireStorageChange();
+  await csOwned.flush();
+  csOwned.policyRequests[1]({ ...ENABLED_POLICY, masterEnabled: false });
+  await csOwned.flush();
+  assert.equal(ownedMutable.getAttribute("data-rmsg-hidden"), null, "owned element must be restored despite mutated marker");
+  assert.equal(ownedMutable.style.getPropertyValue("display"), "flex", "owned element original inline display must be restored");
+  assert.equal(unownedPageMarked.getAttribute("data-rmsg-hidden"), "stale", "unowned page-marked element must stay untouched");
+  assert.equal(unownedPageMarked.style.getPropertyValue("display"), "block", "unowned page-marked inline display must stay untouched");
+
   return {
     extraHidden: validExtra.getAttribute("data-rmsg-hidden"),
     leaks: leakLogs.map((l) => l.detail).sort(),

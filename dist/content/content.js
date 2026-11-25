@@ -676,7 +676,17 @@
     syncRootPolicyAttr(root, "data-rmsg-hide-aux", policy.hideAuxiliaryAiFeatures);
   }
   var savedInlineDisplay = /* @__PURE__ */ new WeakMap();
+  var ownedHiddenCategories = /* @__PURE__ */ new Map();
+  function pruneDisconnectedOwnedElements() {
+    for (const el of Array.from(ownedHiddenCategories.keys())) {
+      if (!el.isConnected) {
+        ownedHiddenCategories.delete(el);
+        savedInlineDisplay.delete(el);
+      }
+    }
+  }
   function restoreElementVisibility(el) {
+    ownedHiddenCategories.delete(el);
     el.removeAttribute("data-rmsg-hidden");
     const htmlEl = el;
     if (htmlEl.style) {
@@ -732,18 +742,37 @@
     return { categories, selector: parts.join(", ") };
   }
   function unhideAllElements(doc) {
+    const restored = /* @__PURE__ */ new Set();
+    for (const el of Array.from(ownedHiddenCategories.keys())) {
+      if (!el.ownerDocument || el.ownerDocument === doc) {
+        restored.add(el);
+        restoreElementVisibility(el);
+      }
+    }
     const hiddenElements = doc.querySelectorAll(ALL_HIDDEN_CATEGORIES_SELECTOR);
     for (const el of hiddenElements) {
-      restoreElementVisibility(el);
+      if (!restored.has(el)) {
+        restoreElementVisibility(el);
+      }
     }
   }
   function unhideCategoryElements(doc, category) {
+    const restored = /* @__PURE__ */ new Set();
+    for (const [el, ownedCategory] of Array.from(ownedHiddenCategories.entries())) {
+      if (ownedCategory === category && (!el.ownerDocument || el.ownerDocument === doc)) {
+        restored.add(el);
+        restoreElementVisibility(el);
+      }
+    }
     const hiddenElements = doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`);
     for (const el of hiddenElements) {
-      restoreElementVisibility(el);
+      if (!restored.has(el)) {
+        restoreElementVisibility(el);
+      }
     }
   }
   function hideElement(el, category) {
+    ownedHiddenCategories.set(el, category);
     el.setAttribute("data-rmsg-hidden", category);
     const htmlEl = el;
     if (htmlEl.style) {
@@ -1092,6 +1121,7 @@
     if (!policy.masterEnabled) {
       return { deltas, errors };
     }
+    pruneDisconnectedOwnedElements();
     const uiLang = resolveUiLanguage(doc.documentElement?.lang);
     if (!uiLang.supported) {
       errors.push({
