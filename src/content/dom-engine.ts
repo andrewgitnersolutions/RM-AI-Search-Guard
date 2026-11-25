@@ -338,8 +338,9 @@ const ownedHiddenCategories = /* @__PURE__ */ new Map<Element, HideCategory>();
 function pruneDisconnectedOwnedElements(): void {
   for (const el of Array.from(ownedHiddenCategories.keys())) {
     if (!el.isConnected) {
+      // Keep savedInlineDisplay until restoreElementVisibility: WeakMap will not leak detached
+      // nodes, and preserving it prevents re-hiding a reinserted node from recording "none".
       ownedHiddenCategories.delete(el);
-      savedInlineDisplay.delete(el);
     }
   }
 }
@@ -480,17 +481,17 @@ export function hideElement(el: Element, category: HideCategory): void {
   el.setAttribute("data-rmsg-hidden", category);
   const htmlEl = el as HTMLElement;
   if (htmlEl.style) {
-    const prevDisplay = htmlEl.style.getPropertyValue("display");
-    const prevPriority = htmlEl.style.getPropertyPriority("display");
     if (!savedInlineDisplay.has(el)) {
+      const prevDisplay = htmlEl.style.getPropertyValue("display");
+      const prevPriority = htmlEl.style.getPropertyPriority("display");
       savedInlineDisplay.set(el, prevDisplay ? { value: prevDisplay, priority: prevPriority } : null);
-    }
-    // Save every original inline value, "none" included (BP-18): if Google had the element
-    // hidden inline, un-hiding must put that back rather than reveal it.
-    if (prevDisplay) {
-      el.setAttribute("data-rmsg-prev-display", prevDisplay);
-      if (prevPriority) {
-        el.setAttribute("data-rmsg-prev-display-priority", prevPriority);
+      // Save every original inline value, "none" included (BP-18): if Google had the element
+      // hidden inline, un-hiding must put that back rather than reveal it.
+      if (prevDisplay) {
+        el.setAttribute("data-rmsg-prev-display", prevDisplay);
+        if (prevPriority) {
+          el.setAttribute("data-rmsg-prev-display-priority", prevPriority);
+        }
       }
     }
     htmlEl.style.setProperty("display", "none", "important");

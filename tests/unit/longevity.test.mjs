@@ -348,11 +348,12 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
     querySelectorAll(sel) {
       if (sel.includes("data-rmsg-hidden=")) {
         return [ownedMutable, unownedPageMarked].filter((e) => {
+          if (!e.isConnected) return false;
           const val = e.getAttribute("data-rmsg-hidden");
           return val !== null && sel.includes(`"${val}"`);
         });
       }
-      return ownedMutable.matches(sel) ? [ownedMutable] : [];
+      return ownedMutable.isConnected && ownedMutable.matches(sel) ? [ownedMutable] : [];
     },
   });
   await csOwned.flush();
@@ -361,6 +362,19 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
   csOwned.flushRaf();
   assert.equal(ownedMutable.getAttribute("data-rmsg-hidden"), "overview");
   assert.equal(ownedMutable.style.getPropertyValue("display"), "none");
+
+  // Detaching during a sweep prunes ownership without discarding the WeakMap display backup,
+  // so reinserting without the marker and re-hiding still restores the original "flex" display.
+  ownedMutable.isConnected = false;
+  csOwned.advanceTime(200);
+  csOwned.triggerMutation();
+  csOwned.flushRaf();
+  ownedMutable.isConnected = true;
+  ownedMutable.removeAttribute("data-rmsg-hidden");
+  csOwned.advanceTime(200);
+  csOwned.triggerMutation();
+  csOwned.flushRaf();
+  assert.equal(ownedMutable.getAttribute("data-rmsg-hidden"), "overview", "reinserted element must be re-hidden");
 
   ownedMutable.setAttribute("data-rmsg-hidden", "stale");
   csOwned.fireStorageChange();

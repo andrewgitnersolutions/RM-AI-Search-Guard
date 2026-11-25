@@ -681,7 +681,6 @@
     for (const el of Array.from(ownedHiddenCategories.keys())) {
       if (!el.isConnected) {
         ownedHiddenCategories.delete(el);
-        savedInlineDisplay.delete(el);
       }
     }
   }
@@ -776,15 +775,15 @@
     el.setAttribute("data-rmsg-hidden", category);
     const htmlEl = el;
     if (htmlEl.style) {
-      const prevDisplay = htmlEl.style.getPropertyValue("display");
-      const prevPriority = htmlEl.style.getPropertyPriority("display");
       if (!savedInlineDisplay.has(el)) {
+        const prevDisplay = htmlEl.style.getPropertyValue("display");
+        const prevPriority = htmlEl.style.getPropertyPriority("display");
         savedInlineDisplay.set(el, prevDisplay ? { value: prevDisplay, priority: prevPriority } : null);
-      }
-      if (prevDisplay) {
-        el.setAttribute("data-rmsg-prev-display", prevDisplay);
-        if (prevPriority) {
-          el.setAttribute("data-rmsg-prev-display-priority", prevPriority);
+        if (prevDisplay) {
+          el.setAttribute("data-rmsg-prev-display", prevDisplay);
+          if (prevPriority) {
+            el.setAttribute("data-rmsg-prev-display-priority", prevPriority);
+          }
         }
       }
       htmlEl.style.setProperty("display", "none", "important");
