@@ -227,9 +227,12 @@ export async function readMetricsResetEpoch(): Promise<number> {
   return 0;
 }
 
+const MAX_METRIC_DELTA_PER_BATCH = 50;
+
 /**
  * Add aggregate counter deltas to the lifetime totals, dropping stale pre-reset batches.
- * @param deltas - Partial metrics; non-positive or non-numeric values are ignored.
+ * @param deltas - Partial metrics; non-positive or non-numeric values are ignored and each key is
+ * capped at MAX_METRIC_DELTA_PER_BATCH so a compromised tab cannot overflow lifetime counters.
  * @param batchResetEpoch - Reset generation captured when the batch was queued, if any.
  * @returns Updated state (or current state unchanged when batchResetEpoch predates a reset).
  * Storage errors propagate to the caller without blocking later queued operations.
@@ -250,7 +253,7 @@ export async function incrementTelemetryMetrics(
     for (const key of METRIC_KEYS) {
       const rawDelta = deltas[key];
       if (typeof rawDelta === "number" && Number.isFinite(rawDelta) && rawDelta > 0) {
-        const delta = Math.floor(rawDelta);
+        const delta = Math.min(Math.floor(rawDelta), MAX_METRIC_DELTA_PER_BATCH);
         if (delta > 0) {
           state.lifetimeMetrics[key] = (state.lifetimeMetrics[key] ?? 0) + delta;
           changed = true;
@@ -265,7 +268,33 @@ export async function incrementTelemetryMetrics(
 }
 
 const MAX_UNSUPPORTED_LANG_DATES = 200;
-const FORBIDDEN_DATE_MAP_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const SAFE_LANG_KEY_RE = /^[a-z0-9-]{1,16}$/;
+const FORBIDDEN_LANG_KEYS = new Set(["constructor", "prototype"]);
+
+/**
+ * Check whether a key is a safe lowercase primary language subtag (no prototype keys).
+ * @param key - Candidate map key.
+ * @returns true for alphanumeric/hyphen subtags up to 16 chars excluding prototype properties.
+ */
+function isSafeLangKey(key: string): boolean {
+  return SAFE_LANG_KEY_RE.test(key) && !FORBIDDEN_LANG_KEYS.has(key);
+}
+
+/**
+ * Define an own enumerable string property without invoking prototype setters.
+ * @param target - Destination record.
+ * @param key - Validated safe key.
+ * @param value - YYYY-MM-DD UTC date bucket.
+ * @returns Nothing; mutates target in place and never throws.
+ */
+function setOwnStringProp(target: Record<string, string>, key: string, value: string): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true
+  });
+}
 
 /**
  * Normalize the stored language-to-UTC-date suppression map for WARN_UNSUPPORTED_UI_LANGUAGE.
@@ -283,19 +312,8 @@ function sanitizeUnsupportedLangDates(raw: unknown): Record<string, string> {
     if (count >= MAX_UNSUPPORTED_LANG_DATES) {
       break;
     }
-    if (
-      key.length > 0 &&
-      key.length <= 240 &&
-      !FORBIDDEN_DATE_MAP_KEYS.has(key) &&
-      typeof val === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(val)
-    ) {
-      Object.defineProperty(out, key, {
-        value: val,
-        enumerable: true,
-        writable: true,
-        configurable: true
-      });
+    if (isSafeLangKey(key) && typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      setOwnStringProp(out, key, val);
       count += 1;
     }
   }
@@ -328,42 +346,21 @@ function recordUnsupportedLangDate(
   dateBucket: string
 ): Record<string, string> {
   const next: Record<string, string> = {};
-  if (!lang || lang.length > 240 || FORBIDDEN_DATE_MAP_KEYS.has(lang)) {
-    for (const [k, v] of Object.entries(existing)) {
-      if (v >= dateBucket) {
-        Object.defineProperty(next, k, {
-          value: v,
-          enumerable: true,
-          writable: true,
-          configurable: true
-        });
-      }
+  const addCurrent = isSafeLangKey(lang);
+  const kept = Object.entries(existing).filter(
+    ([k, v]) => isSafeLangKey(k) && v >= dateBucket && (!addCurrent || k !== lang)
+  );
+  if (addCurrent) {
+    while (kept.length >= MAX_UNSUPPORTED_LANG_DATES) {
+      kept.shift();
     }
-    return next;
-  }
-  const kept: Array<[string, string]> = [];
-  for (const [k, v] of Object.entries(existing)) {
-    if (k !== lang && v >= dateBucket && !FORBIDDEN_DATE_MAP_KEYS.has(k)) {
-      kept.push([k, v]);
-    }
-  }
-  while (kept.length >= MAX_UNSUPPORTED_LANG_DATES) {
-    kept.shift();
   }
   for (const [k, v] of kept) {
-    Object.defineProperty(next, k, {
-      value: v,
-      enumerable: true,
-      writable: true,
-      configurable: true
-    });
+    setOwnStringProp(next, k, v);
   }
-  Object.defineProperty(next, lang, {
-    value: dateBucket,
-    enumerable: true,
-    writable: true,
-    configurable: true
-  });
+  if (addCurrent) {
+    setOwnStringProp(next, lang, dateBucket);
+  }
   return next;
 }
 

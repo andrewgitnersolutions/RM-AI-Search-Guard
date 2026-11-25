@@ -74,8 +74,10 @@ function computeOpaquePageKey(): string {
   return `p-${(hash >>> 0).toString(16)}`;
 }
 
+const reportedRedirectKeys = /* @__PURE__ */ new Set<string>();
+
 /**
- * If the URL carries a DNR redirect marker, strip it and report one redirect.
+ * If the URL carries a DNR redirect marker, strip it and report one redirect per page/source.
  * Only the marker type is sent, never the URL.
  * @returns Nothing. Swallows history.replaceState errors so redirect telemetry still posts best-effort.
  */
@@ -92,7 +94,11 @@ function handleRedirectHashTelemetry() {
     );
   } catch {
   }
-  void sendRuntimeMessage({ type: "RECORD_REDIRECT", source: redirectSource });
+  const dedupeKey = `${computeOpaquePageKey()}:${redirectSource}`;
+  if (!reportedRedirectKeys.has(dedupeKey)) {
+    reportedRedirectKeys.add(dedupeKey);
+    void sendRuntimeMessage({ type: "RECORD_REDIRECT", source: redirectSource });
+  }
 }
 
 // Handle a redirect marker before anything else so the fragment is gone before Google reads it.
@@ -107,6 +113,8 @@ let currentPolicy: EffectivePolicy | null = null;
 let bodyObserver: MutationObserver | null = null;
 
 let rootObserver: MutationObserver | null = null;
+
+let observedBody: Element | null = null;
 
 let pendingRaf = false;
 let pendingRafId: number | null = null;
@@ -303,6 +311,7 @@ function disconnectObservers() {
     bodyObserver.disconnect();
     bodyObserver = null;
   }
+  observedBody = null;
   if (rootObserver) {
     rootObserver.disconnect();
     rootObserver = null;
@@ -310,28 +319,33 @@ function disconnectObservers() {
   cancelScheduledSweep();
 }
 
-/**
- * Set once this page has started a redirect out of AI Mode, so repeated sweeps or events
- * don't queue a second navigation while the first is loading.
- */
-let aiModeRedirectStarted = false;
+/** Cooldown preventing concurrent sweep/navigation callbacks from queueing duplicate redirects. */
+const AI_MODE_REDIRECT_COOLDOWN_MS = 1_000;
+
+/** Timestamp of the most recent in-page AI Mode redirect attempt; resets once URL is clean. */
+let lastAiModeRedirectAt = -Infinity;
 
 /**
  * If the URL changed into AI Mode without a page load, replace it with the clean URL the DNR
  * rules would have produced (BP-05). The marker in the new URL's fragment makes the next page
  * count exactly one redirect through the existing hash telemetry.
- * @returns true if a redirect was started. Does nothing until the policy is known or when it
- * doesn't block AI Mode; a full page load is still covered by DNR either way.
+ * @returns true if a redirect was started. Does nothing until the policy is known, when it
+ * doesn't block AI Mode, or within the redirect cooldown window; recovers if navigation aborts.
  */
 function checkAiModeUrl(): boolean {
-  if (aiModeRedirectStarted || !currentPolicy) {
+  if (!currentPolicy) {
     return false;
   }
   const clean = cleanAiModeUrl(window.location.href, currentPolicy);
   if (clean === null) {
+    lastAiModeRedirectAt = -Infinity;
     return false;
   }
-  aiModeRedirectStarted = true;
+  const now = Date.now();
+  if (now - lastAiModeRedirectAt < AI_MODE_REDIRECT_COOLDOWN_MS) {
+    return false;
+  }
+  lastAiModeRedirectAt = now;
   flushPendingMetrics(false);
   window.location.replace(clean);
   return true;
@@ -348,6 +362,7 @@ function runSweepNow() {
   }
   cancelScheduledSweep();
   lastSweepAt = Date.now();
+  applyPolicyAttributes(document, currentPolicy);
   // Google's in-page switch to AI Mode always mutates the DOM, so every sweep re-checks the URL.
   if (checkAiModeUrl()) {
     return;
@@ -421,37 +436,43 @@ function scheduleSweep(immediate = false) {
 }
 
 /**
- * Observe <body> for added nodes; before <body> exists, watch <html> until it appears.
+ * Observe <body> for added nodes and keep <html> observed for root policy-attribute tampering,
+ * UI language changes, or <body> replacement.
  * @returns Nothing. No-op when policy is unset, masterEnabled is false, or documentElement is absent.
  */
 function attachMutationObserver() {
   if (!currentPolicy || !currentPolicy.masterEnabled) {
     return;
   }
-  if (document.body) {
-    if (rootObserver) {
-      rootObserver.disconnect();
-      rootObserver = null;
-    }
-    if (!bodyObserver) {
-      bodyObserver = new MutationObserver(() => {
-        scheduleSweep();
-      });
-      bodyObserver.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
-    }
-    return;
-  }
   if (!rootObserver && document.documentElement) {
     rootObserver = new MutationObserver(() => {
-      if (document.body) {
-        attachMutationObserver();
-        scheduleSweep();
+      if (!currentPolicy || !currentPolicy.masterEnabled) {
+        return;
       }
+      applyPolicyAttributes(document, currentPolicy);
+      if (document.body && document.body !== observedBody) {
+        attachMutationObserver();
+      }
+      scheduleSweep();
     });
-    rootObserver.observe(document.documentElement, { childList: true });
+    rootObserver.observe(document.documentElement, {
+      childList: true,
+      attributes: true,
+      attributeFilter: ["data-rmsg-hide-overviews", "data-rmsg-hide-aimode", "data-rmsg-hide-aux", "lang"]
+    });
+  }
+  if (document.body && document.body !== observedBody) {
+    if (bodyObserver) {
+      bodyObserver.disconnect();
+    }
+    observedBody = document.body;
+    bodyObserver = new MutationObserver(() => {
+      scheduleSweep();
+    });
+    bodyObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
   }
 }
 

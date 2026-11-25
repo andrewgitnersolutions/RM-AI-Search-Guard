@@ -403,12 +403,6 @@
     color: var(--rm-navy);
   }
 
-  .rm-pill-teal {
-    background-color: var(--rm-teal-soft);
-    border-color: var(--rm-teal-border);
-    color: var(--rm-teal-dark);
-  }
-
   .rm-pill-amber {
     background-color: var(--rm-amber-bg);
     border-color: var(--rm-amber-border);
@@ -445,27 +439,6 @@
     border-color: var(--rm-amber-border);
     border-inline-start-color: var(--rm-amber);
     color: var(--rm-amber-text);
-  }
-
-  .rm-callout-red {
-    background-color: var(--rm-red-bg);
-    border-color: var(--rm-red-border);
-    border-inline-start-color: var(--rm-red);
-    color: var(--rm-red);
-  }
-
-  .rm-callout-teal {
-    background-color: var(--rm-teal-soft);
-    border-color: var(--rm-teal-border);
-    border-inline-start-color: var(--rm-teal-dark);
-    color: var(--rm-navy);
-  }
-
-  .rm-callout-navy {
-    background-color: var(--rm-navy-soft);
-    border-color: var(--rm-border);
-    border-inline-start-color: var(--rm-navy);
-    color: var(--rm-navy);
   }
 
   .policy-banner {
@@ -637,7 +610,6 @@
     color: var(--rm-red);
   }
 
-  .rm-input,
   .rm-select,
   .rm-textarea {
     font: inherit;
@@ -663,7 +635,6 @@
     max-inline-size: 260px;
   }
 
-  .rm-input:disabled,
   .rm-select:disabled,
   .rm-textarea:disabled {
     background-color: var(--rm-bg);
@@ -671,31 +642,9 @@
     cursor: not-allowed;
   }
 
-  .rm-input:is(:user-invalid, [aria-invalid="true"]),
   .rm-textarea:is(:user-invalid, [aria-invalid="true"]) {
     border-color: var(--rm-red);
     background-color: var(--rm-red-bg);
-  }
-
-  .rm-checkbox {
-    inline-size: 1.25rem;
-    block-size: 1.25rem;
-    min-inline-size: 20px;
-    min-block-size: 20px;
-    accent-color: var(--rm-teal-dark);
-    cursor: pointer;
-    margin: 0;
-  }
-
-  .rm-checkbox-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--rm-navy);
-    cursor: pointer;
-    min-block-size: 32px;
   }
 
   /* Toggle Switch (native checkbox + role="switch") */
@@ -1139,7 +1088,6 @@
   }
 
   @media (pointer: coarse) {
-    .rm-input,
     .rm-select,
     .rm-btn {
       min-block-size: 44px;

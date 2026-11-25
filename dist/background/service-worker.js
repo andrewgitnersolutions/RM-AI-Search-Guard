@@ -33,7 +33,6 @@ var METRIC_KEYS = [
 var STORAGE_KEYS = {
   LOCAL_OVERRIDES: "rmsg_local_overrides",
   TELEMETRY: "rmsg_telemetry",
-  LAST_POLICY: "rmsg_last_policy",
   METRICS_RESET_EPOCH: "rmsg_metrics_reset_epoch",
   UNSUPPORTED_LANG_DATES: "rmsg_unsupported_lang_dates"
 };
@@ -189,12 +188,12 @@ function parseExtraHideSelectors(raw) {
       continue;
     }
     for (const item of rawList) {
-      if (typeof item !== "string" || item.length > MAX_EXTRA_SELECTOR_LENGTH) {
+      if (typeof item !== "string") {
         valid = false;
         continue;
       }
       const trimmed = trimCssWhitespace(item);
-      if (trimmed.length === 0) {
+      if (trimmed.length === 0 || trimmed.length > MAX_EXTRA_SELECTOR_LENGTH) {
         valid = false;
         continue;
       }
@@ -441,6 +440,7 @@ async function readMetricsResetEpoch() {
   }
   return 0;
 }
+var MAX_METRIC_DELTA_PER_BATCH = 50;
 async function incrementTelemetryMetrics(deltas, batchResetEpoch) {
   return enqueueStorageOp(async () => {
     if (batchResetEpoch !== void 0) {
@@ -454,7 +454,7 @@ async function incrementTelemetryMetrics(deltas, batchResetEpoch) {
     for (const key of METRIC_KEYS) {
       const rawDelta = deltas[key];
       if (typeof rawDelta === "number" && Number.isFinite(rawDelta) && rawDelta > 0) {
-        const delta = Math.floor(rawDelta);
+        const delta = Math.min(Math.floor(rawDelta), MAX_METRIC_DELTA_PER_BATCH);
         if (delta > 0) {
           state.lifetimeMetrics[key] = (state.lifetimeMetrics[key] ?? 0) + delta;
           changed = true;
@@ -468,7 +468,19 @@ async function incrementTelemetryMetrics(deltas, batchResetEpoch) {
   });
 }
 var MAX_UNSUPPORTED_LANG_DATES = 200;
-var FORBIDDEN_DATE_MAP_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+var SAFE_LANG_KEY_RE = /^[a-z0-9-]{1,16}$/;
+var FORBIDDEN_LANG_KEYS = /* @__PURE__ */ new Set(["constructor", "prototype"]);
+function isSafeLangKey(key) {
+  return SAFE_LANG_KEY_RE.test(key) && !FORBIDDEN_LANG_KEYS.has(key);
+}
+function setOwnStringProp(target, key, value) {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true
+  });
+}
 function sanitizeUnsupportedLangDates(raw) {
   const out = {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -479,13 +491,8 @@ function sanitizeUnsupportedLangDates(raw) {
     if (count >= MAX_UNSUPPORTED_LANG_DATES) {
       break;
     }
-    if (key.length > 0 && key.length <= 240 && !FORBIDDEN_DATE_MAP_KEYS.has(key) && typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
-      Object.defineProperty(out, key, {
-        value: val,
-        enumerable: true,
-        writable: true,
-        configurable: true
-      });
+    if (isSafeLangKey(key) && typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      setOwnStringProp(out, key, val);
       count += 1;
     }
   }
@@ -500,42 +507,21 @@ async function readUnsupportedLangDates() {
 }
 function recordUnsupportedLangDate(existing, lang, dateBucket) {
   const next = {};
-  if (!lang || lang.length > 240 || FORBIDDEN_DATE_MAP_KEYS.has(lang)) {
-    for (const [k, v] of Object.entries(existing)) {
-      if (v >= dateBucket) {
-        Object.defineProperty(next, k, {
-          value: v,
-          enumerable: true,
-          writable: true,
-          configurable: true
-        });
-      }
+  const addCurrent = isSafeLangKey(lang);
+  const kept = Object.entries(existing).filter(
+    ([k, v]) => isSafeLangKey(k) && v >= dateBucket && (!addCurrent || k !== lang)
+  );
+  if (addCurrent) {
+    while (kept.length >= MAX_UNSUPPORTED_LANG_DATES) {
+      kept.shift();
     }
-    return next;
-  }
-  const kept = [];
-  for (const [k, v] of Object.entries(existing)) {
-    if (k !== lang && v >= dateBucket && !FORBIDDEN_DATE_MAP_KEYS.has(k)) {
-      kept.push([k, v]);
-    }
-  }
-  while (kept.length >= MAX_UNSUPPORTED_LANG_DATES) {
-    kept.shift();
   }
   for (const [k, v] of kept) {
-    Object.defineProperty(next, k, {
-      value: v,
-      enumerable: true,
-      writable: true,
-      configurable: true
-    });
+    setOwnStringProp(next, k, v);
   }
-  Object.defineProperty(next, lang, {
-    value: dateBucket,
-    enumerable: true,
-    writable: true,
-    configurable: true
-  });
+  if (addCurrent) {
+    setOwnStringProp(next, lang, dateBucket);
+  }
   return next;
 }
 async function recordDiagnosticEntry(code, detail = "", now = /* @__PURE__ */ new Date()) {
@@ -614,6 +600,7 @@ var ALL_MANAGED_RULE_IDS = [101, 102, 110, 111, 112, 120, 130];
 var ACTION_REDIRECT = "redirect";
 var ACTION_ALLOW = "allow";
 var RESOURCE_MAIN_FRAME = "main_frame";
+var RESOURCE_SUB_FRAME = "sub_frame";
 function createAiModeQueryTransform(forceWebOnlySearch) {
   if (forceWebOnlySearch) {
     return {
@@ -638,14 +625,15 @@ function buildDynamicRules(policy) {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
             fragment: "#rm_sg_omnibox"
           }
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?(sourceid=chrome|aep=)[^#]*&udm=50(&|$)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?(sourceid=chrome|aep=)[^#]*&udm=(0|%30)*(5|%35)(0|%30)(&|$)",
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     rules.push({
@@ -655,14 +643,15 @@ function buildDynamicRules(policy) {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
             fragment: "#rm_sg_omnibox"
           }
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?udm=50&[^#]*(sourceid=chrome|aep=)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0|%30)*(5|%35)(0|%30)&[^#]*(sourceid=chrome|aep=)",
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     rules.push({
@@ -672,14 +661,15 @@ function buildDynamicRules(policy) {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
             fragment: "#rm_sg_aimode"
           }
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?udm=50(&|$)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0|%30)*(5|%35)(0|%30)(&|$)",
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     rules.push({
@@ -697,7 +687,7 @@ function buildDynamicRules(policy) {
       },
       condition: {
         regexFilter: "^https://(www\\.)?google\\.com/(ai|aimode)(/[^?#]*)?\\?([^#]*&)?q=[^&#]",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     rules.push({
@@ -711,7 +701,7 @@ function buildDynamicRules(policy) {
       },
       condition: {
         regexFilter: "^https://(www\\.)?google\\.com/(ai|aimode)(/|\\?|$)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
   }
@@ -723,7 +713,7 @@ function buildDynamicRules(policy) {
         type: ACTION_ALLOW
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?(udm=|tbm=)",
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?(udm=[1-9][0-9]*|tbm=[a-z]+)(&|$)",
         resourceTypes: [RESOURCE_MAIN_FRAME]
       }
     });
@@ -734,6 +724,7 @@ function buildDynamicRules(policy) {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: {
               addOrReplaceParams: [{ key: "udm", value: "14" }]
             }
@@ -741,7 +732,7 @@ function buildDynamicRules(policy) {
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?q=",
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?q=[^&#]",
         resourceTypes: [RESOURCE_MAIN_FRAME]
       }
     });
@@ -770,6 +761,13 @@ async function syncDynamicRules(policy) {
 
 // src/background/messages.ts
 var PRIVILEGED_MESSAGE_TYPES = /* @__PURE__ */ new Set(["SET_LOCAL_OVERRIDES", "RESET_LOCAL_METRICS", "GET_DIAGNOSTIC_SNAPSHOT"]);
+var CONTENT_ALLOWED_DIAGNOSTIC_CODES = /* @__PURE__ */ new Set([
+  "ERR_SELECTOR_SYNTAX",
+  "ERR_SAFETY_GUARD_TRIPPED",
+  "ERR_STORAGE_FAILURE",
+  "WARN_UNSUPPORTED_UI_LANGUAGE",
+  "WARN_AI_SURFACE_VISIBLE"
+]);
 var BAD_MESSAGE = { ok: false, error: "bad_message" };
 var FORBIDDEN = { ok: false, error: "forbidden" };
 var ERROR_CODE_SET = new Set(ALL_ERROR_CODES);
@@ -782,6 +780,21 @@ function isFromExtensionPage(sender) {
     return false;
   }
   return typeof sender.url === "string" && sender.url.startsWith(`chrome-extension://${id}/`);
+}
+function isFromGoogleTab(sender) {
+  const id = typeof chrome !== "undefined" ? chrome.runtime?.id : void 0;
+  if (!id || !sender || sender.id !== id || typeof sender.url !== "string") {
+    return false;
+  }
+  try {
+    const parsed = new URL(sender.url);
+    return parsed.protocol === "https:" && (parsed.hostname === "www.google.com" || parsed.hostname === "google.com");
+  } catch {
+    return false;
+  }
+}
+function isTrustedSender(sender) {
+  return isFromExtensionPage(sender) || isFromGoogleTab(sender);
 }
 function validateMessage(message) {
   if (!isPlainObject(message) || typeof message.type !== "string") {
@@ -797,7 +810,16 @@ function validateMessage(message) {
     case "RECORD_REDIRECT":
       return message.source === "omnibox" || message.source === "aimode";
     case "LOG_DIAGNOSTIC":
-      return typeof message.code === "string" && ERROR_CODE_SET.has(message.code) && (message.detail === void 0 || typeof message.detail === "string");
+      if (typeof message.code !== "string" || !ERROR_CODE_SET.has(message.code)) {
+        return false;
+      }
+      if (message.code === "WARN_AI_SURFACE_VISIBLE") {
+        return message.detail === "overview" || message.detail === "aimode";
+      }
+      if (message.code === "WARN_UNSUPPORTED_UI_LANGUAGE") {
+        return typeof message.detail === "string" && /^[a-z0-9-]{1,16}$/.test(message.detail);
+      }
+      return message.detail === void 0 || typeof message.detail === "string";
     case "SET_LOCAL_OVERRIDES":
       return isPlainObject(message.toggles);
     default:
@@ -903,6 +925,9 @@ async function handleRuntimeMessage(message, sender) {
   if (!validateMessage(message)) {
     return BAD_MESSAGE;
   }
+  if (!isTrustedSender(sender)) {
+    return FORBIDDEN;
+  }
   const fromExtensionPage = isFromExtensionPage(sender);
   if (PRIVILEGED_MESSAGE_TYPES.has(message.type) && !fromExtensionPage) {
     return FORBIDDEN;
@@ -917,6 +942,10 @@ async function handleRuntimeMessage(message, sender) {
       return { ok: true };
     }
     case "RECORD_REDIRECT": {
+      const { policy } = await resolvePolicyFromStorage();
+      if (!policy.masterEnabled || !policy.blockAiModeNavigation) {
+        return { ok: true };
+      }
       if (message.source === "omnibox") {
         await incrementTelemetryMetrics({
           aiModeRedirects: 1,
@@ -934,6 +963,9 @@ async function handleRuntimeMessage(message, sender) {
       return { ok: true };
     }
     case "LOG_DIAGNOSTIC": {
+      if (!fromExtensionPage && !CONTENT_ALLOWED_DIAGNOSTIC_CODES.has(message.code)) {
+        return FORBIDDEN;
+      }
       await recordDiagnosticEntry(message.code, message.detail ?? "");
       return { ok: true };
     }

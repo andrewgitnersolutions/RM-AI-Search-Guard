@@ -1,6 +1,6 @@
 /**
  * Loads a built service worker into node:vm with an in-memory `chrome` stub.
- * Runs in: Node test runner only. Never touches the network: fetch is injected per test.
+ * Runs in: Node test runner only. Never touches the network: fetch always rejects.
  *
  * The bundled service worker has no import/export, so it runs as a classic script and its
  * top-level functions (parsePolicy, buildDynamicRules, handleRuntimeMessage, ...) become
@@ -63,24 +63,21 @@ function makeEvent() {
  * @param {object} [opts.managed] - chrome.storage.managed contents.
  * @param {object} [opts.local] - chrome.storage.local contents.
  * @param {string} [opts.managedError] - Make managed reads fail.
- * @param {Function} [opts.fetch] - fetch implementation visible to the worker.
  * @param {string} [opts.installType] - chrome.management.getSelf().installType (BP-01 tests).
  * @param {string} [opts.installTypeError] - Make getSelf() reject with this message.
  * @param {boolean} [opts.noManagement] - Leave chrome.management undefined.
  * @param {number[]} [opts.managedGetDelays] - Per-call delays for managed reads (BP-17 tests).
- * @returns {object} { ctx, chrome, send, fire, settle }
+ * @returns {object} { ctx, chrome, send, fire, dynamicRules }
  */
 export function loadServiceWorker(target, opts = {}) {
   const file = path.join(target.dir, "background/service-worker.js");
   const code = readFileSync(file, "utf8");
   const dynamicRules = [];
-  const alarms = new Map();
   const events = {
     onInstalled: makeEvent(),
     onStartup: makeEvent(),
     onMessage: makeEvent(),
     onChanged: makeEvent(),
-    onAlarm: makeEvent(),
   };
   const chrome = {
     runtime: {
@@ -115,44 +112,15 @@ export function loadServiceWorker(target, opts = {}) {
         dynamicRules.push(...structuredClone(addRules));
       },
     },
-    alarms: {
-      map: alarms,
-      async create(name, info) {
-        alarms.set(name, structuredClone({ name, ...info }));
-      },
-      async clear(name) {
-        return alarms.delete(name);
-      },
-      async get(name) {
-        return alarms.get(name);
-      },
-      async getAll() {
-        return [...alarms.values()];
-      },
-      onAlarm: events.onAlarm,
-    },
   };
-  const fetchCalls = [];
-  const fetchImpl = opts.fetch
-    ? async (url, init) => {
-        fetchCalls.push({ url, init: { ...init, signal: undefined } });
-        try {
-          return await opts.fetch(url, init);
-        } catch (err) {
-          // Re-throw in the worker's realm, as real fetch would, so `instanceof Error` holds.
-          const RealmError = vm.runInContext("Error", ctx);
-          const e = new RealmError(err.message);
-          e.name = err.name;
-          throw e;
-        }
-      }
-    : async () => {
-        throw new Error("network disabled in tests");
-      };
   const ctx = vm.createContext({
     chrome,
     console,
-    fetch: fetchImpl,
+    URL,
+    URLSearchParams,
+    fetch: async () => {
+      throw new Error("network disabled in tests");
+    },
     setTimeout,
     clearTimeout,
     AbortController,
@@ -193,12 +161,12 @@ export function loadServiceWorker(target, opts = {}) {
 
   /**
    * Invoke every listener of an event and wait for them.
-   * @param {string} name - Event key (onInstalled, onStartup, onChanged, onAlarm).
+   * @param {string} name - Event key (onInstalled, onStartup, onChanged).
    * @param {...unknown} args - Listener arguments.
    */
   async function fire(name, ...args) {
     await Promise.all(events[name].listeners.map((fn) => fn(...args)));
   }
 
-  return { ctx, chrome, send, fire, fetchCalls, dynamicRules, alarms };
+  return { ctx, chrome, send, fire, dynamicRules };
 }

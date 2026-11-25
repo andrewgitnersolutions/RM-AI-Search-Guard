@@ -2,7 +2,9 @@
  * Builds and installs the declarativeNetRequest dynamic rules that redirect AI Mode URLs
  * and (optionally) force Web-only results.
  * Runs in: service worker.
- * Must never: touch subresource requests or hosts other than google.com / www.google.com.
+ * Must never: touch subresource requests (xmlhttprequest/scripts/assets) or hosts other than
+ * google.com / www.google.com; AI Mode redirect rules cover main_frame and sub_frame
+ * navigations, and forceWebOnlySearch rules cover main_frame navigations.
  * Shared with: background/service-worker.ts. shared/ai-mode-url.ts mirrors these redirects for
  * in-page navigation (BP-05); the two must stay in sync (test U-07).
  */
@@ -23,6 +25,8 @@ export const ACTION_REDIRECT = "redirect" as chrome.declarativeNetRequest.RuleAc
 export const ACTION_ALLOW = "allow" as chrome.declarativeNetRequest.RuleActionType.ALLOW;
 
 export const RESOURCE_MAIN_FRAME = "main_frame" as chrome.declarativeNetRequest.ResourceType.MAIN_FRAME;
+
+export const RESOURCE_SUB_FRAME = "sub_frame" as chrome.declarativeNetRequest.ResourceType.SUB_FRAME;
 
 // FRAGILE(google-dom, last verified NONE, see tests L-02/L-06): udm=14 (Web-only results) and AI Mode session params aep, arv, mstk, csuir.
 /**
@@ -45,7 +49,7 @@ export function createAiModeQueryTransform(forceWebOnlySearch: boolean): QueryTr
 // RE2 has no lookahead, so rule order is done with priorities: 101/102 (55) catch omnibox
 // entries before generic AI Mode 110 (50); /ai and /aimode with a query (111, 50) keep the
 // student's search, the queryless fallback 112 (45) goes to the homepage; allow 120 (40)
-// exempts explicit tabs (udm=/tbm=) from the Web-only rewrite 130 (30).
+// exempts explicit numeric udm=/alphabetic tbm= tabs from the Web-only rewrite 130 (30).
 // FRAGILE(google-dom, last verified NONE, see tests L-02/L-06): udm=50 = AI Mode, sourceid=chrome / aep= = omnibox entry, /ai and /aimode paths.
 /**
  * Build the dynamic DNR rules for a policy.
@@ -65,14 +69,15 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
             fragment: "#rm_sg_omnibox"
           }
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?(sourceid=chrome|aep=)[^#]*&udm=50(&|$)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?(sourceid=chrome|aep=)[^#]*&udm=(0|%30)*(5|%35)(0|%30)(&|$)",
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     rules.push({
@@ -82,14 +87,15 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
             fragment: "#rm_sg_omnibox"
           }
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?udm=50&[^#]*(sourceid=chrome|aep=)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0|%30)*(5|%35)(0|%30)&[^#]*(sourceid=chrome|aep=)",
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     rules.push({
@@ -99,14 +105,15 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: createAiModeQueryTransform(policy.forceWebOnlySearch),
             fragment: "#rm_sg_aimode"
           }
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?udm=50(&|$)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?udm=(0|%30)*(5|%35)(0|%30)(&|$)",
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     // BP-19 (owner decision 2026-11-21): /aimode?q=fractions keeps the search. The path becomes
@@ -127,7 +134,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
       },
       condition: {
         regexFilter: "^https://(www\\.)?google\\.com/(ai|aimode)(/[^?#]*)?\\?([^#]*&)?q=[^&#]",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
     rules.push({
@@ -141,7 +148,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
       },
       condition: {
         regexFilter: "^https://(www\\.)?google\\.com/(ai|aimode)(/|\\?|$)",
-        resourceTypes: [RESOURCE_MAIN_FRAME]
+        resourceTypes: [RESOURCE_MAIN_FRAME, RESOURCE_SUB_FRAME]
       }
     });
   }
@@ -153,7 +160,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         type: ACTION_ALLOW
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?(udm=|tbm=)",
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?(udm=[1-9][0-9]*|tbm=[a-z]+)(&|$)",
         resourceTypes: [RESOURCE_MAIN_FRAME]
       }
     });
@@ -164,6 +171,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         type: ACTION_REDIRECT,
         redirect: {
           transform: {
+            path: "/search",
             queryTransform: {
               addOrReplaceParams: [{ key: "udm", value: "14" }]
             }
@@ -171,7 +179,7 @@ export function buildDynamicRules(policy: Toggles): Rule[] {
         }
       },
       condition: {
-        regexFilter: "^https://(www\\.)?google\\.com/search\\?([^#]*&)?q=",
+        regexFilter: "^https://(www\\.)?google\\.com/(search|webhp)?\\?([^#]*&)?q=[^&#]",
         resourceTypes: [RESOURCE_MAIN_FRAME]
       }
     });

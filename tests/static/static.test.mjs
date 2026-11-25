@@ -90,7 +90,11 @@ for (const [name, file] of [["src", path.join(ROOT, "src/manifest.json")], ...TA
     assert.equal(m.minimum_chrome_version, "134");
     assert.equal(m.manifest_version, 3);
     assert.deepEqual(m.content_scripts.map((c) => c.matches), [["https://www.google.com/*", "https://google.com/*"]]);
-    assert.equal(m.content_security_policy.extension_pages, "script-src 'self'; object-src 'self'");
+    // Why: connect-src 'self' and default-src 'none' lock Popup/Options offline; loosen connect-src if archive/analytics-v1/ ever fetches from an extension page.
+    assert.equal(
+      m.content_security_policy.extension_pages,
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    );
   });
 }
 
@@ -122,6 +126,18 @@ equivalent("S-05b", "CSS guard: static-guard.css has no selector list mixing :ha
   assert.equal(mixed.length, 0, `${mixed.length} mixed :has() selector list(s)`);
   return true;
 }, { bp: "BP-10" });
+
+equivalent("S-05c", "CSS guard: every :has() rule in static-guard.css excludes search inputs and organic results", (target) => {
+  const css = readFileSync(path.join(target.dir, "content/static-guard.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const hasRules = [...css.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim()).filter((sel) => sel.includes(":has("));
+  assert.ok(hasRules.length > 0, "expected :has() rules in static-guard.css");
+  for (const sel of hasRules) {
+    assert.ok(sel.includes(':not(:has(textarea[name="q"]))'), `missing textarea[name="q"] guard: ${sel}`);
+    assert.ok(sel.includes(':not(:has(input[name="q"]))'), `missing input[name="q"] guard: ${sel}`);
+    assert.ok(sel.includes(":not(:has(a h3))"), `missing a h3 guard: ${sel}`);
+  }
+  return hasRules.length;
+}, { bp: "BP-08" });
 
 equivalent("S-06", "error codes: ALL_ERROR_CODES = ERROR_CATALOG keys; every code literal in the bundles is a catalog code", (target) => {
   const sw = loadServiceWorker(target);

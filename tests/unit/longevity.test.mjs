@@ -164,6 +164,11 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
     id: "rso",
     matchSelector: (sel) => sel.split(",").map((s) => s.trim()).includes("#rso"),
   });
+  const longUnsafeExtra = makeStubEl({
+    id: "What_is_photosynthesis_query_slug",
+    matchSelector: (sel) => sel.includes(".long-unsafe"),
+    containsFn: (other, self) => other === self || other === unsafeExtra,
+  });
   const leakedHeading = makeStubEl({
     tagName: "H2",
     id: "leaked-heading",
@@ -177,7 +182,7 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
     matchSelector: (sel) => sel.includes("button"),
   });
   // Keep leakedHeading/leakedAiModeBtn out of built-in tier matching by only matching leakDetector & specific selectors.
-  let activeElements = [validExtra, nbspExtra, builtInOv, unsafeExtra];
+  let activeElements = [validExtra, nbspExtra, builtInOv, unsafeExtra, longUnsafeExtra];
   const cs = loadContentScript(target, {
     fakeTimers: true,
     body: { tagName: "BODY" },
@@ -190,6 +195,9 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
       if (sel === "div[invalid!!") {
         throw new SyntaxError("invalid selector");
       }
+      if (sel === "#main, #cnt, #rcnt, #center_col, #search, #rso, #botstuff, #top_nav, form[role=\"search\"], #searchform") {
+        return [unsafeExtra];
+      }
       return activeElements.filter((e) => e.matches(sel));
     },
   });
@@ -199,7 +207,7 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
     ...ENABLED_POLICY,
     isManaged: true,
     extraHideSelectors: {
-      overview: ["div[invalid!!", "div.valid-extra", " \t.ai\u00a0\r\f ", "#rso"],
+      overview: ["div[invalid!!", "div.valid-extra", " \t.ai\u00a0\r\f ", "#rso", ".long-unsafe"],
       aimode: [],
       aux: [],
     },
@@ -211,10 +219,12 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
   assert.equal(nbspExtra.getAttribute("data-rmsg-hidden"), "overview", "selector trailing U+00A0 must be preserved when matching");
   assert.equal(builtInOv.getAttribute("data-rmsg-hidden"), "overview", "built-in Overview must be hidden");
   assert.equal(unsafeExtra.getAttribute("data-rmsg-hidden"), null, "safety guard must refuse #rso even from extraHideSelectors");
+  assert.equal(longUnsafeExtra.getAttribute("data-rmsg-hidden"), null, "safety guard must refuse long-id wrapper");
 
   const diagCodes = () => cs.messages.filter((m) => m.type === "LOG_DIAGNOSTIC").map((m) => [m.code, m.detail]);
   assert.ok(diagCodes().some(([c]) => c === "ERR_SELECTOR_SYNTAX"), "ERR_SELECTOR_SYNTAX logged");
   assert.ok(diagCodes().some(([c]) => c === "ERR_SAFETY_GUARD_TRIPPED"), "ERR_SAFETY_GUARD_TRIPPED logged");
+  assert.ok(!diagCodes().some(([, d]) => String(d).includes("What_is_photosynthesis")), "long DOM id must be omitted from diagnostic detail");
 
   // Flush the initial batched metric delta so we can verify withdrawing extras emits no duplicate delta.
   cs.advanceTime(11_000);
@@ -294,6 +304,87 @@ equivalent("U-25", "extraHideSelectors hides valid matches, preserves U+00A0, re
   await csAllowed.flush();
   csAllowed.flushRaf();
   assert.equal(csAllowed.messages.filter((m) => m.type === "LOG_DIAGNOSTIC" && m.code === "WARN_AI_SURFACE_VISIBLE").length, 0);
+
+  // Stale data-rmsg-hidden="overview" ancestor when hideAiOverviews=false must not blind hideAiModeUi=true.
+  const staleOvParent = makeStubEl({ id: "stale-ov", attrs: { "data-rmsg-hidden": "overview" }, matchSelector: () => false });
+  const innerAiBtn = makeStubEl({
+    tagName: "BUTTON",
+    id: "inner-ai-btn",
+    textContent: "AI Mode",
+    matchSelector: (sel) => sel.includes("plR5qb"),
+  });
+  innerAiBtn.parentElement = { closest: (sel) => (sel.includes('"overview"') ? staleOvParent : null) };
+  const csStale = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll(sel) {
+      if (sel.includes("data-rmsg-hidden=")) return [];
+      return innerAiBtn.matches(sel) ? [innerAiBtn] : [];
+    },
+  });
+  await csStale.flush();
+  csStale.policyRequests[0]({ ...ENABLED_POLICY, hideAiOverviews: false, hideAiModeUi: true });
+  await csStale.flush();
+  csStale.flushRaf();
+  assert.equal(innerAiBtn.getAttribute("data-rmsg-hidden"), "aimode", "disabled-category overview marker must not blind active aimode hiding");
+
+  // Disabling masterEnabled must restore extension-owned elements even if data-rmsg-hidden was
+  // rewritten to an unrecognized value, while leaving unowned page-marked elements untouched.
+  const ownedMutable = makeStubEl({
+    id: "owned-mutable",
+    attrs: { "data-attrid": "AIOverview" },
+    matchSelector: (sel) => sel.includes('data-attrid="AIOverview"'),
+  });
+  ownedMutable.style.setProperty("display", "flex", "");
+  const unownedPageMarked = makeStubEl({
+    id: "unowned-page-marked",
+    attrs: { "data-rmsg-hidden": "stale" },
+    matchSelector: () => false,
+  });
+  unownedPageMarked.style.setProperty("display", "block", "");
+  const csOwned = loadContentScript(target, {
+    fakeTimers: true,
+    body: { tagName: "BODY" },
+    querySelectorAll(sel) {
+      if (sel.includes("data-rmsg-hidden=")) {
+        return [ownedMutable, unownedPageMarked].filter((e) => {
+          if (!e.isConnected) return false;
+          const val = e.getAttribute("data-rmsg-hidden");
+          return val !== null && sel.includes(`"${val}"`);
+        });
+      }
+      return ownedMutable.isConnected && ownedMutable.matches(sel) ? [ownedMutable] : [];
+    },
+  });
+  await csOwned.flush();
+  csOwned.policyRequests[0]({ ...ENABLED_POLICY });
+  await csOwned.flush();
+  csOwned.flushRaf();
+  assert.equal(ownedMutable.getAttribute("data-rmsg-hidden"), "overview");
+  assert.equal(ownedMutable.style.getPropertyValue("display"), "none");
+
+  // Detaching during a sweep prunes ownership without discarding the WeakMap display backup,
+  // so reinserting without the marker and re-hiding still restores the original "flex" display.
+  ownedMutable.isConnected = false;
+  csOwned.advanceTime(200);
+  csOwned.triggerMutation();
+  csOwned.flushRaf();
+  ownedMutable.isConnected = true;
+  ownedMutable.removeAttribute("data-rmsg-hidden");
+  csOwned.advanceTime(200);
+  csOwned.triggerMutation();
+  csOwned.flushRaf();
+  assert.equal(ownedMutable.getAttribute("data-rmsg-hidden"), "overview", "reinserted element must be re-hidden");
+
+  ownedMutable.setAttribute("data-rmsg-hidden", "stale");
+  csOwned.fireStorageChange();
+  await csOwned.flush();
+  csOwned.policyRequests[1]({ ...ENABLED_POLICY, masterEnabled: false });
+  await csOwned.flush();
+  assert.equal(ownedMutable.getAttribute("data-rmsg-hidden"), null, "owned element must be restored despite mutated marker");
+  assert.equal(ownedMutable.style.getPropertyValue("display"), "flex", "owned element original inline display must be restored");
+  assert.equal(unownedPageMarked.getAttribute("data-rmsg-hidden"), "stale", "unowned page-marked element must stay untouched");
+  assert.equal(unownedPageMarked.style.getPropertyValue("display"), "block", "unowned page-marked inline display must stay untouched");
 
   return {
     extraHidden: validExtra.getAttribute("data-rmsg-hidden"),

@@ -12,7 +12,7 @@ import { getTodayDateBucket } from "../shared/errors";
 import { isUnlockableInstall, parsePolicy } from "../shared/policy";
 import { incrementTelemetryMetrics, readLocalOverrides, readManagedPolicyRaw, readTelemetryState, recordDiagnosticEntry, resetLocalTelemetry, mergeLocalOverrides } from "../shared/storage";
 import { syncDynamicRules } from "./dnr-rules";
-import { BAD_MESSAGE, FORBIDDEN, PRIVILEGED_MESSAGE_TYPES, isFromExtensionPage, toContentPolicy, validateMessage } from "./messages";
+import { BAD_MESSAGE, CONTENT_ALLOWED_DIAGNOSTIC_CODES, FORBIDDEN, PRIVILEGED_MESSAGE_TYPES, isFromExtensionPage, isTrustedSender, toContentPolicy, validateMessage } from "./messages";
 import type { DiagnosticSnapshot, EffectivePolicy, InstallType, RawRecord } from "../shared/types";
 
 /**
@@ -157,6 +157,9 @@ async function handleRuntimeMessage(message: unknown, sender: chrome.runtime.Mes
   if (!validateMessage(message)) {
     return BAD_MESSAGE;
   }
+  if (!isTrustedSender(sender)) {
+    return FORBIDDEN;
+  }
   const fromExtensionPage = isFromExtensionPage(sender);
   if (PRIVILEGED_MESSAGE_TYPES.has(message.type) && !fromExtensionPage) {
     return FORBIDDEN;
@@ -172,6 +175,12 @@ async function handleRuntimeMessage(message: unknown, sender: chrome.runtime.Mes
       return { ok: true };
     }
     case "RECORD_REDIRECT": {
+      // Ignore redirect markers when AI Mode blocking is disabled (e.g., Staff OU) so crafted
+      // hash links cannot pollute redirect counters or log false WARN_OMNIBOX_POLICY_MISSING.
+      const { policy } = await resolvePolicyFromStorage();
+      if (!policy.masterEnabled || !policy.blockAiModeNavigation) {
+        return { ok: true };
+      }
       if (message.source === "omnibox") {
         await incrementTelemetryMetrics({
           aiModeRedirects: 1,
@@ -189,6 +198,9 @@ async function handleRuntimeMessage(message: unknown, sender: chrome.runtime.Mes
       return { ok: true };
     }
     case "LOG_DIAGNOSTIC": {
+      if (!fromExtensionPage && !CONTENT_ALLOWED_DIAGNOSTIC_CODES.has(message.code)) {
+        return FORBIDDEN;
+      }
       await recordDiagnosticEntry(message.code, message.detail ?? "");
       return { ok: true };
     }

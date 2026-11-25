@@ -84,12 +84,6 @@ const LOCALE_SETS: Record<SupportedUiLanguage, ReturnType<typeof buildLocaleSets
   es: buildLocaleSets("es")
 };
 
-export const OVERVIEW_HEADING_TEXT_SET = LOCALE_SETS.en.overviewHeadingTexts;
-
-export const AI_MODE_EXACT_TEXT_SET = LOCALE_SETS.en.aiModeExactTexts;
-
-export const AI_ATTRIBUTION_MARKER_SET = LOCALE_SETS.en.aiAttributionMarkers;
-
 // Combined built-in selector lists so each sweep issues one querySelectorAll per group instead
 // of looping per selector string (BP-09).
 const OVERVIEW_HEADING_COMBINED = SELECTORS.tier1.aiOverviews.headingSelectors.join(", ");
@@ -146,14 +140,17 @@ export function safeQueryAll(root: ParentNode, selector: string, errors: PolicyE
   }
 }
 
+const SAFE_DIAGNOSTIC_ID_RE = /^[A-Za-z0-9_-]{1,24}$/;
+
 /**
- * Describe an element for diagnostics by tag and id only (no text, no classes).
+ * Describe an element for diagnostics by tag and safe short structural id only (no text, no classes).
+ * Long or punctuation-bearing IDs are omitted so dynamic SERP fragment IDs cannot enter diagnostics.
  * @param el - Element.
- * @returns e.g. "div#rso". Pure; never throws.
+ * @returns e.g. "div#rso" or "div". Pure; never throws.
  */
 export function describeElementSafe(el: Element): string {
   const tag = el.tagName.toLowerCase();
-  return el.id ? `${tag}#${el.id}` : tag;
+  return el.id && SAFE_DIAGNOSTIC_ID_RE.test(el.id) ? `${tag}#${el.id}` : tag;
 }
 
 /**
@@ -196,11 +193,11 @@ export function createSafetyGuardCache(doc: Document): SafetyGuardCache {
 /**
  * Organic Results Safety Guard: refuse to hide core search UI or a block of organic results.
  * Protects landmark tags and IDs, the search box, and any element holding 3+ organic results;
- * AI Overview candidates are refused at 1 organic result (BP-08). Don't weaken this (AGENTS.md
+ * AI Overview and AI Mode candidates are refused at 1 organic result (BP-08). Don't weaken this (AGENTS.md
  * hard rule).
  * @param el - Candidate element.
  * @param doc - Owning document (defaults to el.ownerDocument).
- * @param category - What the candidate would be hidden as; "overview" uses the stricter threshold.
+ * @param category - What the candidate would be hidden as; "overview" and "aimode" use the stricter threshold.
  * Omitted, the general threshold applies.
  * @param cache - Optional per-sweep snapshot from createSafetyGuardCache().
  * @returns true if the element must not be hidden. Query errors are ignored so the remaining checks still run.
@@ -266,7 +263,7 @@ export function isUnsafeToHide(
     }
   }
   try {
-    const threshold = category === "overview" ? SELECTORS.safetyGuard.overviewOrganicResultThreshold : SELECTORS.safetyGuard.organicResultThreshold;
+    const threshold = category === "overview" || category === "aimode" ? SELECTORS.safetyGuard.overviewOrganicResultThreshold : SELECTORS.safetyGuard.organicResultThreshold;
     if (threshold <= 1) {
       if (el.querySelector(SELECTORS.safetyGuard.organicResultSelector) !== null) {
         return true;
@@ -283,6 +280,24 @@ export function isUnsafeToHide(
 }
 
 /**
+ * Set or remove a root policy attribute only when its value actually changed, avoiding
+ * redundant attribute MutationRecords when rootObserver monitors <html>.
+ * @param root - Document root element.
+ * @param attr - Attribute name.
+ * @param enabled - Whether the attribute should equal "1".
+ * @returns Nothing.
+ */
+function syncRootPolicyAttr(root: Element, attr: string, enabled: boolean): void {
+  if (enabled) {
+    if (root.getAttribute(attr) !== "1") {
+      root.setAttribute(attr, "1");
+    }
+  } else if (root.hasAttribute(attr)) {
+    root.removeAttribute(attr);
+  }
+}
+
+/**
  * Set or remove the html[data-rmsg-hide-*] attributes that static-guard.css keys on.
  * @param doc - Page document.
  * @param policy - Effective policy; masterEnabled false removes all three.
@@ -294,25 +309,39 @@ export function applyPolicyAttributes(doc: Document, policy: Toggles): void {
     return;
   }
   if (!policy.masterEnabled) {
-    root.removeAttribute("data-rmsg-hide-overviews");
-    root.removeAttribute("data-rmsg-hide-aimode");
-    root.removeAttribute("data-rmsg-hide-aux");
+    syncRootPolicyAttr(root, "data-rmsg-hide-overviews", false);
+    syncRootPolicyAttr(root, "data-rmsg-hide-aimode", false);
+    syncRootPolicyAttr(root, "data-rmsg-hide-aux", false);
     return;
   }
-  if (policy.hideAiOverviews) {
-    root.setAttribute("data-rmsg-hide-overviews", "1");
-  } else {
-    root.removeAttribute("data-rmsg-hide-overviews");
-  }
-  if (policy.hideAiModeUi) {
-    root.setAttribute("data-rmsg-hide-aimode", "1");
-  } else {
-    root.removeAttribute("data-rmsg-hide-aimode");
-  }
-  if (policy.hideAuxiliaryAiFeatures) {
-    root.setAttribute("data-rmsg-hide-aux", "1");
-  } else {
-    root.removeAttribute("data-rmsg-hide-aux");
+  syncRootPolicyAttr(root, "data-rmsg-hide-overviews", policy.hideAiOverviews);
+  syncRootPolicyAttr(root, "data-rmsg-hide-aimode", policy.hideAiModeUi);
+  syncRootPolicyAttr(root, "data-rmsg-hide-aux", policy.hideAuxiliaryAiFeatures);
+}
+
+/**
+ * Isolated-world backup of original inline display styles for elements hidden by hideElement(),
+ * preventing page-world attribute tampering from corrupting restored inline styles.
+ */
+const savedInlineDisplay = /* @__PURE__ */ new WeakMap<Element, { value: string; priority: string } | null>();
+
+/**
+ * Isolated-world ownership table for elements currently hidden by hideElement(), so un-hiding
+ * restores every extension-hidden element even if page scripts altered data-rmsg-hidden.
+ */
+const ownedHiddenCategories = /* @__PURE__ */ new Map<Element, HideCategory>();
+
+/**
+ * Drop disconnected DOM nodes from ownership tracking so churning SERPs never retain detached elements.
+ * @returns Nothing.
+ */
+function pruneDisconnectedOwnedElements(): void {
+  for (const el of Array.from(ownedHiddenCategories.keys())) {
+    if (!el.isConnected) {
+      // Keep savedInlineDisplay until restoreElementVisibility: WeakMap will not leak detached
+      // nodes, and preserving it prevents re-hiding a reinserted node from recording "none".
+      ownedHiddenCategories.delete(el);
+    }
   }
 }
 
@@ -322,30 +351,100 @@ export function applyPolicyAttributes(doc: Document, policy: Toggles): void {
  * @returns Nothing. Skips inline style restoration if style is absent on the element.
  */
 export function restoreElementVisibility(el: Element): void {
+  ownedHiddenCategories.delete(el);
   el.removeAttribute("data-rmsg-hidden");
   const htmlEl = el as HTMLElement;
   if (htmlEl.style) {
-    const prevDisplay = el.getAttribute("data-rmsg-prev-display");
-    const prevPriority = el.getAttribute("data-rmsg-prev-display-priority") ?? "";
-    if (prevDisplay) {
-      htmlEl.style.setProperty("display", prevDisplay, prevPriority);
+    if (savedInlineDisplay.has(el)) {
+      const saved = savedInlineDisplay.get(el);
+      savedInlineDisplay.delete(el);
+      if (saved) {
+        htmlEl.style.setProperty("display", saved.value, saved.priority);
+      } else {
+        htmlEl.style.removeProperty("display");
+      }
     } else {
-      htmlEl.style.removeProperty("display");
+      const prevDisplay = el.getAttribute("data-rmsg-prev-display");
+      const prevPriority = el.getAttribute("data-rmsg-prev-display-priority") ?? "";
+      if (prevDisplay) {
+        htmlEl.style.setProperty("display", prevDisplay, prevPriority);
+      } else {
+        htmlEl.style.removeProperty("display");
+      }
     }
+  } else {
+    savedInlineDisplay.delete(el);
   }
   el.removeAttribute("data-rmsg-prev-display");
   el.removeAttribute("data-rmsg-prev-display-priority");
 }
 
+const ALL_HIDDEN_CATEGORIES_SELECTOR = '[data-rmsg-hidden="overview"], [data-rmsg-hidden="aimode"], [data-rmsg-hidden="aux"]';
+
+/**
+ * Active hide-marker filter derived from policy so inactive or spoofed data-rmsg-hidden
+ * attributes never blind active category sweeps or leak detection.
+ */
+export interface ActiveHiddenFilter {
+  categories: Set<string>;
+  selector: string;
+}
+
+const ALL_ACTIVE_HIDDEN_FILTER: ActiveHiddenFilter = {
+  categories: /* @__PURE__ */ new Set(["overview", "aimode", "aux"]),
+  selector: ALL_HIDDEN_CATEGORIES_SELECTOR
+};
+
+/**
+ * Build the active hide-marker filter for a policy.
+ * @param policy - Optional policy toggles; omitted defaults to all three categories.
+ * @returns Enabled category set and combined selector. Pure; never throws.
+ */
+export function getActiveHiddenFilter(policy?: Toggles): ActiveHiddenFilter {
+  if (!policy) {
+    return ALL_ACTIVE_HIDDEN_FILTER;
+  }
+  if (!policy.masterEnabled) {
+    return { categories: /* @__PURE__ */ new Set(), selector: "" };
+  }
+  const categories = /* @__PURE__ */ new Set<string>();
+  const parts: string[] = [];
+  if (policy.hideAiOverviews) {
+    categories.add("overview");
+    parts.push('[data-rmsg-hidden="overview"]');
+  }
+  if (policy.hideAiModeUi) {
+    categories.add("aimode");
+    parts.push('[data-rmsg-hidden="aimode"]');
+  }
+  if (policy.hideAuxiliaryAiFeatures) {
+    categories.add("aux");
+    parts.push('[data-rmsg-hidden="aux"]');
+  }
+  return { categories, selector: parts.join(", ") };
+}
+
 /**
  * Restore every element this extension hid (used when masterEnabled turns off).
+ * Restores all extension-owned elements tracked in ownedHiddenCategories even if their
+ * data-rmsg-hidden marker was modified, then any remaining valid-category elements; unowned
+ * elements with arbitrary marker values stay untouched.
  * @param doc - Page document.
- * @returns Nothing. No-op when no elements are marked hidden.
+ * @returns Nothing. No-op when no owned or valid-category elements exist.
  */
 export function unhideAllElements(doc: Document): void {
-  const hiddenElements = doc.querySelectorAll("[data-rmsg-hidden]");
+  const restored = /* @__PURE__ */ new Set<Element>();
+  for (const el of Array.from(ownedHiddenCategories.keys())) {
+    if (!el.ownerDocument || el.ownerDocument === doc) {
+      restored.add(el);
+      restoreElementVisibility(el);
+    }
+  }
+  const hiddenElements = doc.querySelectorAll(ALL_HIDDEN_CATEGORIES_SELECTOR);
   for (const el of hiddenElements) {
-    restoreElementVisibility(el);
+    if (!restored.has(el)) {
+      restoreElementVisibility(el);
+    }
   }
 }
 
@@ -353,12 +452,21 @@ export function unhideAllElements(doc: Document): void {
  * Restore elements hidden under one category after that toggle turns off.
  * @param doc - Page document.
  * @param category - "overview" | "aimode" | "aux".
- * @returns Nothing. No-op when no elements are marked under that category.
+ * @returns Nothing. No-op when no owned or marked elements exist under that category.
  */
 export function unhideCategoryElements(doc: Document, category: HideCategory): void {
+  const restored = /* @__PURE__ */ new Set<Element>();
+  for (const [el, ownedCategory] of Array.from(ownedHiddenCategories.entries())) {
+    if (ownedCategory === category && (!el.ownerDocument || el.ownerDocument === doc)) {
+      restored.add(el);
+      restoreElementVisibility(el);
+    }
+  }
   const hiddenElements = doc.querySelectorAll(`[data-rmsg-hidden="${category}"]`);
   for (const el of hiddenElements) {
-    restoreElementVisibility(el);
+    if (!restored.has(el)) {
+      restoreElementVisibility(el);
+    }
   }
 }
 
@@ -369,17 +477,21 @@ export function unhideCategoryElements(doc: Document, category: HideCategory): v
  * @returns Nothing. Always sets data-rmsg-hidden; skips inline style if style is absent.
  */
 export function hideElement(el: Element, category: HideCategory): void {
+  ownedHiddenCategories.set(el, category);
   el.setAttribute("data-rmsg-hidden", category);
   const htmlEl = el as HTMLElement;
   if (htmlEl.style) {
-    const prevDisplay = htmlEl.style.getPropertyValue("display");
-    const prevPriority = htmlEl.style.getPropertyPriority("display");
-    // Save every original inline value, "none" included (BP-18): if Google had the element
-    // hidden inline, un-hiding must put that back rather than reveal it.
-    if (prevDisplay) {
-      el.setAttribute("data-rmsg-prev-display", prevDisplay);
-      if (prevPriority) {
-        el.setAttribute("data-rmsg-prev-display-priority", prevPriority);
+    if (!savedInlineDisplay.has(el)) {
+      const prevDisplay = htmlEl.style.getPropertyValue("display");
+      const prevPriority = htmlEl.style.getPropertyPriority("display");
+      savedInlineDisplay.set(el, prevDisplay ? { value: prevDisplay, priority: prevPriority } : null);
+      // Save every original inline value, "none" included (BP-18): if Google had the element
+      // hidden inline, un-hiding must put that back rather than reveal it.
+      if (prevDisplay) {
+        el.setAttribute("data-rmsg-prev-display", prevDisplay);
+        if (prevPriority) {
+          el.setAttribute("data-rmsg-prev-display-priority", prevPriority);
+        }
       }
     }
     htmlEl.style.setProperty("display", "none", "important");
@@ -387,15 +499,20 @@ export function hideElement(el: Element, category: HideCategory): void {
 }
 
 /**
- * Check whether an element or an ancestor is already hidden by this extension.
+ * Check whether an element or an ancestor is already hidden under an active category.
  * @param el - Element.
- * @returns true if hidden. Pure DOM check; never throws.
+ * @param activeHidden - Active category filter (defaults to all three valid categories).
+ * @returns true if hidden under an enabled category. Pure DOM check; never throws.
  */
-export function isAlreadyHidden(el: Element): boolean {
-  if (el.hasAttribute("data-rmsg-hidden")) {
+export function isAlreadyHidden(el: Element, activeHidden: ActiveHiddenFilter = ALL_ACTIVE_HIDDEN_FILTER): boolean {
+  const cat = el.getAttribute("data-rmsg-hidden");
+  if (cat !== null && activeHidden.categories.has(cat)) {
     return true;
   }
-  return Boolean(el.parentElement?.closest("[data-rmsg-hidden]"));
+  if (!activeHidden.selector) {
+    return false;
+  }
+  return Boolean(el.parentElement?.closest(activeHidden.selector));
 }
 
 /**
@@ -489,12 +606,13 @@ export function processCategoryCandidates(
   doc: Document,
   errors: PolicyError[],
   reportedUnsafe: Set<Element>,
-  guardCache?: SafetyGuardCache
+  guardCache?: SafetyGuardCache,
+  activeHidden: ActiveHiddenFilter = ALL_ACTIVE_HIDDEN_FILTER
 ): number {
   const uniqueCandidates = Array.from(new Set(candidates));
   const safeCandidates: Element[] = [];
   for (const candidate of uniqueCandidates) {
-    if (isAlreadyHidden(candidate)) {
+    if (isAlreadyHidden(candidate, activeHidden)) {
       continue;
     }
     if (isUnsafeToHide(candidate, doc, category, guardCache)) {
@@ -512,7 +630,7 @@ export function processCategoryCandidates(
   const topLevelCandidates = filterTopLevelCandidates(safeCandidates);
   let newlyHiddenCount = 0;
   for (const el of topLevelCandidates) {
-    if (isAlreadyHidden(el)) {
+    if (isAlreadyHidden(el, activeHidden)) {
       continue;
     }
     hideElement(el, category);
@@ -568,7 +686,8 @@ export function findOverviewHeadingContainer(
 export function collectExtraSelectorCandidates(
   doc: Document,
   selectors: readonly string[] | undefined,
-  errors: PolicyError[]
+  errors: PolicyError[],
+  activeHidden: ActiveHiddenFilter = ALL_ACTIVE_HIDDEN_FILTER
 ): Element[] {
   if (!selectors || selectors.length === 0) {
     return [];
@@ -583,7 +702,7 @@ export function collectExtraSelectorCandidates(
       continue;
     }
     for (const el of safeQueryAll(doc, trimmed, errors)) {
-      if (!isAlreadyHidden(el)) {
+      if (!isAlreadyHidden(el, activeHidden)) {
         candidates.push(el);
       }
     }
@@ -598,6 +717,7 @@ export function collectExtraSelectorCandidates(
  * @param guardCache - Optional per-sweep safety-guard cache.
  * @param lang - Resolved UI language ("en" | "es").
  * @param extraSelectors - Optional managed hotfix selectors for overview.
+ * @param activeHidden - Active category hide-marker filter.
  * @returns Candidate elements (unvetted). Selector syntax errors are captured in errors so remaining tiers continue.
  */
 export function collectAiOverviewCandidates(
@@ -605,20 +725,21 @@ export function collectAiOverviewCandidates(
   errors: PolicyError[],
   guardCache?: SafetyGuardCache,
   lang: SupportedUiLanguage = "en",
-  extraSelectors?: readonly string[]
+  extraSelectors?: readonly string[],
+  activeHidden: ActiveHiddenFilter = ALL_ACTIVE_HIDDEN_FILTER
 ): Element[] {
   const candidates: Element[] = [];
   const localeSet = LOCALE_SETS[lang];
   if (localeSet.overviewDirectCombined) {
     for (const el of safeQueryAll(doc, localeSet.overviewDirectCombined, errors)) {
-      if (!isAlreadyHidden(el)) {
+      if (!isAlreadyHidden(el, activeHidden)) {
         candidates.push(el);
       }
     }
   }
   if (OVERVIEW_HEADING_COMBINED) {
     for (const headingEl of safeQueryAll(doc, OVERVIEW_HEADING_COMBINED, errors)) {
-      if (isAlreadyHidden(headingEl)) {
+      if (isAlreadyHidden(headingEl, activeHidden)) {
         continue;
       }
       if (localeSet.overviewHeadingTexts.has(normalizeText(headingEl.textContent))) {
@@ -628,13 +749,13 @@ export function collectAiOverviewCandidates(
   }
   if (OVERVIEW_TIER2_COMBINED) {
     for (const el of safeQueryAll(doc, OVERVIEW_TIER2_COMBINED, errors)) {
-      if (!isAlreadyHidden(el)) {
+      if (!isAlreadyHidden(el, activeHidden)) {
         candidates.push(el);
       }
     }
   }
   if (extraSelectors && extraSelectors.length > 0) {
-    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
+    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors, activeHidden));
   }
   return candidates;
 }
@@ -671,6 +792,7 @@ export function promoteAiModeTarget(
  * @param guardCache - Optional per-sweep safety-guard cache.
  * @param lang - Resolved UI language ("en" | "es").
  * @param extraSelectors - Optional managed hotfix selectors for aimode.
+ * @param activeHidden - Active category hide-marker filter.
  * @returns Candidate elements (unvetted). Selector syntax errors are captured in errors so remaining tiers continue.
  */
 export function collectAiModeUiCandidates(
@@ -678,20 +800,21 @@ export function collectAiModeUiCandidates(
   errors: PolicyError[],
   guardCache?: SafetyGuardCache,
   lang: SupportedUiLanguage = "en",
-  extraSelectors?: readonly string[]
+  extraSelectors?: readonly string[],
+  activeHidden: ActiveHiddenFilter = ALL_ACTIVE_HIDDEN_FILTER
 ): Element[] {
   const candidates: Element[] = [];
   const localeSet = LOCALE_SETS[lang];
   if (AI_MODE_DIRECT_COMBINED) {
     for (const el of safeQueryAll(doc, AI_MODE_DIRECT_COMBINED, errors)) {
-      if (!isAlreadyHidden(el)) {
+      if (!isAlreadyHidden(el, activeHidden)) {
         candidates.push(promoteAiModeTarget(el, doc, guardCache));
       }
     }
   }
   if (AI_MODE_TEXT_COMBINED) {
     for (const el of safeQueryAll(doc, AI_MODE_TEXT_COMBINED, errors)) {
-      if (isAlreadyHidden(el)) {
+      if (isAlreadyHidden(el, activeHidden)) {
         continue;
       }
       if (localeSet.aiModeExactTexts.has(normalizeText(el.textContent))) {
@@ -704,7 +827,7 @@ export function collectAiModeUiCandidates(
     ? doc.getElementsByTagName("a")
     : safeQueryAll(doc, "a", errors);
   for (const anchor of anchors) {
-    if (isAlreadyHidden(anchor)) {
+    if (isAlreadyHidden(anchor, activeHidden)) {
       continue;
     }
     const rawText = anchor.textContent;
@@ -721,13 +844,13 @@ export function collectAiModeUiCandidates(
   }
   if (AI_MODE_TIER2_COMBINED) {
     for (const el of safeQueryAll(doc, AI_MODE_TIER2_COMBINED, errors)) {
-      if (!isAlreadyHidden(el)) {
+      if (!isAlreadyHidden(el, activeHidden)) {
         candidates.push(el);
       }
     }
   }
   if (extraSelectors && extraSelectors.length > 0) {
-    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
+    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors, activeHidden));
   }
   return candidates;
 }
@@ -777,33 +900,34 @@ export function collectAuxAiCandidates(
   doc: Document,
   errors: PolicyError[],
   lang: SupportedUiLanguage = "en",
-  extraSelectors?: readonly string[]
+  extraSelectors?: readonly string[],
+  activeHidden: ActiveHiddenFilter = ALL_ACTIVE_HIDDEN_FILTER
 ): Element[] {
   const candidates: Element[] = [];
   const localeSet = LOCALE_SETS[lang];
   if (localeSet.auxDirectCombined) {
     for (const el of safeQueryAll(doc, localeSet.auxDirectCombined, errors)) {
-      if (!isAlreadyHidden(el)) {
+      if (!isAlreadyHidden(el, activeHidden)) {
         candidates.push(el);
       }
     }
   }
   if (AUX_PAA_COMBINED) {
     for (const card of safeQueryAll(doc, AUX_PAA_COMBINED, errors)) {
-      if (!isAlreadyHidden(card) && hasAiAttributionBadge(card, lang)) {
+      if (!isAlreadyHidden(card, activeHidden) && hasAiAttributionBadge(card, lang)) {
         candidates.push(card);
       }
     }
   }
   if (AUX_TIER2_COMBINED) {
     for (const el of safeQueryAll(doc, AUX_TIER2_COMBINED, errors)) {
-      if (!isAlreadyHidden(el)) {
+      if (!isAlreadyHidden(el, activeHidden)) {
         candidates.push(el);
       }
     }
   }
   if (extraSelectors && extraSelectors.length > 0) {
-    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors));
+    candidates.push(...collectExtraSelectorCandidates(doc, extraSelectors, errors, activeHidden));
   }
   return candidates;
 }
@@ -813,10 +937,11 @@ export function collectAuxAiCandidates(
  * Uses Element.checkVisibility() (Chrome 105+, below the 134 floor) with a safe fallback for
  * minimal DOM test stubs.
  * @param el - Candidate element.
+ * @param activeHidden - Active category hide-marker filter.
  * @returns true if connected and visibly rendered. Fails open to style/offsetParent fallback checks if checkVisibility() throws.
  */
-export function isElementVisible(el: Element): boolean {
-  if (!el.isConnected || isAlreadyHidden(el)) {
+export function isElementVisible(el: Element, activeHidden: ActiveHiddenFilter = ALL_ACTIVE_HIDDEN_FILTER): boolean {
+  if (!el.isConnected || isAlreadyHidden(el, activeHidden)) {
     return false;
   }
   const maybeCheck = el as Element & {
@@ -847,13 +972,15 @@ export function isElementVisible(el: Element): boolean {
  * @param policy - Effective policy toggles.
  * @param lang - Resolved UI language ("en" | "es").
  * @param errors - Collector for WARN_AI_SURFACE_VISIBLE.
+ * @param activeHidden - Active category hide-marker filter.
  * @returns Nothing. Selector errors are captured in errors; fails safe on hidden/stub nodes.
  */
 export function detectVisibleAiSurfaceLeaks(
   doc: Document,
   policy: Toggles,
   lang: SupportedUiLanguage,
-  errors: PolicyError[]
+  errors: PolicyError[],
+  activeHidden: ActiveHiddenFilter = getActiveHiddenFilter(policy)
 ): void {
   if (!policy.masterEnabled || (!policy.hideAiOverviews && !policy.hideAiModeUi)) {
     return;
@@ -862,7 +989,7 @@ export function detectVisibleAiSurfaceLeaks(
   let flaggedOverview = false;
   let flaggedAiMode = false;
   for (const el of safeQueryAll(doc, SELECTORS.leakDetector.candidateSelector, errors)) {
-    if (isAlreadyHidden(el)) {
+    if (isAlreadyHidden(el, activeHidden)) {
       continue;
     }
     const rawText = el.textContent;
@@ -878,7 +1005,7 @@ export function detectVisibleAiSurfaceLeaks(
       policy.hideAiOverviews &&
       !flaggedOverview &&
       localeSet.overviewHeadingTexts.has(normalized) &&
-      isElementVisible(el)
+      isElementVisible(el, activeHidden)
     ) {
       flaggedOverview = true;
       errors.push({ code: "WARN_AI_SURFACE_VISIBLE", detail: "overview" });
@@ -887,7 +1014,7 @@ export function detectVisibleAiSurfaceLeaks(
       policy.hideAiModeUi &&
       !flaggedAiMode &&
       localeSet.aiModeExactTexts.has(normalized) &&
-      isElementVisible(el)
+      isElementVisible(el, activeHidden)
     ) {
       flaggedAiMode = true;
       errors.push({ code: "WARN_AI_SURFACE_VISIBLE", detail: "aimode" });
@@ -917,6 +1044,7 @@ export function sweepDom(
   if (!policy.masterEnabled) {
     return { deltas, errors };
   }
+  pruneDisconnectedOwnedElements();
   const uiLang = resolveUiLanguage(doc.documentElement?.lang);
   if (!uiLang.supported) {
     errors.push({
@@ -927,6 +1055,7 @@ export function sweepDom(
   const resolvedPageKey = pageKey ?? (doc.location && doc.location.href ? doc.location.href : "default");
   const reportedUnsafe = /* @__PURE__ */ new Set<Element>();
   const guardCache = createSafetyGuardCache(doc);
+  const activeHidden = getActiveHiddenFilter(policy);
   // Restore unsafe hidden wrappers before any collector runs so safe inner AI controls are
   // not skipped by isAlreadyHidden() and can be hidden in the same sweep (PR #6 review).
   if (policy.hideAiOverviews) {
@@ -944,7 +1073,8 @@ export function sweepDom(
       errors,
       guardCache,
       uiLang.language,
-      policy.extraHideSelectors?.overview
+      policy.extraHideSelectors?.overview,
+      activeHidden
     );
     const hiddenOverviews = processCategoryCandidates(
       overviewCandidates,
@@ -952,7 +1082,8 @@ export function sweepDom(
       doc,
       errors,
       reportedUnsafe,
-      guardCache
+      guardCache,
+      activeHidden
     );
     if (hiddenOverviews > 0 && !seenPages.overview.has(resolvedPageKey)) {
       seenPages.overview.add(resolvedPageKey);
@@ -965,7 +1096,8 @@ export function sweepDom(
       errors,
       guardCache,
       uiLang.language,
-      policy.extraHideSelectors?.aimode
+      policy.extraHideSelectors?.aimode,
+      activeHidden
     );
     const hiddenAiMode = processCategoryCandidates(
       aiModeCandidates,
@@ -973,7 +1105,8 @@ export function sweepDom(
       doc,
       errors,
       reportedUnsafe,
-      guardCache
+      guardCache,
+      activeHidden
     );
     if (hiddenAiMode > 0 && !seenPages.aimode.has(resolvedPageKey)) {
       seenPages.aimode.add(resolvedPageKey);
@@ -985,7 +1118,8 @@ export function sweepDom(
       doc,
       errors,
       uiLang.language,
-      policy.extraHideSelectors?.aux
+      policy.extraHideSelectors?.aux,
+      activeHidden
     );
     const hiddenAux = processCategoryCandidates(
       auxCandidates,
@@ -993,13 +1127,14 @@ export function sweepDom(
       doc,
       errors,
       reportedUnsafe,
-      guardCache
+      guardCache,
+      activeHidden
     );
     if (hiddenAux > 0 && !seenPages.aux.has(resolvedPageKey)) {
       seenPages.aux.add(resolvedPageKey);
       deltas.auxAiHidden = 1;
     }
   }
-  detectVisibleAiSurfaceLeaks(doc, policy, uiLang.language, errors);
+  detectVisibleAiSurfaceLeaks(doc, policy, uiLang.language, errors, activeHidden);
   return { deltas, errors };
 }

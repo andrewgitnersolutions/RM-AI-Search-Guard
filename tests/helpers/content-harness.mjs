@@ -62,11 +62,60 @@ export function loadContentScript(target, opts = {}) {
       }
     : () => {};
 
+  const activeObservers = new Set();
+  class MutationObserver {
+    constructor(cb) {
+      this.cb = cb;
+      this.target = null;
+      this.options = {};
+    }
+    observe(targetNode, options = {}) {
+      this.target = targetNode;
+      this.options = options ?? {};
+      activeObservers.add(this);
+    }
+    disconnect() {
+      this.target = null;
+      this.options = {};
+      activeObservers.delete(this);
+    }
+  }
+
+  let rootAttrDeliveries = 0;
+  let rootAttrOverflowError = null;
+  const maxRootAttrDeliveries = opts.maxRootAttrDeliveries ?? 20;
+  function deliverRootAttrMutation(attrName) {
+    if (!opts.notifyRootAttributes) return;
+    queueMicrotask(() => {
+      const rootObservers = [...activeObservers].filter(
+        (obs) =>
+          obs.target === documentElement &&
+          obs.options?.attributes === true &&
+          (!obs.options.attributeFilter || obs.options.attributeFilter.includes(attrName)),
+      );
+      if (rootObservers.length === 0) return;
+      rootAttrDeliveries += 1;
+      if (rootAttrDeliveries > maxRootAttrDeliveries) {
+        rootAttrOverflowError = new Error(`Root attribute observer loop exceeded ${maxRootAttrDeliveries} deliveries`);
+        return;
+      }
+      for (const obs of rootObservers) {
+        obs.cb([{ type: "attributes", target: documentElement, attributeName: attrName }], obs);
+      }
+    });
+  }
+
   const documentElement = {
     tagName: "HTML",
     lang: opts.lang ?? "en",
-    setAttribute: (k, v) => attrs.set(k, String(v)),
-    removeAttribute: (k) => attrs.delete(k),
+    setAttribute: (k, v) => {
+      attrs.set(k, String(v));
+      deliverRootAttrMutation(k);
+    },
+    removeAttribute: (k) => {
+      const existed = attrs.delete(k);
+      if (existed) deliverRootAttrMutation(k);
+    },
     getAttribute: (k) => attrs.get(k) ?? null,
     hasAttribute: (k) => attrs.has(k),
     querySelectorAll: () => [],
@@ -128,22 +177,6 @@ export function loadContentScript(target, opts = {}) {
     },
   };
 
-  const activeObservers = new Set();
-  class MutationObserver {
-    constructor(cb) {
-      this.cb = cb;
-      this.target = null;
-    }
-    observe(targetNode) {
-      this.target = targetNode;
-      activeObservers.add(this);
-    }
-    disconnect() {
-      this.target = null;
-      activeObservers.delete(this);
-    }
-  }
-
   const globals = {
     window,
     document,
@@ -172,8 +205,11 @@ export function loadContentScript(target, opts = {}) {
   }
   new vm.Script(code, { filename: file }).runInContext(ctx);
 
-  /** Let pending promise callbacks run. */
-  const flush = () => new Promise((r) => setImmediate(r));
+  /** Let pending microtasks and promise callbacks run. */
+  const flush = async () => {
+    await new Promise((r) => setImmediate(r));
+    if (rootAttrOverflowError) throw rootAttrOverflowError;
+  };
 
   return {
     attrs,
@@ -181,6 +217,14 @@ export function loadContentScript(target, opts = {}) {
     messages,
     replaced,
     flush,
+    /** Remove an attribute on <html>, firing root attribute observers when notifyRootAttributes is enabled. */
+    removeRootAttr(k) {
+      documentElement.removeAttribute(k);
+    },
+    /** Count of root attribute mutation batches delivered to active root observers. */
+    rootAttrDeliveries() {
+      return rootAttrDeliveries;
+    },
     /** Run every animation frame currently queued (fakeTimers mode). */
     flushRaf() {
       const current = rafQueue;
